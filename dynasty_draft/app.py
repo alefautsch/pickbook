@@ -99,9 +99,54 @@ MOBILE_CSS = """
     [data-testid="stExpander"] summary span {
         color: #0f172a !important;
     }
-    [data-testid="stChatMessage"],
-    [data-testid="stChatMessage"] p {
+    [data-testid="stChatMessage"] {
+        background-color: #f8fafc !important;
+        border: 1px solid #e2e8f0;
         color: #0f172a !important;
+    }
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"],
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] p,
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] li,
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] ul,
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] ol,
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h1,
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h2,
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h3,
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h4,
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] strong,
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] em,
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] span,
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] div,
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stMarkdownContainer"] li,
+    [data-testid="stMarkdownContainer"] h1,
+    [data-testid="stMarkdownContainer"] h2,
+    [data-testid="stMarkdownContainer"] h3,
+    [data-testid="stMarkdownContainer"] h4,
+    [data-testid="stMarkdownContainer"] strong,
+    [data-testid="stMarkdownContainer"] em,
+    [data-testid="stMarkdownContainer"] span {
+        color: #0f172a !important;
+        -webkit-text-fill-color: #0f172a !important;
+    }
+    [data-testid="stMarkdownContainer"] a {
+        color: #2563eb !important;
+        -webkit-text-fill-color: #2563eb !important;
+    }
+    [data-testid="stMarkdownContainer"] code {
+        color: #0f172a !important;
+        background-color: #f1f5f9 !important;
+        -webkit-text-fill-color: #0f172a !important;
+    }
+    [data-testid="stMarkdownContainer"] pre {
+        background-color: #f1f5f9 !important;
+        color: #0f172a !important;
+    }
+    [data-testid="stChatInput"] textarea {
+        color: #0f172a !important;
+        background-color: #f8fafc !important;
+        -webkit-text-fill-color: #0f172a !important;
+        caret-color: #0f172a !important;
     }
     .stButton > button {
         min-height: 2.75rem;
@@ -255,6 +300,26 @@ MOBILE_CSS = """
         [data-testid="stTabs"] button[aria-selected="true"] { color: #2563eb !important; }
         [data-testid="stExpander"] summary,
         [data-testid="stExpander"] summary span { color: #0f172a !important; }
+        [data-testid="stChatMessage"] {
+            background-color: #f8fafc !important;
+            color: #0f172a !important;
+        }
+        [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] *,
+        [data-testid="stMarkdownContainer"] p,
+        [data-testid="stMarkdownContainer"] li,
+        [data-testid="stMarkdownContainer"] h1,
+        [data-testid="stMarkdownContainer"] h2,
+        [data-testid="stMarkdownContainer"] h3,
+        [data-testid="stMarkdownContainer"] strong,
+        [data-testid="stMarkdownContainer"] span {
+            color: #0f172a !important;
+            -webkit-text-fill-color: #0f172a !important;
+        }
+        [data-testid="stChatInput"] textarea {
+            color: #0f172a !important;
+            background-color: #f8fafc !important;
+            -webkit-text-fill-color: #0f172a !important;
+        }
     }
 </style>
 """
@@ -434,15 +499,19 @@ def _run_advisor_turn(state: DraftState, config: dict[str, Any], user_text: str)
     ]
 
     try:
-        def _stream() -> Any:
-            yield from stream_advisor_reply(
-                api_key,
-                provider=provider,  # type: ignore[arg-type]
-                model=model_row["model"],
-                messages=api_messages,
-            )
+        with st.chat_message("user"):
+            st.markdown(user_text)
 
-        reply = st.write_stream(_stream)
+        with st.chat_message("assistant"):
+            def _stream() -> Any:
+                yield from stream_advisor_reply(
+                    api_key,
+                    provider=provider,  # type: ignore[arg-type]
+                    model=model_row["model"],
+                    messages=api_messages,
+                )
+
+            reply = st.write_stream(_stream)
         st.session_state.llm_messages.append({"role": "assistant", "content": reply})
     except Exception as exc:
         st.session_state.llm_messages.pop()
@@ -474,21 +543,20 @@ def _render_llm_tab(state: DraftState, config: dict[str, Any]) -> None:
     if not _advisor_api_key(model_row["provider"]):
         st.caption(f"Set {'MOONSHOT_API_KEY' if model_row['provider'] == 'moonshot' else 'ANTHROPIC_API_KEY'} to chat.")
 
-    for msg in st.session_state.llm_messages:
+    history = st.session_state.llm_messages
+    for msg in history:
         with st.chat_message(msg["role"]):
             shown = msg.get("label") if msg["role"] == "user" and msg.get("label") else msg["content"]
             st.markdown(shown)
 
-    if not st.session_state.llm_messages:
+    if not history:
         suggested = _default_llm_question(state)
         if st.button("Ask suggested question", use_container_width=True):
             _run_advisor_turn(state, config, suggested)
-            st.rerun()
 
     prompt = st.chat_input("Ask or follow up…")
     if prompt:
         _run_advisor_turn(state, config, prompt)
-        st.rerun()
 
     with st.expander("Bookend projection detail"):
         proj = project_next_picks(state)
