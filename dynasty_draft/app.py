@@ -674,31 +674,42 @@ def _fmt_worp_cell(row: dict[str, Any]) -> str:
     return f'<span class="num">{_fmt_worp(row.get("worp"))}</span>'
 
 
-def _dynasty_class(pct: int | None) -> str:
-    if pct is None:
+def _dynasty_class(rating: int | None) -> str:
+    """50–99 Madden-style tiers."""
+    if rating is None:
         return "dynasty-low"
-    if pct >= 70:
+    if rating >= 90:
         return "dynasty-high"
-    if pct >= 45:
+    if rating >= 78:
         return "dynasty-mid"
     return "dynasty-low"
 
 
-def _fmt_dynasty_cell(row: dict[str, Any]) -> str:
-    pct = row.get("dynasty_pct")
-    if pct is None:
+def _fmt_dynasty_rating(
+    rating: int | None,
+    *,
+    components: dict[str, Any] | None = None,
+    age: int | None = None,
+) -> str:
+    if rating is None:
         return '<span class="dynasty dynasty-low">—</span>'
-    components = row.get("dynasty_components") or {}
+    comp = components or {}
     title = (
-        f"TV {components.get('tv', '—')} · WORP {components.get('worp', '—')} · "
-        f"upside {components.get('upside', '—')} · age {components.get('age', '—')} · "
-        f"trajectory {components.get('trajectory', '—')}"
+        f"TV {comp.get('tv', '—')} · WORP {comp.get('worp', '—')} · "
+        f"upside {comp.get('upside', '—')} · age {comp.get('age', '—')} · "
+        f"trajectory {comp.get('trajectory', '—')}"
     )
-    cls = _dynasty_class(pct)
-    age = row.get("age")
-    age_hint = f", age {age}" if age is not None else ""
-    return (
-        f'<span class="dynasty {cls}" title="{html.escape(title + age_hint)}">{pct}</span>'
+    if age is not None:
+        title += f" · player age {age}"
+    cls = _dynasty_class(rating)
+    return f'<span class="dynasty {cls}" title="{html.escape(title)}">{rating}</span>'
+
+
+def _fmt_dynasty_cell(row: dict[str, Any]) -> str:
+    return _fmt_dynasty_rating(
+        row.get("dynasty_rating"),
+        components=row.get("dynasty_components"),
+        age=row.get("age"),
     )
 
 
@@ -776,8 +787,8 @@ def _render_best_available(state: DraftState) -> None:
     st.markdown('<div class="section-title">Best available</div>', unsafe_allow_html=True)
     st.caption(
         f"ADP vs pick #{ref} (green = value). "
-        "Dynasty = blended score (45% TV, 25% proj WORP, 15% ceiling, 10% age, 5% trajectory). "
-        "WORP* = projected for rookies/sophomores. Sorted by pick fit, not Dynasty."
+        "Dyn = 50–99 rating (TV + proj WORP + ceiling + age + trajectory). "
+        "WORP* = projected for rookies/sophomores. Sorted by pick fit, not Dyn."
     )
     st.markdown(
         _html_table(
@@ -905,18 +916,25 @@ def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]
                 "",
                 "",
                 "",
+                "",
             ],
             "row-empty",
         )
     status = player.get("status")
     note = ' <span class="note">(reserved)</span>' if status == "reserved" else ""
     row_class = "row-reserved" if status == "reserved" else ""
+    dynasty_cell = (
+        _fmt_dynasty_rating(player.get("dynasty_rating"))
+        if player.get("dynasty_rating") is not None
+        else '<span class="muted">—</span>'
+    )
     return (
         [
             f'<span class="player">{html.escape(player["name"])}</span>{note}',
             f'<span class="pos">{html.escape(player.get("pos") or "")}</span>',
             html.escape(player.get("team") or ""),
             f'<span class="age">{_fmt_age(player.get("age"))}</span>',
+            dynasty_cell,
             f'<span class="num tv">{_fmt_tv(player.get("trade_value"))}</span>',
             f'<span class="num worp">{_fmt_worp(player.get("worp"))}</span>',
         ],
@@ -924,10 +942,24 @@ def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]
     )
 
 
-def _render_lineup_stats(lineup: dict[str, Any]) -> None:
+def _render_lineup_stats(lineup: dict[str, Any], *, team_count: int = 10) -> None:
+    dynasty_rank = lineup.get("dynasty_rank")
+    rank_text = f"#{dynasty_rank} / {team_count}" if dynasty_rank else "—"
+    avg_ovr = lineup.get("avg_dynasty_rating")
+    ovr_cls = _dynasty_class(avg_ovr) if avg_ovr else ""
+    ovr_text = str(avg_ovr) if avg_ovr else "—"
+    ovr_html = (
+        f'<div class="stat-value dynasty {ovr_cls}">{ovr_text}</div>'
+        if avg_ovr
+        else '<div class="stat-value">—</div>'
+    )
     st.markdown(
         f"""
         <div class="stat-row">
+          <div class="stat-card"><div class="stat-label">Dynasty rank</div>
+            <div class="stat-value">{rank_text}</div></div>
+          <div class="stat-card"><div class="stat-label">Team OVR</div>
+            {ovr_html}
           <div class="stat-card"><div class="stat-label">Picks</div>
             <div class="stat-value">{lineup["pick_count"]}</div></div>
           <div class="stat-card"><div class="stat-label">Trade value</div>
@@ -948,7 +980,7 @@ def _render_lineup_table(lineup: dict[str, Any]) -> None:
         body.append([f'<span class="slot-label">{html.escape(row["slot"])}</span>', *cells])
         row_classes.append(row_class)
 
-    body.append(['<span class="slot-label">BENCH</span>', "", "", "", "", "", ""])
+    body.append(['<span class="slot-label">BENCH</span>', "", "", "", "", "", "", ""])
     row_classes.append("lineup-divider")
 
     if lineup["bench"]:
@@ -957,12 +989,12 @@ def _render_lineup_table(lineup: dict[str, Any]) -> None:
             body.append(["", *cells])
             row_classes.append(row_class)
     else:
-        body.append(["", '<span class="muted">No bench players yet</span>', "", "", "", "", ""])
+        body.append(["", '<span class="muted">No bench players yet</span>', "", "", "", "", "", ""])
         row_classes.append("row-empty")
 
     st.markdown(
         _html_table(
-            ["", "Player", "Pos", "Tm", "Age", "TV", "WORP"],
+            ["", "Player", "Pos", "Tm", "Age", "OVR", "TV", "WORP"],
             body,
             row_classes,
             table_class="pick-table lineup-table",
@@ -977,7 +1009,7 @@ def _render_my_team_tab(state: DraftState) -> None:
         st.info("No picks yet.")
         return
 
-    _render_lineup_stats(lineup)
+    _render_lineup_stats(lineup, team_count=state._teams())
     if lineup["reserved_count"]:
         st.caption(f"{lineup['reserved_count']} reserved for rookie draft")
     _render_lineup_table(lineup)
@@ -993,37 +1025,28 @@ def _render_league_tab(state: DraftState) -> None:
     st.caption("Tap a team for full lineup · optimal starters by trade value")
     for team in teams["by_trade_value"]:
         slot = f"1.{team['draft_slot']:02d}" if team.get("draft_slot") else "?"
+        dyn_rank = team.get("dynasty_rank")
+        ovr = team.get("avg_dynasty_rating")
+        ovr_bit = f" · OVR {ovr}" if ovr else ""
+        rank_bit = f" · Dyn #{dyn_rank}" if dyn_rank else ""
         label = (
             f"{'★ ' if team['is_me'] else ''}{team['team_name']} · "
-            f"{slot} · {team['pick_count']} picks · TV {team['total_trade_value']:,.0f}"
+            f"{slot} · {team['pick_count']} picks{rank_bit}{ovr_bit} · TV {team['total_trade_value']:,.0f}"
         )
         with st.expander(label, expanded=team["is_me"]):
-            _render_lineup_stats(team)
+            _render_lineup_stats(team, team_count=state._teams())
             if team.get("reserved_count"):
                 st.caption(f"{team['reserved_count']} reserved for rookie draft")
             _render_lineup_table(team)
 
 
-def _fmt_team_dynasty_total(pct: int | None) -> str:
-    if pct is None:
-        return '<span class="num">—</span>'
-    return f'<span class="num" style="font-weight:800">{pct}</span>'
-
-
-def _fmt_team_dynasty_avg(pct: int | None) -> str:
-    if pct is None:
-        return '<span class="dynasty dynasty-low">—</span>'
-    cls = _dynasty_class(pct)
-    return f'<span class="dynasty {cls}">{pct}</span>'
-
-
 def _render_rankings_tab(state: DraftState) -> None:
     rankings = build_league_rankings(state)
 
-    st.markdown('<div class="section-title">Dynasty score</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Dynasty OVR</div>', unsafe_allow_html=True)
     st.caption(
-        "Sum of per-player Dynasty scores (TV + proj WORP + ceiling + age + trajectory). "
-        "Avg = per drafted player."
+        "50–99 player ratings (TV + proj WORP + ceiling + age + trajectory). "
+        "Teams ranked by roster average OVR."
     )
     dyn_body: list[list[str]] = []
     dyn_classes: list[str] = []
@@ -1034,14 +1057,14 @@ def _render_rankings_tab(state: DraftState) -> None:
                 f'<span class="rank-badge">{team["dynasty_rank"]}</span>',
                 f"<strong>{html.escape(team['team_name'])}</strong>" if team["is_me"] else html.escape(team["team_name"]),
                 str(team.get("pick_count") or 0),
-                _fmt_team_dynasty_total(team.get("total_dynasty_pct")),
-                _fmt_team_dynasty_avg(team.get("avg_dynasty_pct")),
+                _fmt_dynasty_rating(team.get("avg_dynasty_rating")),
+                _fmt_dynasty_rating(team.get("starter_avg_dynasty_rating")),
                 f'<span class="num tv">{_fmt_tv(team.get("total_trade_value"))}</span>',
             ]
         )
         dyn_classes.append(row_class)
     st.markdown(
-        _html_table(["#", "Team", "Picks", "Dynasty", "Avg", "TV"], dyn_body, dyn_classes),
+        _html_table(["#", "Team", "Picks", "OVR", "Starters", "TV"], dyn_body, dyn_classes),
         unsafe_allow_html=True,
     )
 
@@ -1079,13 +1102,13 @@ def _render_rankings_tab(state: DraftState) -> None:
                 f"<strong>{html.escape(team['team_name'])}</strong>" if team["is_me"] else html.escape(team["team_name"]),
                 str(team.get("pick_count") or 0),
                 f'<span class="num tv">{_fmt_tv(team.get("total_trade_value"))}</span>',
-                _fmt_team_dynasty_total(team.get("total_dynasty_pct")),
+                _fmt_dynasty_rating(team.get("avg_dynasty_rating")),
                 f'<span class="num worp">{_fmt_worp(team.get("starter_worp"))}</span>',
             ]
         )
         tv_classes.append(row_class)
     st.markdown(
-        _html_table(["#", "Team", "Picks", "Total TV", "Dynasty", "WORP"], tv_body, tv_classes),
+        _html_table(["#", "Team", "Picks", "Total TV", "OVR", "WORP"], tv_body, tv_classes),
         unsafe_allow_html=True,
     )
 

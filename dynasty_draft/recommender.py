@@ -392,7 +392,7 @@ class DraftState:
                     "adp_delta": adp_delta,
                     "adp_class": adp.adp_class(adp_delta),
                     "dynasty_score": dynasty.get("dynasty_score"),
-                    "dynasty_pct": dynasty.get("dynasty_pct"),
+                    "dynasty_rating": dynasty.get("dynasty_rating"),
                     "dynasty_components": dynasty.get("dynasty_components"),
                     "score": final,
                     "vor": vor,

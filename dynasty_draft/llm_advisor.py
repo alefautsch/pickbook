@@ -92,10 +92,10 @@ def _metric_definitions() -> dict[str, str]:
         "trade_value": "Dynasty-daddy market capital (aggregated KTC/FantasyCalc etc.). Higher = more dynasty trade demand.",
         "worp": "Wins over replacement — backward-looking 2024 production. Misleading for rising sophomores.",
         "projected_worp": "Forward-adjusted WORP for rookies/sophomores (TV + PORP + spike upside blend). Prefer over raw worp when present.",
-        "dynasty_pct": "0–100 composite: 45% TV + 25% proj WORP + 15% ceiling + 10% age + 5% trajectory. Long-term dynasty value.",
+        "dynasty_rating": "50–99 Madden-style rating: 45% TV + 25% proj WORP + 15% ceiling + 10% age + 5% trajectory.",
         "dynasty_components": "Normalized 0–1 breakdown: tv, worp, upside, age, trajectory for each player.",
-        "total_dynasty_pct": "Team ranking: sum of each rostered player's dynasty_pct. Use league_rankings.by_dynasty.",
-        "avg_dynasty_pct": "Team total_dynasty_pct divided by drafted players with scores.",
+        "avg_dynasty_rating": "Team roster average dynasty_rating (50–99). Primary sort for league_rankings.by_dynasty.",
+        "starter_avg_dynasty_rating": "Average dynasty_rating of optimal starters only.",
         "score": "Pick-fit score (TV + WORP weights + roster needs + penalties). Use for THIS pick, not long-term ranking.",
         "adp_pick": "Consensus pick # from trade value rank. adp_delta positive = player usually goes later (value at your slot).",
         "falls_to_you": "Simulated board at your bookend picks — who is actually there after league needs sim, not current-board rank.",
@@ -158,14 +158,14 @@ def _system_prompt() -> str:
 
 Read `metric_definitions` in the context JSON for field meanings. Key decision rule:
 - `score` + `starter_needs` → best pick RIGHT NOW at this bookend
-- `dynasty_pct` + `dynasty_components` → long-term dynasty value (age, development, ceiling)
+- `dynasty_rating` (50–99) + `dynasty_components` → long-term dynasty value (age, development, ceiling)
 - `falls_to_you` → who realistically remains at your pick after sim (override gut feel)
 - `adp_delta` → reach vs value at your slot
 
 Your user weights trade value 65% and WORP (win-now) 35% for pick fit.
-Use `dynasty_pct` / `dynasty_score` for dynasty capital + age + development:
+Use `dynasty_rating` (50–99) for dynasty capital + age + development:
 - Blends market TV (45%), projected WORP (25%), spike ceiling (15%), age premium (10%), trajectory (5%)
-- Prefer high `dynasty_pct` for long-term value; use `score` for roster-fit at this pick
+- Prefer high `dynasty_rating` for long-term value; use `score` for roster-fit at this pick
 - `dynasty_components` shows the breakdown; hover/tooltip fields in UI
 Think in BOOKEND PAIRS — the current snake turn AND the next one.
 
@@ -202,10 +202,10 @@ Startup PICK-POSITION trades (not player trades):
 - When user asks about trading picks, evaluate net TV AND roster fit (superflex QB timing, avoiding Caleb if that's the projection)
 
 Use the full league context:
-- `league_rankings.by_dynasty`: team standings by Dynasty score (sum of player dynasty_pct) — use when comparing roster builds
+- `league_rankings.by_dynasty`: team standings by avg_dynasty_rating (50–99) — use when comparing roster builds
 - `league_rankings.by_trade_value` / `by_win_now`: market TV and win-now standings
 - `league_team_rosters`: every manager's picks — infer tendencies (QB early, RB heavy, etc.)
-- `available_by_position`: top 12 available per position with `dynasty_pct` per player
+- `available_by_position`: top 12 available per position with `dynasty_rating` per player
 - `recent_draft_picks`: last 24 picks with team names
 - `scoring`: league scoring rules (PPR, superflex, TD bonuses)
 

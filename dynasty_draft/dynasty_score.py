@@ -8,6 +8,16 @@ from dynasty_draft.war_data import PlayerValue
 # Ideal peak ages for dynasty value (years before decline).
 _PEAK_AGE = {"QB": 29, "RB": 25, "WR": 27, "TE": 26}
 
+RATING_MIN = 50
+RATING_MAX = 99
+
+
+def composite_to_rating(composite: float) -> int:
+    """Map 0–1 composite to Madden-style 50–99 rating."""
+    raw = round(RATING_MIN + composite * (RATING_MAX - RATING_MIN))
+    return max(RATING_MIN, min(RATING_MAX, raw))
+
+
 DEFAULT_DYNASTY_WEIGHTS: dict[str, float] = {
     "tv": 0.45,
     "worp": 0.25,
@@ -113,9 +123,10 @@ class DynastyScorer:
                 + w.age * age_norm
                 + w.trajectory * traj_norm
             )
+            rating = composite_to_rating(composite)
             results[player_id] = {
                 "dynasty_score": composite,
-                "dynasty_pct": int(round(composite * 100)),
+                "dynasty_rating": rating,
                 "dynasty_components": {
                     "tv": round(tv_norm, 3),
                     "worp": round(worp_norm, 3),

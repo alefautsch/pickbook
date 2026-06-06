@@ -52,7 +52,7 @@ def _score_pool_at_pick(
                 "trade_value": player.trade_value,
                 "worp": player.worp,
                 "projected_worp": eff_worp if worp_proj else None,
-                "dynasty_pct": dynasty.get("dynasty_pct"),
+                "dynasty_rating": dynasty.get("dynasty_rating"),
                 "adp_pick": adp_pick,
                 "adp_delta": adp_delta,
                 "score": final,

@@ -337,26 +337,8 @@ def build_team_lineup(state: DraftState, roster_id: int, *, include_reserved: bo
     return _finalize_lineup(drafted, reserved, state.roster_positions)
 
 
-def build_my_team_lineup(state: DraftState) -> dict[str, Any]:
-    if state.my_roster_id is None:
-        return _finalize_lineup([], [], state.roster_positions)
-    return build_team_lineup(state, state.my_roster_id, include_reserved=True)
-
-
-def build_league_lineups(state: DraftState) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for team in _league_teams(state):
-        lineup = build_team_lineup(
-            state,
-            team["roster_id"],
-            include_reserved=team["is_me"],
-        )
-        rows.append({**team, **lineup})
-    return rows
-
-
-def _compute_team_dynasty(state: DraftState, team: dict[str, Any]) -> dict[str, int]:
-    """Sum per-player dynasty_pct across roster (starters + bench + reserved)."""
+def _apply_dynasty_to_lineup(state: DraftState, team: dict[str, Any]) -> dict[str, Any]:
+    """Attach per-player dynasty_rating (50–99) and team aggregates."""
     starters = [row["player"] for row in team.get("starters", []) if row.get("player")]
     bench = team.get("bench") or []
     all_players = starters + bench
@@ -369,27 +351,65 @@ def _compute_team_dynasty(state: DraftState, team: dict[str, Any]) -> dict[str, 
         if war_player:
             pool.append((player_id, war_player))
     if not pool:
-        return {"total_dynasty_pct": 0, "starter_dynasty_pct": 0, "avg_dynasty_pct": 0}
+        return {
+            "total_dynasty_rating": 0,
+            "starter_avg_dynasty_rating": 0,
+            "avg_dynasty_rating": 0,
+        }
 
     scores = state.dynasty_scores(pool)
     starter_ids = {player.get("player_id") for player in starters}
-    total = sum(row.get("dynasty_pct", 0) for row in scores.values())
-    starter_total = sum(
-        scores[player_id].get("dynasty_pct", 0)
-        for player_id in starter_ids
-        if player_id and player_id in scores
-    )
+    for player in all_players:
+        player_id = player.get("player_id")
+        if player_id and player_id in scores:
+            player["dynasty_rating"] = scores[player_id].get("dynasty_rating")
+
+    ratings = [row.get("dynasty_rating", 0) for row in scores.values()]
+    starter_ratings = [
+        scores[pid].get("dynasty_rating", 0)
+        for pid in starter_ids
+        if pid and pid in scores
+    ]
     return {
-        "total_dynasty_pct": total,
-        "starter_dynasty_pct": starter_total,
-        "avg_dynasty_pct": round(total / len(scores)) if scores else 0,
+        "total_dynasty_rating": sum(ratings),
+        "starter_avg_dynasty_rating": (
+            round(sum(starter_ratings) / len(starter_ratings)) if starter_ratings else 0
+        ),
+        "avg_dynasty_rating": round(sum(ratings) / len(ratings)) if ratings else 0,
     }
+
+
+def build_league_lineups(state: DraftState) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for team in _league_teams(state):
+        lineup = build_team_lineup(
+            state,
+            team["roster_id"],
+            include_reserved=team["is_me"],
+        )
+        merged = {**team, **lineup}
+        merged.update(_apply_dynasty_to_lineup(state, merged))
+        rows.append(merged)
+
+    by_avg = sorted(rows, key=lambda row: row.get("avg_dynasty_rating") or 0, reverse=True)
+    for idx, row in enumerate(by_avg, start=1):
+        row["dynasty_rank"] = idx
+    return rows
+
+
+def build_my_team_lineup(state: DraftState) -> dict[str, Any]:
+    if state.my_roster_id is None:
+        return _finalize_lineup([], [], state.roster_positions)
+    for team in build_league_lineups(state):
+        if team.get("is_me"):
+            return team
+    lineup = build_team_lineup(state, state.my_roster_id, include_reserved=True)
+    lineup.update(_apply_dynasty_to_lineup(state, lineup))
+    return lineup
 
 
 def build_league_rankings(state: DraftState) -> dict[str, list[dict[str, Any]]]:
     teams = build_league_lineups(state)
-    for team in teams:
-        team.update(_compute_team_dynasty(state, team))
 
     def _rank_key_tv(row: dict[str, Any]) -> float:
         return float(row.get("total_trade_value") or 0)
@@ -398,7 +418,7 @@ def build_league_rankings(state: DraftState) -> dict[str, list[dict[str, Any]]]:
         return float(row.get("win_now_score") or -1)
 
     def _rank_key_dynasty(row: dict[str, Any]) -> float:
-        return float(row.get("total_dynasty_pct") or 0)
+        return float(row.get("avg_dynasty_rating") or 0)
 
     by_trade_value = sorted(teams, key=_rank_key_tv, reverse=True)
     by_win_now = sorted(teams, key=_rank_key_win, reverse=True)
@@ -407,8 +427,6 @@ def build_league_rankings(state: DraftState) -> dict[str, list[dict[str, Any]]]:
         row["tv_rank"] = idx
     for idx, row in enumerate(by_win_now, start=1):
         row["win_rank"] = idx
-    for idx, row in enumerate(by_dynasty, start=1):
-        row["dynasty_rank"] = idx
     return {
         "by_dynasty": by_dynasty,
         "by_trade_value": by_trade_value,
@@ -425,8 +443,8 @@ def league_rankings_summary(state: DraftState) -> dict[str, list[dict[str, Any]]
             "team": team["team_name"],
             "is_me": team["is_me"],
             "picks": team.get("pick_count") or 0,
-            "total_dynasty_pct": team.get("total_dynasty_pct"),
-            "avg_dynasty_pct": team.get("avg_dynasty_pct"),
+            "avg_dynasty_rating": team.get("avg_dynasty_rating"),
+            "starter_avg_dynasty_rating": team.get("starter_avg_dynasty_rating"),
             "total_trade_value": team.get("total_trade_value"),
             "win_now_score": team.get("win_now_score"),
             "dynasty_rank": team.get("dynasty_rank"),
