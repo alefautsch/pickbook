@@ -92,11 +92,17 @@ def build_fall_analysis(state: DraftState) -> dict[str, Any]:
         ranked = _score_pool_at_pick(state, pool, pick_no, worp_projector=worp_projector)
         fallers = [row for row in ranked if row.get("likely_faller")]
         values = [row for row in ranked if row.get("value_at_slot")]
+        by_dynasty = sorted(
+            ranked,
+            key=lambda row: row.get("dynasty_rating") or 0,
+            reverse=True,
+        )
         picks_analysis.append(
             {
                 "pick_no": pick_no,
                 "round": (pick_no - 1) // state._teams() + 1,
                 "top_available_sim": ranked[:12],
+                "top_by_dynasty_rating": by_dynasty[:12],
                 "likely_fallers": fallers[:8],
                 "value_vs_adp": values[:8],
                 "consensus_top_adp_still_available": [
@@ -129,6 +135,11 @@ def build_fall_analysis(state: DraftState) -> dict[str, Any]:
             {
                 "pick_no": pick_no,
                 "top_available_sim": ranked[:10],
+                "top_by_dynasty_rating": sorted(
+                    ranked,
+                    key=lambda row: row.get("dynasty_rating") or 0,
+                    reverse=True,
+                )[:10],
                 "likely_fallers": [row for row in ranked if row.get("likely_faller")][:6],
             }
         )
@@ -138,7 +149,8 @@ def build_fall_analysis(state: DraftState) -> dict[str, Any]:
         "at_each_pick": picks_analysis,
         "next_bookend": next_analysis,
         "note": (
-            "Use likely_fallers and top_available_sim — not just current-board WORP leaders. "
-            "WORP blends historical + Sleeper projection; thin sophomores lean projected."
+            "top_available_sim = TV/needs sim (who might be on the board) — NOT draft advice. "
+            "For startup dynasty picks, prefer top_by_dynasty_rating (age + blended WORP + TV + ceiling). "
+            "Do not recommend aging vets just because they lead the sim (e.g. Dak over younger QBs)."
         ),
     }

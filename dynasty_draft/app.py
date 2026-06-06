@@ -582,14 +582,15 @@ def _ask_suggestion_prompts(state: DraftState) -> list[tuple[str, str]]:
     return [
         ("Bookend plan", _default_llm_question(state)),
         (
-            "Who falls to me?",
-            "Use falls_to_you and pick_projection. Who realistically falls to me at each of my "
-            "upcoming bookend picks given league roster needs? Top 5 per pick with TV and dynasty rating.",
+            "Bookend targets",
+            "Use bookend_dynasty_targets and dynasty_rating (not just falls_to_you sim). "
+            "Best two-pick plan at my bookend for superflex startup — prioritize youth and dynasty OVR, "
+            "especially at QB. Compare top_by_dynasty_rating vs sim board.",
         ),
         (
             "Roster needs",
-            "Review my_roster, starter_needs, and league_rankings. What positions should I "
-            "prioritize at my next picks in this superflex startup?",
+            "Review my_roster, starter_needs, bookend_dynasty_targets, and league_rankings. "
+            "What positions and players should I prioritize at my next bookend in this superflex startup?",
         ),
     ]
 
@@ -726,14 +727,14 @@ def _default_llm_question(state: DraftState) -> str:
     if len(picks) >= 2:
         return (
             f"I have picks {picks[0]} and {picks[1]} back-to-back. Already drafted: {gone}. "
-            f"Reserving Jeremiyah Love in rookie draft. "
-            f"Use pick_projection — assume I take the planned pair at this bookend, then tell me "
-            f"who to target at my NEXT bookend (picks {next_label}). "
-            "Best two-pick plan now plus bridge to the next bookend. Trade value 65%, winning 35%, superflex."
+            f"Reserving Jeremiyah Love in rookie draft. Superflex startup — lead with "
+            f"bookend_dynasty_targets and dynasty_rating (age + WORP* + TV), not TV-only sim. "
+            f"Best two-pick plan at this bookend, then who to target at my NEXT bookend (picks {next_label}). "
+            "Favor young upside at QB over aging win-now vets."
         )
     return (
-        f"Already drafted: {gone}. Use pick_projection bookend pairs — who should I target at my "
-        f"next bookend (picks {next_label}) and the one after?"
+        f"Already drafted: {gone}. Superflex startup — use bookend_dynasty_targets and dynasty_rating. "
+        f"Who should I target at my next bookend (picks {next_label}) and the one after?"
     )
 
 
