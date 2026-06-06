@@ -21,11 +21,11 @@ class AdpIndex:
         return self._by_name.get(normalize_name(name))
 
     def delta(self, name: str, reference_pick: int) -> int | None:
-        """Positive = player typically goes later (value at reference pick)."""
+        """reference_pick - adp. Positive = fell past ADP (value); negative = reach."""
         adp = self.pick_no(name)
         if adp is None:
             return None
-        return adp - reference_pick
+        return reference_pick - adp
 
     def adp_class(self, delta: int | None) -> str:
         if delta is None:

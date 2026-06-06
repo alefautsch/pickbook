@@ -1098,7 +1098,7 @@ def _render_best_available(state: DraftState) -> None:
     ref = state._adp_reference_pick()
     st.markdown('<div class="section-title">Best available</div>', unsafe_allow_html=True)
     st.caption(
-        f"ADP vs pick #{ref} (green = value). "
+        f"ADP vs pick #{ref} (green = fell past ADP; amber = reach). "
         "TV = blended dynasty-daddy + KTC. "
         "Dyn = 50–99 rating (TV + proj WORP + ceiling + age + trajectory). "
         "WORP* = blended historical + Sleeper projection (more * for rookies). Sorted by pick fit, not Dyn."

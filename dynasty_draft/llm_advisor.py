@@ -102,7 +102,8 @@ def _metric_definitions() -> dict[str, str]:
         "avg_dynasty_rating": "Team roster average dynasty_rating (50–99). Primary sort for league_rankings.by_dynasty.",
         "starter_avg_dynasty_rating": "Average dynasty_rating of optimal starters only.",
         "score": "Pick-fit score (TV + WORP weights + roster needs + penalties). Use for THIS pick, not long-term ranking.",
-        "adp_pick": "Consensus pick # from trade value rank. adp_delta positive = player usually goes later (value at your slot).",
+        "adp_pick": "Consensus draft slot from trade-value rank. Lower = goes earlier (ADP 12 ≈ pick 12).",
+        "adp_delta": "your_pick - adp_pick. Positive = value (player fell to you). Negative = reach (you draft them early).",
         "falls_to_you": "Simulated board at your bookend picks — who is actually there after league needs sim, not current-board rank.",
         "pick_projection": "Bookend-centric draft sim: picks_before on current_bookend (now→your bookend), your planned pair, between bookends, next bookend.",
     }
@@ -187,7 +188,7 @@ Read `metric_definitions` in the context JSON for field meanings. Key decision r
 - `score` + `starter_needs` → best pick RIGHT NOW at this bookend
 - `dynasty_rating` (50–99) + `dynasty_components` → long-term dynasty value (age, development, ceiling)
 - `falls_to_you` → who realistically remains at your pick after sim (override gut feel)
-- `adp_delta` → reach vs value at your slot
+- `adp_delta` → your_pick minus adp; positive = value, negative = reach (NEVER invert this)
 
 Your user weights trade value 65% and WORP (win-now) 35% for pick fit.
 Use `dynasty_rating` (50–99) for dynasty capital + age + development:
@@ -220,7 +221,10 @@ Use `pick_projection`, `bookend_plan`, and especially `falls_to_you`:
 - `next_bookend.targets_at_bookend` — best available if plans change
 - `bookend_plan.likely_gone_before_next_bookend` — do NOT tell them to wait on these
 
-ADP = dynasty-daddy trade value rank (consensus pick #). `adp_delta` positive = value at your slot.
+ADP (lower pick # = goes earlier):
+- At YOUR pick 31, a player with ADP 54 is a REACH (you take them ~23 picks before consensus).
+- At YOUR pick 31, ADP 20 is VALUE (they fell ~11 picks to you).
+- `adp_delta` = your_pick - adp_pick (positive = steal/value, negative = reach). Do NOT call high ADP at an early pick a steal.
 
 Startup PICK-POSITION trades (not player trades):
 - Use `pick_trade_analysis.my_future_pick_values` — projected player + TV at each of your remaining picks
