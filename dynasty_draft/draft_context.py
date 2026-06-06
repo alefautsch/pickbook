@@ -175,8 +175,8 @@ def build_draft_timeline(
     dynasty_by_id = state.dynasty_scores(pool) if pool else {}
     for pick_no, (player_id, war_player) in enrich_by_pick.items():
         row = next(r for r in rows if r.get("pick_no") == pick_no)
-        eff_worp, worp_projected = state._effective_worp(player_id, war_player)
-        row["projected_worp"] = eff_worp if worp_projected else None
+        row["player_id"] = player_id
+        state.enrich_player_worp(row)
         dynasty = dynasty_by_id.get(player_id) or {}
         row["dynasty_rating"] = dynasty.get("dynasty_rating")
         row["dynasty_rookie"] = dynasty.get("dynasty_rookie")
@@ -436,17 +436,13 @@ def _apply_dynasty_to_lineup(state: DraftState, team: dict[str, Any]) -> dict[st
     scores = state.dynasty_scores(pool)
     starter_ids = {player.get("_dynasty_score_id") for player in starters}
     for player in all_players:
+        state.enrich_player_worp(player)
         score_id = player.get("_dynasty_score_id")
         if not score_id or score_id not in scores:
             continue
         scored = scores[score_id]
         player["dynasty_rating"] = scored.get("dynasty_rating")
         player["dynasty_rookie"] = scored.get("dynasty_rookie")
-        _pid, war_player = _war_player_for_roster_player(state, player)
-        if _pid and war_player:
-            eff_worp, worp_projected = state._effective_worp(_pid, war_player)
-            if worp_projected:
-                player["projected_worp"] = eff_worp
 
     ratings = [row.get("dynasty_rating", 0) for row in scores.values()]
     starter_ratings = [

@@ -770,12 +770,19 @@ def _fmt_worp(value: float | None) -> str:
 
 
 def _fmt_worp_cell(row: dict[str, Any]) -> str:
-    projected = row.get("projected_worp")
-    if projected is not None:
-        return (
-            f'<span class="num worp-proj" title="Blended WORP (historical + Sleeper projection)">'
-            f"{projected:.2f}*</span>"
-        )
+    effective = row.get("effective_worp")
+    if effective is None and row.get("projected_worp") is not None:
+        effective = row.get("projected_worp")
+    if effective is not None:
+        historical = row.get("worp")
+        uses_projection = bool(row.get("worp_uses_projection"))
+        show_star = uses_projection or historical is None or abs(effective - historical) > 0.02
+        if show_star:
+            return (
+                f'<span class="num worp-proj" title="Blended WORP (historical + Sleeper projection)">'
+                f"{effective:.2f}*</span>"
+            )
+        return f'<span class="num">{effective:.2f}</span>'
     return f'<span class="num">{_fmt_worp(row.get("worp"))}</span>'
 
 
@@ -1063,7 +1070,7 @@ def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]
             f'<span class="age">{_fmt_age(player.get("age"))}</span>',
             dynasty_cell,
             f'<span class="num tv">{_fmt_tv(player.get("trade_value"))}</span>',
-            f'<span class="num worp">{_fmt_worp(player.get("worp"))}</span>',
+            _fmt_worp_cell(player),
         ],
         row_class,
     )

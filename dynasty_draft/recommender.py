@@ -281,12 +281,46 @@ class DraftState:
         age = self.sleeper_players.get(player_id, {}).get("age")
         return int(age) if age is not None else None
 
-    def _effective_worp(self, player_id: str, player: PlayerValue) -> tuple[float | None, bool]:
+    def _effective_worp(
+        self,
+        player_id: str | None,
+        player: PlayerValue,
+    ) -> tuple[float | None, bool]:
+        pid = player_id or None
         return self._worp_projector().effective_worp(
             player,
-            years_exp=self._years_exp(player_id),
-            player_id=player_id,
+            years_exp=self._years_exp(pid) if pid else None,
+            player_id=pid,
         )
+
+    def enrich_player_worp(self, player: dict[str, Any]) -> None:
+        """Attach blended effective_worp to a player row for display and scoring."""
+        player_id = player.get("player_id")
+        name = player.get("name")
+        war_player = None
+        if player_id:
+            war_player = self._match_war(str(player_id))
+        if war_player is None and name:
+            war_player = self.war.lookup(name)
+        if war_player and not player_id and name:
+            key = normalize_name(name)
+            for sid, sleeper in self.sleeper_players.items():
+                if normalize_name(sleeper.get("full_name") or "") == key:
+                    player_id = str(sid)
+                    player["player_id"] = player_id
+                    break
+        if war_player is None:
+            return
+        blended = self.with_blended_tv(war_player)
+        eff, uses_projection = self._effective_worp(
+            str(player_id) if player_id else None,
+            blended,
+        )
+        if eff is not None:
+            player["effective_worp"] = eff
+            player["worp_uses_projection"] = uses_projection
+            if uses_projection:
+                player["projected_worp"] = eff
 
     def _dynasty_scorer(self) -> DynastyScorer:
         cached = getattr(self, "_cached_dynasty_scorer", None)
@@ -416,6 +450,8 @@ class DraftState:
                     "age": dynasty.get("age"),
                     "trade_value": blended_tv,
                     "worp": player.worp,
+                    "effective_worp": eff_worp,
+                    "worp_uses_projection": worp_projected,
                     "projected_worp": eff_worp if worp_projected else None,
                     "worp_tier": player.worp_tier,
                     "adp_pick": adp_pick,
@@ -460,6 +496,8 @@ class DraftState:
                     "status": "drafted",
                 }
             )
+            if rows:
+                self.enrich_player_worp(rows[-1])
         if self.strategy.is_vet_draft:
             for reserved in self.strategy.reserved_players(self.war, tv_fn=self.blended_trade_value):
                 rows.append(
@@ -473,6 +511,7 @@ class DraftState:
                         "status": "reserved (rookie draft)",
                     }
                 )
+                self.enrich_player_worp(rows[-1])
         return rows
 
     def tier_cliffs(self, top_n: int = 5) -> list[dict[str, Any]]:
