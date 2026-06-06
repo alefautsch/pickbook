@@ -4,7 +4,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from dynasty_draft.adp import AdpIndex
-from dynasty_draft.dynasty_score import DynastyScorer, DynastyWeights
+from dynasty_draft.dynasty_score import (
+    DynastyReferenceAnchors,
+    DynastyScorer,
+    DynastyWeights,
+    compute_reference_anchors,
+)
 from dynasty_draft.strategy import DraftStrategy
 from dynasty_draft.war_data import POSITIONS, PlayerValue, WarData, normalize_name
 from dynasty_draft.projections import SleeperProjectionStore
@@ -193,12 +198,11 @@ class DraftState:
     def blend_pool(self, pool: list[tuple[str, PlayerValue]]) -> list[tuple[str, PlayerValue]]:
         return [(player_id, self.with_blended_tv(player)) for player_id, player in pool]
 
-    def available_players(self) -> list[tuple[str, PlayerValue]]:
+    def _eligible_players(self) -> list[tuple[str, PlayerValue]]:
+        """Full draft-eligible board (ignores who has been picked)."""
         reserved_names = {normalize_name(name) for name in self.strategy.reserved_rookies}
-        available: list[tuple[str, PlayerValue]] = []
+        eligible: list[tuple[str, PlayerValue]] = []
         for player_id, sleeper_player in self.sleeper_players.items():
-            if player_id in self.drafted_ids:
-                continue
             pos = (sleeper_player.get("position") or "").upper()
             if pos not in POSITIONS:
                 continue
@@ -215,8 +219,28 @@ class DraftState:
                 continue
             if self.strategy.is_rookie_draft and normalize_name(name) in reserved_names:
                 continue
-            available.append((player_id, war_player))
-        return available
+            eligible.append((player_id, war_player))
+        return eligible
+
+    def _dynasty_reference_pool(self) -> list[tuple[str, PlayerValue]]:
+        """Pre-draft eligible board — OVR anchors stay fixed as picks are made."""
+        return self._eligible_players()
+
+    def _dynasty_reference_anchors(self) -> DynastyReferenceAnchors:
+        cached = getattr(self, "_dynasty_ref_anchors", None)
+        if cached is not None:
+            return cached
+        ref_pool = self.blend_pool(self._dynasty_reference_pool())
+        anchors = compute_reference_anchors(ref_pool, self._effective_worp)
+        self._dynasty_ref_anchors = anchors
+        return anchors
+
+    def available_players(self) -> list[tuple[str, PlayerValue]]:
+        return [
+            (player_id, player)
+            for player_id, player in self._eligible_players()
+            if player_id not in self.drafted_ids
+        ]
 
     def roster_counts(self) -> dict[str, int]:
         counts = {pos: 0 for pos in POSITIONS}
@@ -336,13 +360,14 @@ class DraftState:
     def dynasty_scores(
         self, players: list[tuple[str, PlayerValue]] | None = None
     ) -> dict[str, dict[str, Any]]:
-        pool = self.blend_pool(players if players is not None else self.available_players())
-        ids = [player_id for player_id, _ in pool]
+        score_pool = self.blend_pool(players if players is not None else self.available_players())
+        ids = [player_id for player_id, _ in score_pool]
         return self._dynasty_scorer().score_pool(
-            pool,
+            score_pool,
             age_by_id={pid: self._player_age(pid) for pid in ids},
             years_exp_by_id={pid: self._years_exp(pid) for pid in ids},
             effective_worp=self._effective_worp,
+            reference=self._dynasty_reference_anchors(),
         )
 
     def _normalize_scores(self, available: list[tuple[str, PlayerValue]]) -> dict[str, float]:

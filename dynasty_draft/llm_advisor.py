@@ -93,7 +93,7 @@ def _metric_definitions() -> dict[str, str]:
         "trade_value": "Blended dynasty market capital (dynasty-daddy + KeepTradeCut). Higher = more dynasty trade demand.",
         "worp": "Dynasty-daddy historical WORP (backward-looking production). Shown in UI when blend equals history.",
         "projected_worp": "Blended effective WORP when projection contributes: α×historical + (1−α)×Sleeper VOR→WORP. α rises with years_exp (rookies ~0% hist, vets ~75–88%).",
-        "dynasty_rating": "50–99 Madden-style rating: 45% TV + 25% proj WORP + 15% ceiling + 10% age + 5% trajectory.",
+        "dynasty_rating": "50–99 Madden-style rating (45% TV + 25% proj WORP + 15% ceiling + 10% age + 5% trajectory), normalized vs the fixed pre-draft eligible board (does not shift as picks are made).",
         "dynasty_rookie": "True when rating is a rookie projection (no historical WORP in war.csv). Shown as N* in UI.",
         "dynasty_components": "Normalized 0–1 breakdown: tv, worp, upside, age, trajectory for each player.",
         "avg_dynasty_rating": "Team roster average dynasty_rating (50–99). Primary sort for league_rankings.by_dynasty.",

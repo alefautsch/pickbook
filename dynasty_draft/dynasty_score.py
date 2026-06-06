@@ -65,6 +65,30 @@ def _age_premium(pos: str, age: int | None) -> float:
     return 0.12
 
 
+@dataclass(frozen=True)
+class DynastyReferenceAnchors:
+    """Fixed TV / WORP ceilings for normalizing dynasty ratings across views."""
+
+    max_tv: float
+    max_worp: float
+
+
+def compute_reference_anchors(
+    players: list[tuple[str, PlayerValue]],
+    effective_worp: Callable[[str, PlayerValue], tuple[float | None, bool]],
+) -> DynastyReferenceAnchors:
+    trade_vals = [player.trade_value for _, player in players]
+    effective: list[float] = []
+    for player_id, player in players:
+        eff, _ = effective_worp(player_id, player)
+        if eff is not None:
+            effective.append(max(eff, 0.0))
+    return DynastyReferenceAnchors(
+        max_tv=max(trade_vals) if trade_vals else 1.0,
+        max_worp=max(effective) if effective else 1.0,
+    )
+
+
 def _trajectory_signal(tv_norm: float, worp_norm: float, years_exp: int | None) -> float:
     """
     Market (TV) ahead of production (WORP) on young players — development bet.
@@ -87,19 +111,29 @@ class DynastyScorer:
         age_by_id: dict[str, int | None],
         years_exp_by_id: dict[str, int | None],
         effective_worp: Callable[[str, PlayerValue], tuple[float | None, bool]],
+        reference: DynastyReferenceAnchors | None = None,
     ) -> dict[str, dict[str, Any]]:
         if not players:
             return {}
 
-        trade_vals = [p.trade_value for _, p in players]
-        max_tv = max(trade_vals) if trade_vals else 1.0
+        if reference is not None:
+            max_tv = reference.max_tv
+            max_worp = reference.max_worp
+        else:
+            trade_vals = [p.trade_value for _, p in players]
+            max_tv = max(trade_vals) if trade_vals else 1.0
+            effective_vals: list[float] = []
+            for player_id, player in players:
+                eff, _ = effective_worp(player_id, player)
+                if eff is not None:
+                    effective_vals.append(max(eff, 0.0))
+            max_worp = max(effective_vals) if effective_vals else 1.0
 
         effective: dict[str, float] = {}
         for player_id, player in players:
             eff, _ = effective_worp(player_id, player)
             if eff is not None:
                 effective[player_id] = max(eff, 0.0)
-        max_worp = max(effective.values()) if effective else 1.0
 
         w = self.weights
         results: dict[str, dict[str, Any]] = {}
