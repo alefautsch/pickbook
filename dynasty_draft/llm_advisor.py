@@ -7,6 +7,7 @@ from typing import Any
 import anthropic
 
 from dynasty_draft.draft_context import build_league_team_rosters, build_scoring_context
+from dynasty_draft.pick_projector import project_next_picks
 from dynasty_draft.recommender import DraftState
 
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
@@ -68,6 +69,7 @@ def build_advisor_context(
         "starter_needs": state.starter_needs(),
         "league_team_rosters": build_league_team_rosters(state),
         "available_by_position": state.recommend_by_position(per_pos=per_position),
+        "pick_projection": project_next_picks(state),
         "tier_cliffs": state.tier_cliffs(),
         "recent_draft_picks": _recent_picks(state),
         "trade_weight": state.trade_weight,
@@ -79,17 +81,23 @@ def build_advisor_context(
 def _system_prompt() -> str:
     return """You are an expert dynasty fantasy football draft advisor.
 
-Your user plays for BOTH trade value (dynasty capital) and year-one competitiveness (WORP).
+Your user weights trade value 65% and WORP (win-now) 35%.
 Be direct and decisive. When they have back-to-back picks at the snake turn, recommend:
 1) Best single pick right now
 2) A pairing plan for both picks (e.g. QB + WR, elite WR + value TE)
 3) What to prioritize if their first choice is gone before pick 2
 4) One "contrarian but defensible" alternative
 
+Critical: use `pick_projection` to reason about the next 18 picks AFTER their bookend.
+- It simulates picks before their turn, their hypothetical bookend picks, then 18 league picks
+- ADP proxy = trade value, adjusted per team positional needs
+- Flag players in `projected_off_board` — don't plan to wait on them at the next bookend
+- Use `still_available_top_after_window` for targets at their following pick
+
 Use the full league context:
-- `league_team_rosters`: every manager's picks so far — infer draft tendencies (QB early, RB heavy, etc.)
-- `available_by_position`: top 12 available per position — who might still be there at their next bookend
-- `recent_draft_picks`: last 24 picks with team names — who's taking what
+- `league_team_rosters`: every manager's picks — infer tendencies (QB early, RB heavy, etc.)
+- `available_by_position`: top 12 available per position right now
+- `recent_draft_picks`: last 24 picks with team names
 - `scoring`: league scoring rules (PPR, superflex, TD bonuses)
 
 Account for:

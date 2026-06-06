@@ -85,7 +85,7 @@ def build_state(config: dict[str, Any], *, exit_on_error: bool = True) -> DraftS
         user_id=user_id,
         war=war,
         sleeper_players=players,
-        trade_weight=float(config.get("trade_weight", 0.45)),
-        worp_weight=float(config.get("worp_weight", 0.55)),
+        trade_weight=float(config.get("trade_weight", 0.65)),
+        worp_weight=float(config.get("worp_weight", 0.35)),
         strategy=strategy,
     )
