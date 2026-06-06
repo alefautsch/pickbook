@@ -79,8 +79,10 @@ def _bookend_plan_summary(state: DraftState) -> dict[str, Any]:
     nxt = proj.get("next_bookend") or {}
     between = proj.get("between_bookends") or {}
     return {
+        "picks_before_current_bookend": current.get("picks_before") or [],
         "current_bookend_picks": current.get("pick_numbers") or [],
         "current_planned_pair": current.get("planned_picks") or [],
+        "between_bookends": between.get("projected_picks") or [],
         "next_bookend_picks": nxt.get("pick_numbers") or [],
         "next_planned_pair": nxt.get("planned_picks") or [],
         "targets_at_next_bookend": nxt.get("targets_at_bookend") or [],
@@ -102,7 +104,7 @@ def _metric_definitions() -> dict[str, str]:
         "score": "Pick-fit score (TV + WORP weights + roster needs + penalties). Use for THIS pick, not long-term ranking.",
         "adp_pick": "Consensus pick # from trade value rank. adp_delta positive = player usually goes later (value at your slot).",
         "falls_to_you": "Simulated board at your bookend picks — who is actually there after league needs sim, not current-board rank.",
-        "pick_projection": "Bookend-centric draft sim: picks before you, your planned pair, between bookends, next bookend.",
+        "pick_projection": "Bookend-centric draft sim: picks_before on current_bookend (now→your bookend), your planned pair, between bookends, next bookend.",
     }
 
 
@@ -211,8 +213,9 @@ Use `pick_projection`, `bookend_plan`, and especially `falls_to_you`:
 - `falls_to_you.next_bookend` — same for your NEXT bookend turn
 - Do NOT default to current-board WORP leaders (e.g. Dak, Loveland) if sim shows different names at picks 30/31
 - `projected_worp` (WORP*) is blended effective WORP — vets still get ~25–35% Sleeper forward look; sophomores/rookies lean projected
+- `bookend_plan.picks_before_current_bookend` — sim of every pick BEFORE their current bookend (the gap while they wait)
 - `current_bookend.planned_picks` — projection assumes they take this pair NOW (align with or refine this)
-- `between_bookends` — simulated league picks between current and next bookend
+- `bookend_plan.between_bookends` — simulated league picks after current bookend until next bookend
 - `next_bookend.planned_picks` — projected pair at the following bookend
 - `next_bookend.targets_at_bookend` — best available if plans change
 - `bookend_plan.likely_gone_before_next_bookend` — do NOT tell them to wait on these
@@ -248,9 +251,16 @@ def build_followup_context_snippet(state: DraftState) -> str:
     """Compact live context for follow-up turns (full JSON only on first message)."""
     info = state.next_pick_info()
     fall = build_fall_analysis(state)
+    proj = project_next_picks(state)
+    before = (proj.get("current_bookend") or {}).get("picks_before") or []
     lines = [
         f"[Live update — overall pick #{info.get('pick_no')}, {len(state.picks)} picks made]",
     ]
+    if before:
+        names = ", ".join(f"{row['name']}" for row in before[:6])
+        cur = (proj.get("current_bookend") or {}).get("pick_numbers") or []
+        cur_lbl = f"#{cur[0]}" + (f" & #{cur[1]}" if len(cur) > 1 else "") if cur else "?"
+        lines.append(f"Before your bookend ({len(before)} picks → {cur_lbl}): {names}")
     for block in fall.get("at_each_pick") or []:
         pick_no = block.get("pick_no")
         top = ", ".join(

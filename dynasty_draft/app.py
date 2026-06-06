@@ -624,27 +624,92 @@ def _render_ask_chip_prompts(state: DraftState, config: dict[str, Any]) -> None:
                     st.rerun()
 
 
+def _bookend_window_label(
+    pick_rows: list[dict[str, Any]],
+    *,
+    yours_at: list[int] | None = None,
+) -> str:
+    if not pick_rows:
+        return ""
+    start = pick_rows[0].get("pick_no")
+    end = pick_rows[-1].get("pick_no")
+    if start is None or end is None:
+        return f" ({len(pick_rows)} picks)"
+    window = f"#{start}" if start == end else f"#{start}–#{end}"
+    if yours_at:
+        yours = f"#{yours_at[0]}" + (f" & #{yours_at[1]}" if len(yours_at) > 1 else "")
+        return f" ({window} → yours at {yours})"
+    return f" ({window})"
+
+
+def _render_bookend_projection_sections(proj: dict[str, Any], *, detailed: bool = False) -> None:
+    """Bookend sim: before your turn → your pair → between → next pair."""
+    current = proj.get("current_bookend") or {}
+    nxt = proj.get("next_bookend") or {}
+    before = current.get("picks_before") or []
+    cur_nums = current.get("pick_numbers") or []
+    between = (proj.get("between_bookends") or {}).get("projected_picks") or []
+    nxt_nums = nxt.get("pick_numbers") or []
+
+    if before:
+        heading = "**Before your bookend**" + _bookend_window_label(before, yours_at=cur_nums)
+        if detailed:
+            st.markdown(heading)
+            for row in before:
+                team = html.escape(str(row.get("team") or ""))
+                st.markdown(f"#{row['pick_no']} **{team}** → {_fmt_player_brief(row)}")
+        else:
+            names = ", ".join(_fmt_player_brief(r) for r in before[:6])
+            if len(before) > 6:
+                names += f" +{len(before) - 6} more"
+            st.caption(f"Before your bookend{_bookend_window_label(before, yours_at=cur_nums)}: {names}")
+
+    if current.get("planned_picks"):
+        yours_nums = " & ".join(f"#{n}" for n in cur_nums) if cur_nums else ""
+        if detailed:
+            st.markdown(f"**Your bookend{' ' + yours_nums if yours_nums else ''}**")
+            for row in current["planned_picks"]:
+                st.markdown(f"#{row['pick_no']} **{_fmt_player_brief(row)}**")
+        else:
+            yours = ", ".join(_fmt_player_brief(p) for p in current["planned_picks"])
+            st.caption(f"Your bookend ({yours_nums}): assuming {yours}")
+
+    if between:
+        bet_nums = nxt_nums or []
+        heading = "**Between bookends**" + _bookend_window_label(
+            between,
+            yours_at=bet_nums if bet_nums else None,
+        )
+        if detailed:
+            st.markdown(heading)
+            for row in between:
+                team = html.escape(str(row.get("team") or ""))
+                st.markdown(f"#{row['pick_no']} **{team}** → {_fmt_player_brief(row)}")
+        else:
+            gone = (proj.get("between_bookends") or {}).get("likely_off_board") or []
+            if gone:
+                top_gone = ", ".join(f"{g['name']}" for g in gone[:8])
+                st.caption(
+                    f"Likely gone before next bookend"
+                    f"{_bookend_window_label(between, yours_at=bet_nums)}: {top_gone}"
+                )
+
+    if nxt.get("planned_picks"):
+        nxt_label = " & ".join(f"#{n}" for n in nxt_nums) if nxt_nums else ""
+        if detailed:
+            st.markdown(f"**Next bookend{' ' + nxt_label if nxt_label else ''}**")
+            for row in nxt["planned_picks"]:
+                st.markdown(f"#{row['pick_no']} **{_fmt_player_brief(row)}**")
+        elif nxt_label:
+            nxt_yours = ", ".join(_fmt_player_brief(p) for p in nxt["planned_picks"])
+            st.caption(f"Next bookend ({nxt_label}): projected {nxt_yours}")
+
+
 def _render_ask_draft_context(state: DraftState) -> None:
     with st.expander("Draft context", expanded=False):
         _render_hero(state)
         _render_stats(state)
-        _render_projection_preview(state)
-        proj = project_next_picks(state)
-        current = proj.get("current_bookend") or {}
-        if current.get("planned_picks"):
-            st.markdown("**Current bookend (you)**")
-            for row in current["planned_picks"]:
-                st.markdown(f"#{row['pick_no']} **{_fmt_player_brief(row)}**")
-        between = (proj.get("between_bookends") or {}).get("projected_picks") or []
-        if between:
-            st.markdown("**Between bookends**")
-            for row in between:
-                st.markdown(f"#{row['pick_no']} **{row['team']}** → {_fmt_player_brief(row)}")
-        nxt = proj.get("next_bookend") or {}
-        if nxt.get("planned_picks"):
-            st.markdown("**Next bookend (you)**")
-            for row in nxt["planned_picks"]:
-                st.markdown(f"#{row['pick_no']} **{_fmt_player_brief(row)}**")
+        _render_bookend_projection_sections(project_next_picks(state), detailed=True)
 
 
 def _default_llm_question(state: DraftState) -> str:
@@ -721,25 +786,7 @@ def _render_stats(state: DraftState) -> None:
 
 
 def _render_projection_preview(state: DraftState) -> None:
-    proj = project_next_picks(state)
-    current = proj.get("current_bookend") or {}
-    nxt = proj.get("next_bookend") or {}
-    cur_nums = current.get("pick_numbers") or []
-    nxt_nums = nxt.get("pick_numbers") or []
-    if cur_nums:
-        st.caption(f"Current bookend: #{cur_nums[0]}" + (f" & #{cur_nums[1]}" if len(cur_nums) > 1 else ""))
-    if current.get("planned_picks"):
-        yours = ", ".join(_fmt_player_brief(p) for p in current["planned_picks"])
-        st.caption(f"Assuming you take: {yours}")
-    if nxt_nums:
-        st.caption(f"Next bookend: #{nxt_nums[0]}" + (f" & #{nxt_nums[1]}" if len(nxt_nums) > 1 else ""))
-    if nxt.get("planned_picks"):
-        nxt_yours = ", ".join(_fmt_player_brief(p) for p in nxt["planned_picks"])
-        st.caption(f"Projected next pair: {nxt_yours}")
-    gone = (proj.get("between_bookends") or {}).get("likely_off_board") or []
-    if gone:
-        top_gone = ", ".join(f"{g['name']}" for g in gone[:8])
-        st.caption(f"Likely gone before next bookend: {top_gone}")
+    _render_bookend_projection_sections(project_next_picks(state), detailed=False)
 
 
 def _llm_thread_key(state: DraftState) -> str:
