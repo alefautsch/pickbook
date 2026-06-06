@@ -1,0 +1,15 @@
+.venv
+.cache
+.git
+.gitignore
+config.json
+.env
+.env.example
+__pycache__
+*.pyc
+.streamlit/secrets.toml
+agent-tools
+terminals
+*.md
+!README.md
+justfile

@@ -1,0 +1,18 @@
+{
+  "sleeper_username": "alefautsch",
+  "league_id": "1314731206859853824",
+  "draft_id": "1314734674332880896",
+  "season": "2026",
+  "trade_weight": 0.45,
+  "worp_weight": 0.55,
+  "poll_seconds": 20,
+  "war_csv": "war.csv",
+  "strategy": {
+    "draft_phase": "vets",
+    "teams": 10,
+    "startup_slot": 10,
+    "rookie_draft_slot": 1,
+    "reserved_rookies": ["Jeremiyah Love"],
+    "rookie_draft_reversed": true
+  }
+}
