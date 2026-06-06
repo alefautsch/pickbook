@@ -7,7 +7,11 @@ from typing import Any, Literal
 import anthropic
 import requests
 
-from dynasty_draft.draft_context import build_league_team_rosters, build_scoring_context
+from dynasty_draft.draft_context import (
+    build_league_team_rosters,
+    build_scoring_context,
+    league_rankings_summary,
+)
 from dynasty_draft.fall_analysis import build_fall_analysis
 from dynasty_draft.pick_projector import project_next_picks
 from dynasty_draft.pick_values import build_pick_trade_context
@@ -90,6 +94,8 @@ def _metric_definitions() -> dict[str, str]:
         "projected_worp": "Forward-adjusted WORP for rookies/sophomores (TV + PORP + spike upside blend). Prefer over raw worp when present.",
         "dynasty_pct": "0–100 composite: 45% TV + 25% proj WORP + 15% ceiling + 10% age + 5% trajectory. Long-term dynasty value.",
         "dynasty_components": "Normalized 0–1 breakdown: tv, worp, upside, age, trajectory for each player.",
+        "total_dynasty_pct": "Team ranking: sum of each rostered player's dynasty_pct. Use league_rankings.by_dynasty.",
+        "avg_dynasty_pct": "Team total_dynasty_pct divided by drafted players with scores.",
         "score": "Pick-fit score (TV + WORP weights + roster needs + penalties). Use for THIS pick, not long-term ranking.",
         "adp_pick": "Consensus pick # from trade value rank. adp_delta positive = player usually goes later (value at your slot).",
         "falls_to_you": "Simulated board at your bookend picks — who is actually there after league needs sim, not current-board rank.",
@@ -125,6 +131,7 @@ def build_advisor_context(
         "my_roster": state.roster_summary(),
         "starter_needs": state.starter_needs(),
         "league_team_rosters": build_league_team_rosters(state),
+        "league_rankings": league_rankings_summary(state),
         "available_by_position": state.recommend_by_position(per_pos=per_position),
         "pick_projection": project_next_picks(state),
         "bookend_plan": _bookend_plan_summary(state),
@@ -195,8 +202,10 @@ Startup PICK-POSITION trades (not player trades):
 - When user asks about trading picks, evaluate net TV AND roster fit (superflex QB timing, avoiding Caleb if that's the projection)
 
 Use the full league context:
+- `league_rankings.by_dynasty`: team standings by Dynasty score (sum of player dynasty_pct) — use when comparing roster builds
+- `league_rankings.by_trade_value` / `by_win_now`: market TV and win-now standings
 - `league_team_rosters`: every manager's picks — infer tendencies (QB early, RB heavy, etc.)
-- `available_by_position`: top 12 available per position right now
+- `available_by_position`: top 12 available per position with `dynasty_pct` per player
 - `recent_draft_picks`: last 24 picks with team names
 - `scoring`: league scoring rules (PPR, superflex, TD bonuses)
 

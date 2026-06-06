@@ -1004,8 +1004,46 @@ def _render_league_tab(state: DraftState) -> None:
             _render_lineup_table(team)
 
 
+def _fmt_team_dynasty_total(pct: int | None) -> str:
+    if pct is None:
+        return '<span class="num">—</span>'
+    return f'<span class="num" style="font-weight:800">{pct}</span>'
+
+
+def _fmt_team_dynasty_avg(pct: int | None) -> str:
+    if pct is None:
+        return '<span class="dynasty dynasty-low">—</span>'
+    cls = _dynasty_class(pct)
+    return f'<span class="dynasty {cls}">{pct}</span>'
+
+
 def _render_rankings_tab(state: DraftState) -> None:
     rankings = build_league_rankings(state)
+
+    st.markdown('<div class="section-title">Dynasty score</div>', unsafe_allow_html=True)
+    st.caption(
+        "Sum of per-player Dynasty scores (TV + proj WORP + ceiling + age + trajectory). "
+        "Avg = per drafted player."
+    )
+    dyn_body: list[list[str]] = []
+    dyn_classes: list[str] = []
+    for team in rankings["by_dynasty"]:
+        row_class = "row-you rank-you" if team["is_me"] else ""
+        dyn_body.append(
+            [
+                f'<span class="rank-badge">{team["dynasty_rank"]}</span>',
+                f"<strong>{html.escape(team['team_name'])}</strong>" if team["is_me"] else html.escape(team["team_name"]),
+                str(team.get("pick_count") or 0),
+                _fmt_team_dynasty_total(team.get("total_dynasty_pct")),
+                _fmt_team_dynasty_avg(team.get("avg_dynasty_pct")),
+                f'<span class="num tv">{_fmt_tv(team.get("total_trade_value"))}</span>',
+            ]
+        )
+        dyn_classes.append(row_class)
+    st.markdown(
+        _html_table(["#", "Team", "Picks", "Dynasty", "Avg", "TV"], dyn_body, dyn_classes),
+        unsafe_allow_html=True,
+    )
 
     st.markdown('<div class="section-title">Win now</div>', unsafe_allow_html=True)
     st.caption("Ranked by optimal starter WORP + PORP/100 (position projection)")
@@ -1029,8 +1067,8 @@ def _render_rankings_tab(state: DraftState) -> None:
         unsafe_allow_html=True,
     )
 
-    st.markdown('<div class="section-title">Dynasty value</div>', unsafe_allow_html=True)
-    st.caption("Ranked by total roster trade value")
+    st.markdown('<div class="section-title">Trade value</div>', unsafe_allow_html=True)
+    st.caption("Ranked by total roster trade value (market dynasty capital)")
     tv_body: list[list[str]] = []
     tv_classes: list[str] = []
     for team in rankings["by_trade_value"]:
@@ -1041,12 +1079,13 @@ def _render_rankings_tab(state: DraftState) -> None:
                 f"<strong>{html.escape(team['team_name'])}</strong>" if team["is_me"] else html.escape(team["team_name"]),
                 str(team.get("pick_count") or 0),
                 f'<span class="num tv">{_fmt_tv(team.get("total_trade_value"))}</span>',
+                _fmt_team_dynasty_total(team.get("total_dynasty_pct")),
                 f'<span class="num worp">{_fmt_worp(team.get("starter_worp"))}</span>',
             ]
         )
         tv_classes.append(row_class)
     st.markdown(
-        _html_table(["#", "Team", "Picks", "Total TV", "WORP"], tv_body, tv_classes),
+        _html_table(["#", "Team", "Picks", "Total TV", "Dynasty", "WORP"], tv_body, tv_classes),
         unsafe_allow_html=True,
     )
 

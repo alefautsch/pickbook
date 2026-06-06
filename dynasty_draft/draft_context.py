@@ -355,8 +355,41 @@ def build_league_lineups(state: DraftState) -> list[dict[str, Any]]:
     return rows
 
 
+def _compute_team_dynasty(state: DraftState, team: dict[str, Any]) -> dict[str, int]:
+    """Sum per-player dynasty_pct across roster (starters + bench + reserved)."""
+    starters = [row["player"] for row in team.get("starters", []) if row.get("player")]
+    bench = team.get("bench") or []
+    all_players = starters + bench
+    pool: list[tuple[str, Any]] = []
+    for player in all_players:
+        player_id = player.get("player_id")
+        if not player_id:
+            continue
+        war_player = state._match_war(player_id)
+        if war_player:
+            pool.append((player_id, war_player))
+    if not pool:
+        return {"total_dynasty_pct": 0, "starter_dynasty_pct": 0, "avg_dynasty_pct": 0}
+
+    scores = state.dynasty_scores(pool)
+    starter_ids = {player.get("player_id") for player in starters}
+    total = sum(row.get("dynasty_pct", 0) for row in scores.values())
+    starter_total = sum(
+        scores[player_id].get("dynasty_pct", 0)
+        for player_id in starter_ids
+        if player_id and player_id in scores
+    )
+    return {
+        "total_dynasty_pct": total,
+        "starter_dynasty_pct": starter_total,
+        "avg_dynasty_pct": round(total / len(scores)) if scores else 0,
+    }
+
+
 def build_league_rankings(state: DraftState) -> dict[str, list[dict[str, Any]]]:
     teams = build_league_lineups(state)
+    for team in teams:
+        team.update(_compute_team_dynasty(state, team))
 
     def _rank_key_tv(row: dict[str, Any]) -> float:
         return float(row.get("total_trade_value") or 0)
@@ -364,15 +397,47 @@ def build_league_rankings(state: DraftState) -> dict[str, list[dict[str, Any]]]:
     def _rank_key_win(row: dict[str, Any]) -> float:
         return float(row.get("win_now_score") or -1)
 
+    def _rank_key_dynasty(row: dict[str, Any]) -> float:
+        return float(row.get("total_dynasty_pct") or 0)
+
     by_trade_value = sorted(teams, key=_rank_key_tv, reverse=True)
     by_win_now = sorted(teams, key=_rank_key_win, reverse=True)
+    by_dynasty = sorted(teams, key=_rank_key_dynasty, reverse=True)
     for idx, row in enumerate(by_trade_value, start=1):
         row["tv_rank"] = idx
     for idx, row in enumerate(by_win_now, start=1):
         row["win_rank"] = idx
+    for idx, row in enumerate(by_dynasty, start=1):
+        row["dynasty_rank"] = idx
     return {
+        "by_dynasty": by_dynasty,
         "by_trade_value": by_trade_value,
         "by_win_now": by_win_now,
+    }
+
+
+def league_rankings_summary(state: DraftState) -> dict[str, list[dict[str, Any]]]:
+    """Compact league standings for advisor context."""
+    rankings = build_league_rankings(state)
+
+    def _row(team: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "team": team["team_name"],
+            "is_me": team["is_me"],
+            "picks": team.get("pick_count") or 0,
+            "total_dynasty_pct": team.get("total_dynasty_pct"),
+            "avg_dynasty_pct": team.get("avg_dynasty_pct"),
+            "total_trade_value": team.get("total_trade_value"),
+            "win_now_score": team.get("win_now_score"),
+            "dynasty_rank": team.get("dynasty_rank"),
+            "tv_rank": team.get("tv_rank"),
+            "win_rank": team.get("win_rank"),
+        }
+
+    return {
+        "by_dynasty": [_row(team) for team in rankings["by_dynasty"]],
+        "by_trade_value": [_row(team) for team in rankings["by_trade_value"]],
+        "by_win_now": [_row(team) for team in rankings["by_win_now"]],
     }
 
 
