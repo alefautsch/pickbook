@@ -7,6 +7,7 @@ import time
 from dynasty_draft.builder import build_state
 from dynasty_draft.config import load_config, save_config
 from dynasty_draft.sleeper_client import SleeperClient
+from dynasty_draft.ktc_values import KtcStore
 from dynasty_draft.war_data import WarData
 from pathlib import Path
 
@@ -212,6 +213,12 @@ def cmd_insights(_: argparse.Namespace) -> None:
         print(f"  {player.name:<26} TV {player.trade_value:>6,.0f}  WORP {player.worp:.2f}")
 
 
+def cmd_ktc_refresh(args: argparse.Namespace) -> None:
+    store = KtcStore.load(superflex=not args.one_qb, force_refresh=True)
+    fmt = "1QB" if args.one_qb else "Superflex"
+    print(f"KTC {fmt} dynasty cache refreshed: {len(store.by_name)} players")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Dynasty startup draft assistant for Sleeper")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -235,6 +242,10 @@ def main() -> None:
 
     insights_parser = sub.add_parser("insights", help="Static strategy notes from war.csv")
     insights_parser.set_defaults(func=cmd_insights)
+
+    ktc_parser = sub.add_parser("ktc-refresh", help="Refresh KeepTradeCut dynasty values cache")
+    ktc_parser.add_argument("--1qb", dest="one_qb", action="store_true", help="Fetch 1QB rankings instead of superflex")
+    ktc_parser.set_defaults(func=cmd_ktc_refresh)
 
     args = parser.parse_args()
     args.func(args)

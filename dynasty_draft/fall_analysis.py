@@ -54,6 +54,7 @@ def _score_pool_at_pick(
                 "name": player.name,
                 "pos": player.pos,
                 "trade_value": player.trade_value,
+                "ktc_value": state.ktc_value(player.name),
                 "worp": player.worp,
                 "projected_worp": eff_worp if worp_proj else None,
                 "dynasty_rating": dynasty.get("dynasty_rating"),

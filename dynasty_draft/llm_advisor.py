@@ -66,6 +66,7 @@ def _recent_picks(state: DraftState, limit: int = RECENT_PICKS_LIMIT) -> list[di
                 "name": war.name if war else name,
                 "pos": meta.get("position"),
                 "trade_value": war.trade_value if war else None,
+                "ktc_value": state.ktc_value(war.name if war else name),
                 "worp": war.worp if war else None,
             }
         )
@@ -89,7 +90,8 @@ def _bookend_plan_summary(state: DraftState) -> dict[str, Any]:
 
 def _metric_definitions() -> dict[str, str]:
     return {
-        "trade_value": "Dynasty-daddy market capital (aggregated KTC/FantasyCalc etc.). Higher = more dynasty trade demand.",
+        "trade_value": "Dynasty-daddy blended market capital (war.csv). Higher = more dynasty trade demand.",
+        "ktc_value": "KeepTradeCut crowdsourced dynasty value (SF or 1QB per league). Compare to trade_value for market disagreement.",
         "worp": "Wins over replacement — backward-looking 2024 production. Misleading for rising sophomores.",
         "projected_worp": "Sleeper season VOR → WORP for rookies/thin samples; TV imputation fallback. Prefer over raw worp when present.",
         "dynasty_rating": "50–99 Madden-style rating: 45% TV + 25% proj WORP + 15% ceiling + 10% age + 5% trajectory.",

@@ -6,6 +6,7 @@ from typing import Any
 
 from dynasty_draft.draft_context import build_scoring_context
 from dynasty_draft.dynasty_score import DynastyWeights
+from dynasty_draft.ktc_values import KtcStore
 from dynasty_draft.projections import SleeperProjectionStore
 from dynasty_draft.recommender import DraftState
 from dynasty_draft.sleeper_client import SleeperClient
@@ -93,6 +94,12 @@ def build_state(config: dict[str, Any], *, exit_on_error: bool = True) -> DraftS
         dynasty_weights=DynastyWeights.from_config(config.get("dynasty_weights")),
         strategy=strategy,
     )
+
+    if config.get("ktc_enabled", True):
+        try:
+            state.ktc = KtcStore.load(superflex=state.is_superflex())
+        except Exception:
+            state.ktc = None
 
     try:
         scoring = build_scoring_context(state)

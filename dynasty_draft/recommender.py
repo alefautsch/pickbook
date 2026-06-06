@@ -8,6 +8,7 @@ from dynasty_draft.dynasty_score import DynastyScorer, DynastyWeights
 from dynasty_draft.strategy import DraftStrategy
 from dynasty_draft.war_data import POSITIONS, PlayerValue, WarData, normalize_name
 from dynasty_draft.projections import SleeperProjectionStore
+from dynasty_draft.ktc_values import KtcStore
 from dynasty_draft.worp_projection import WorpProjector
 
 
@@ -32,6 +33,7 @@ class DraftState:
     worp_weight: float = 0.55
     dynasty_weights: DynastyWeights | None = None
     projection_store: SleeperProjectionStore | None = None
+    ktc: KtcStore | None = None
     strategy: DraftStrategy = field(default_factory=DraftStrategy)
     league_users: list[dict[str, Any]] = field(default_factory=list)
 
@@ -171,6 +173,11 @@ class DraftState:
         if not name:
             return None
         return self.war.lookup(name)
+
+    def ktc_value(self, name: str) -> int | None:
+        if self.ktc is None or not name:
+            return None
+        return self.ktc.lookup(name)
 
     def available_players(self) -> list[tuple[str, PlayerValue]]:
         reserved_names = {normalize_name(name) for name in self.strategy.reserved_rookies}
@@ -391,6 +398,7 @@ class DraftState:
                     "team": player.team,
                     "age": dynasty.get("age"),
                     "trade_value": player.trade_value,
+                    "ktc_value": self.ktc_value(player.name),
                     "worp": player.worp,
                     "projected_worp": eff_worp if worp_projected else None,
                     "worp_tier": player.worp_tier,

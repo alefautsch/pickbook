@@ -69,6 +69,7 @@ def _pick_row(state: DraftState, pick: dict[str, Any]) -> dict[str, Any]:
         "name": name,
         "pos": meta.get("position") or (war_player.pos if war_player else ""),
         "trade_value": war_player.trade_value if war_player else None,
+        "ktc_value": state.ktc_value(name),
         "worp": war_player.worp if war_player else None,
         "porp": war_player.porp if war_player else None,
         "projected_worp": None,
@@ -174,6 +175,7 @@ def build_draft_timeline(
         dynasty = dynasty_by_id.get(player_id) or {}
         row["dynasty_rating"] = dynasty.get("dynasty_rating")
         row["dynasty_rookie"] = dynasty.get("dynasty_rookie")
+        row["ktc_value"] = state.ktc_value(war_player.name)
 
     return rows
 
@@ -228,14 +230,16 @@ def _roster_player_from_pick(state: DraftState, pick: dict[str, Any]) -> dict[st
     meta = pick.get("metadata") or {}
     sleeper = state.sleeper_players.get(player_id or "") or {}
     pos = (meta.get("position") or sleeper.get("position") or (war_player.pos if war_player else "")).upper()
+    name = war_player.name if war_player else state._sleeper_name(player_id or "") or "Unknown"
     return {
         "player_id": player_id,
         "pick_no": pick.get("pick_no"),
-        "name": war_player.name if war_player else state._sleeper_name(player_id or "") or "Unknown",
+        "name": name,
         "pos": pos,
         "team": (war_player.team if war_player else sleeper.get("team") or "").upper(),
         "age": _player_age(state, player_id),
         "trade_value": war_player.trade_value if war_player else None,
+        "ktc_value": state.ktc_value(name),
         "worp": war_player.worp if war_player else None,
         "porp": war_player.porp if war_player else None,
         "status": "drafted",
@@ -388,6 +392,7 @@ def build_team_lineup(state: DraftState, roster_id: int, *, include_reserved: bo
                     "team": (war_player.team if war_player else "") or "",
                     "age": _player_age(state, player_id),
                     "trade_value": row.get("trade_value"),
+                    "ktc_value": state.ktc_value(row["name"]),
                     "worp": war_player.worp if war_player else None,
                     "porp": war_player.porp if war_player else None,
                     "status": "reserved",

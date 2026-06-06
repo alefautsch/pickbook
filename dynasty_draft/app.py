@@ -96,11 +96,52 @@ MOBILE_CSS = """
     [data-testid="stCaptionContainer"],
     [data-testid="stCaptionContainer"] p,
     .stCaption {
-        color: #64748b !important;
+        color: #475569 !important;
+        font-size: 0.84rem !important;
+        font-weight: 500 !important;
     }
-    [data-testid="stExpander"] summary,
-    [data-testid="stExpander"] summary span {
+    [data-testid="stExpander"] {
+        margin-bottom: 0.5rem;
+        border: none !important;
+    }
+    [data-testid="stExpander"] details {
+        background: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 12px !important;
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+    }
+    [data-testid="stExpander"] summary {
+        background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%) !important;
         color: #0f172a !important;
+        -webkit-text-fill-color: #0f172a !important;
+        font-weight: 700 !important;
+        font-size: 0.92rem !important;
+        line-height: 1.35 !important;
+        padding: 0.85rem 1rem !important;
+        list-style: none;
+        cursor: pointer;
+    }
+    [data-testid="stExpander"] summary:hover {
+        background: linear-gradient(180deg, #eff6ff 0%, #e0e7ff 100%) !important;
+    }
+    [data-testid="stExpander"] details[open] summary {
+        border-bottom: 1px solid #e2e8f0 !important;
+        background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%) !important;
+    }
+    [data-testid="stExpander"] summary span,
+    [data-testid="stExpander"] summary p,
+    [data-testid="stExpander"] summary div {
+        color: #0f172a !important;
+        -webkit-text-fill-color: #0f172a !important;
+    }
+    [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+        background: #ffffff !important;
+        color: #0f172a !important;
+        padding: 0.65rem 0.75rem 1rem !important;
+    }
+    [data-testid="stExpander"] [data-testid="stExpanderDetails"] * {
+        color: inherit;
     }
     [data-testid="stChatMessage"] {
         background-color: #f8fafc !important;
@@ -160,6 +201,16 @@ MOBILE_CSS = """
         border-radius: 10px;
         font-weight: 600;
     }
+    .stButton > button[kind="primary"],
+    .stButton > button[data-testid="stBaseButton-primary"] {
+        background: linear-gradient(135deg, #1d4ed8, #2563eb) !important;
+        border: none !important;
+        color: #ffffff !important;
+        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.28);
+    }
+    .stButton > button[kind="primary"]:hover {
+        background: linear-gradient(135deg, #1e40af, #1d4ed8) !important;
+    }
     .hero {
         border-radius: 12px;
         padding: 0.85rem 1rem;
@@ -172,25 +223,59 @@ MOBILE_CSS = """
     .hero-wait  { background: linear-gradient(135deg, #c2410c, #ea580c); }
     .hero-book  { background: linear-gradient(135deg, #1d4ed8, #2563eb); }
     .stat-row {
-        display: flex;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 0.5rem;
         margin: 0.5rem 0 0.75rem 0;
     }
+    @media (min-width: 520px) {
+        .stat-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @media (min-width: 680px) {
+        .stat-row { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    }
     .stat-card {
-        flex: 1;
-        background: #f1f5f9;
+        background: #ffffff;
         border: 1px solid #cbd5e1;
         border-radius: 10px;
-        padding: 0.6rem 0.75rem;
+        padding: 0.65rem 0.75rem;
         text-align: center;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
     }
-    .stat-label { font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
-    .stat-value { font-size: 1.1rem; font-weight: 700; color: #0f172a; }
-    .section-title {
-        font-size: 1rem;
+    .stat-label {
+        font-size: 0.68rem;
+        color: #475569;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+    .stat-value { font-size: 1.15rem; font-weight: 800; color: #0f172a; line-height: 1.2; }
+    .team-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        margin: 0 0 0.65rem 0;
+    }
+    .team-chip {
+        display: inline-block;
+        font-size: 0.72rem;
         font-weight: 700;
+        color: #1e3a8a;
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        border-radius: 999px;
+        padding: 0.2rem 0.55rem;
+        white-space: nowrap;
+    }
+    .team-chip-muted { color: #475569; background: #f8fafc; border-color: #e2e8f0; }
+    .section-title {
+        font-size: 1.05rem;
+        font-weight: 800;
         color: #0f172a;
-        margin: 1rem 0 0.5rem 0;
+        margin: 1.15rem 0 0.55rem 0;
+        padding-bottom: 0.35rem;
+        border-bottom: 2px solid #e2e8f0;
+        letter-spacing: -0.01em;
     }
     .table-wrap {
         overflow-x: auto;
@@ -206,14 +291,14 @@ MOBILE_CSS = """
         font-size: 0.82rem;
     }
     .pick-table th {
-        background: #f1f5f9 !important;
-        color: #334155 !important;
-        font-weight: 700;
+        background: #e2e8f0 !important;
+        color: #1e293b !important;
+        font-weight: 800;
         text-transform: uppercase;
-        font-size: 0.62rem;
-        letter-spacing: 0.05em;
-        padding: 0.55rem 0.5rem;
-        border-bottom: 1px solid #cbd5e1 !important;
+        font-size: 0.68rem;
+        letter-spacing: 0.06em;
+        padding: 0.6rem 0.5rem;
+        border-bottom: 2px solid #cbd5e1 !important;
         text-align: left;
         white-space: nowrap;
     }
@@ -315,8 +400,25 @@ MOBILE_CSS = """
         .stat-value, .section-title, .app-title { color: #0f172a !important; }
         [data-testid="stTabs"] button { color: #475569 !important; }
         [data-testid="stTabs"] button[aria-selected="true"] { color: #2563eb !important; }
-        [data-testid="stExpander"] summary,
-        [data-testid="stExpander"] summary span { color: #0f172a !important; }
+        [data-testid="stExpander"] details {
+            background: #ffffff !important;
+            border-color: #cbd5e1 !important;
+        }
+        [data-testid="stExpander"] summary {
+            background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%) !important;
+            color: #0f172a !important;
+            -webkit-text-fill-color: #0f172a !important;
+        }
+        [data-testid="stExpander"] summary span,
+        [data-testid="stExpander"] summary p,
+        [data-testid="stExpander"] summary div {
+            color: #0f172a !important;
+            -webkit-text-fill-color: #0f172a !important;
+        }
+        [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+            background: #ffffff !important;
+            color: #0f172a !important;
+        }
         [data-testid="stChatMessage"] {
             background-color: #f8fafc !important;
             color: #0f172a !important;
@@ -779,6 +881,7 @@ def _recommendation_table_rows(
             *([_fmt_adp_cell(row)] if include_adp else []),
             _fmt_dynasty_cell(row),
             f'<span class="num">{_fmt_tv(row.get("trade_value"))}</span>',
+            f'<span class="num">{_fmt_tv(row.get("ktc_value"))}</span>',
             _fmt_worp_cell(row),
             f'<span class="note">{note}</span>' if note else "",
         ]
@@ -799,7 +902,7 @@ def _render_best_available(state: DraftState) -> None:
     )
     st.markdown(
         _html_table(
-            ["Player", "Pos", "Tm", "ADP", "Dyn", "TV", "WORP", "Note"],
+            ["Player", "Pos", "Tm", "ADP", "Dyn", "TV", "KTC", "WORP", "Note"],
             _recommendation_table_rows(rows, include_pos=True, include_adp=True),
         ),
         unsafe_allow_html=True,
@@ -837,7 +940,7 @@ def _render_quick_picks(state: DraftState) -> None:
         with st.expander(f"{pos} — top {len(rows)}", expanded=pos in ("QB", "WR")):
             st.markdown(
                 _html_table(
-                    ["Player", "Tm", "ADP", "Dyn", "TV", "WORP", "Note"],
+                    ["Player", "Tm", "ADP", "Dyn", "TV", "KTC", "WORP", "Note"],
                     _recommendation_table_rows(rows, include_adp=True),
                 ),
                 unsafe_allow_html=True,
@@ -877,12 +980,14 @@ def _render_draft_timeline(state: DraftState) -> None:
             worp = _fmt_worp_cell(row)
             porp = f'<span class="num">{_fmt_porp(row.get("porp"))}</span>'
             tv = f'<span class="num">{_fmt_tv(row.get("trade_value"))}</span>'
+            ktc = f'<span class="num">{_fmt_tv(row.get("ktc_value"))}</span>'
         else:
             player = '<span class="muted">On the clock</span>' if status == "on_clock" else '<span class="muted">—</span>'
             ovr = '<span class="num muted">—</span>'
             worp = '<span class="num muted">—</span>'
             porp = '<span class="num muted">—</span>'
             tv = '<span class="num muted">—</span>'
+            ktc = '<span class="num muted">—</span>'
 
         body.append(
             [
@@ -894,10 +999,11 @@ def _render_draft_timeline(state: DraftState) -> None:
                 worp,
                 porp,
                 tv,
+                ktc,
             ]
         )
     st.markdown(
-        _html_table(["Pick", "Rd", "Team", "Player", "OVR", "WORP", "PORP", "TV"], body, row_classes),
+        _html_table(["Pick", "Rd", "Team", "Player", "OVR", "WORP", "PORP", "TV", "KTC"], body, row_classes),
         unsafe_allow_html=True,
     )
 
@@ -933,6 +1039,7 @@ def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]
                 "",
                 "",
                 "",
+                "",
             ],
             "row-empty",
         )
@@ -955,6 +1062,7 @@ def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]
             f'<span class="age">{_fmt_age(player.get("age"))}</span>',
             dynasty_cell,
             f'<span class="num tv">{_fmt_tv(player.get("trade_value"))}</span>',
+            f'<span class="num">{_fmt_tv(player.get("ktc_value"))}</span>',
             f'<span class="num worp">{_fmt_worp(player.get("worp"))}</span>',
         ],
         row_class,
@@ -978,7 +1086,7 @@ def _render_lineup_stats(lineup: dict[str, Any], *, team_count: int = 10) -> Non
           <div class="stat-card"><div class="stat-label">Dynasty rank</div>
             <div class="stat-value">{rank_text}</div></div>
           <div class="stat-card"><div class="stat-label">Team OVR</div>
-            {ovr_html}
+            {ovr_html}</div>
           <div class="stat-card"><div class="stat-label">Picks</div>
             <div class="stat-value">{lineup["pick_count"]}</div></div>
           <div class="stat-card"><div class="stat-label">Trade value</div>
@@ -999,7 +1107,7 @@ def _render_lineup_table(lineup: dict[str, Any]) -> None:
         body.append([f'<span class="slot-label">{html.escape(row["slot"])}</span>', *cells])
         row_classes.append(row_class)
 
-    body.append(['<span class="slot-label">BENCH</span>', "", "", "", "", "", "", ""])
+    body.append(['<span class="slot-label">BENCH</span>', "", "", "", "", "", "", "", ""])
     row_classes.append("lineup-divider")
 
     if lineup["bench"]:
@@ -1008,12 +1116,12 @@ def _render_lineup_table(lineup: dict[str, Any]) -> None:
             body.append(["", *cells])
             row_classes.append(row_class)
     else:
-        body.append(["", '<span class="muted">No bench players yet</span>', "", "", "", "", "", ""])
+        body.append(["", '<span class="muted">No bench players yet</span>', "", "", "", "", "", "", ""])
         row_classes.append("row-empty")
 
     st.markdown(
         _html_table(
-            ["", "Player", "Pos", "Tm", "Age", "OVR", "TV", "WORP"],
+            ["", "Player", "Pos", "Tm", "Age", "OVR", "TV", "KTC", "WORP"],
             body,
             row_classes,
             table_class="pick-table lineup-table",
@@ -1039,21 +1147,36 @@ def _render_my_team_tab(state: DraftState) -> None:
         st.caption("Starter needs: " + ", ".join(need_bits))
 
 
+def _team_expander_label(team: dict[str, Any]) -> str:
+    slot = f"1.{team['draft_slot']:02d}" if team.get("draft_slot") else "?"
+    prefix = "★ " if team["is_me"] else ""
+    ovr = team.get("avg_dynasty_rating")
+    ovr_bit = f" · OVR {ovr}" if ovr else ""
+    return f"{prefix}{team['team_name']} · {slot}{ovr_bit}"
+
+
+def _render_team_chips(team: dict[str, Any]) -> None:
+    chips = [
+        f"Dyn #{team['dynasty_rank']}" if team.get("dynasty_rank") else None,
+        f"OVR {team['avg_dynasty_rating']}" if team.get("avg_dynasty_rating") else None,
+        f"{team.get('pick_count', 0)} picks",
+        f"TV {team.get('total_trade_value', 0):,.0f}",
+        f"WORP {_fmt_worp(team.get('starter_worp'))}",
+    ]
+    visible = [chip for chip in chips if chip]
+    chip_html = "".join(
+        f'<span class="team-chip{" team-chip-muted" if i > 1 else ""}">{html.escape(text)}</span>'
+        for i, text in enumerate(visible)
+    )
+    st.markdown(f'<div class="team-chip-row">{chip_html}</div>', unsafe_allow_html=True)
+
+
 def _render_league_tab(state: DraftState) -> None:
     teams = build_league_rankings(state)
     st.caption("Tap a team for full lineup · optimal starters by trade value")
     for team in teams["by_trade_value"]:
-        slot = f"1.{team['draft_slot']:02d}" if team.get("draft_slot") else "?"
-        dyn_rank = team.get("dynasty_rank")
-        ovr = team.get("avg_dynasty_rating")
-        ovr_bit = f" · OVR {ovr}" if ovr else ""
-        rank_bit = f" · Dyn #{dyn_rank}" if dyn_rank else ""
-        label = (
-            f"{'★ ' if team['is_me'] else ''}{team['team_name']} · "
-            f"{slot} · {team['pick_count']} picks{rank_bit}{ovr_bit} · TV {team['total_trade_value']:,.0f}"
-        )
-        with st.expander(label, expanded=team["is_me"]):
-            _render_lineup_stats(team, team_count=state._teams())
+        with st.expander(_team_expander_label(team), expanded=team["is_me"]):
+            _render_team_chips(team)
             if team.get("reserved_count"):
                 st.caption(f"{team['reserved_count']} reserved for rookie draft")
             _render_lineup_table(team)

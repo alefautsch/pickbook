@@ -13,6 +13,7 @@
     "trajectory": 0.05
   },
   "poll_seconds": 20,
+  "ktc_enabled": true,
   "war_csv": "war.csv",
   "strategy": {
     "draft_phase": "vets",
