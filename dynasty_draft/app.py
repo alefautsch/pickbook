@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import os
 from datetime import datetime, timedelta
 from typing import Any
@@ -8,7 +9,7 @@ import streamlit as st
 
 from dynasty_draft.builder import build_state
 from dynasty_draft.config import load_config, save_config
-from dynasty_draft.draft_context import build_league_team_rosters
+from dynasty_draft.draft_context import build_draft_timeline, build_league_team_rosters
 from dynasty_draft.llm_advisor import stream_evaluate_picks
 from dynasty_draft.pick_projector import project_next_picks
 from dynasty_draft.recommender import DraftState
@@ -22,8 +23,47 @@ st.set_page_config(
 
 MOBILE_CSS = """
 <style>
-    .block-container { padding-top: 0.75rem; padding-bottom: 2rem; max-width: 680px; }
-    h1 { font-size: 1.75rem !important; margin-bottom: 0 !important; }
+    header[data-testid="stHeader"] { display: none; }
+    [data-testid="stToolbar"] { display: none; }
+    .stApp {
+        margin-top: 0;
+    }
+    .block-container {
+        padding-top: max(1.25rem, calc(env(safe-area-inset-top, 0px) + 0.75rem)) !important;
+        padding-left: max(1rem, env(safe-area-inset-left, 0px)) !important;
+        padding-right: max(1rem, env(safe-area-inset-right, 0px)) !important;
+        padding-bottom: 2rem;
+        max-width: 680px;
+    }
+    .app-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 0.25rem;
+    }
+    .app-title {
+        font-size: 1.65rem;
+        font-weight: 800;
+        color: #0f172a;
+        line-height: 1.15;
+        letter-spacing: -0.02em;
+    }
+    .app-subtitle {
+        font-size: 0.85rem;
+        color: #64748b;
+        margin-top: 0.15rem;
+    }
+    div[data-testid="column"]:last-child {
+        padding-top: 0.2rem;
+    }
+    div[data-testid="column"]:last-child .stButton > button {
+        min-height: 2.35rem;
+        padding: 0.35rem 0.85rem;
+        font-size: 0.85rem;
+        border-radius: 999px;
+    }
+    [data-testid="stTabs"] { margin-top: 0.25rem; }
     [data-testid="stTabs"] button { font-size: 0.95rem; font-weight: 600; }
     .stButton > button {
         min-height: 2.75rem;
@@ -56,12 +96,64 @@ MOBILE_CSS = """
     }
     .stat-label { font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
     .stat-value { font-size: 1.1rem; font-weight: 700; color: #0f172a; }
-    .player-row {
-        padding: 0.55rem 0;
-        border-bottom: 1px solid #e2e8f0;
-        font-size: 0.92rem;
+    .section-title {
+        font-size: 1rem;
+        font-weight: 700;
         color: #0f172a;
+        margin: 1rem 0 0.5rem 0;
     }
+    .table-wrap {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        margin-bottom: 0.75rem;
+        background: #fff;
+    }
+    .pick-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.82rem;
+    }
+    .pick-table th {
+        background: #f8fafc;
+        color: #64748b;
+        font-weight: 600;
+        text-transform: uppercase;
+        font-size: 0.62rem;
+        letter-spacing: 0.05em;
+        padding: 0.55rem 0.5rem;
+        border-bottom: 1px solid #e2e8f0;
+        text-align: left;
+        white-space: nowrap;
+    }
+    .pick-table td {
+        padding: 0.55rem 0.5rem;
+        border-bottom: 1px solid #f1f5f9;
+        color: #0f172a;
+        vertical-align: middle;
+    }
+    .pick-table tr:last-child td { border-bottom: none; }
+    .pick-table .num { text-align: right; font-variant-numeric: tabular-nums; color: #334155; }
+    .pick-table .pos {
+        font-size: 0.68rem;
+        font-weight: 700;
+        color: #475569;
+        background: #f1f5f9;
+        border-radius: 4px;
+        padding: 0.1rem 0.35rem;
+    }
+    .pick-table tr.row-me { background: #eff6ff; }
+    .pick-table tr.row-clock { background: #fff7ed; }
+    .pick-table tr.row-clock td:first-child {
+        box-shadow: inset 3px 0 0 #ea580c;
+    }
+    .pick-table tr.row-mine td:first-child {
+        box-shadow: inset 3px 0 0 #2563eb;
+    }
+    .pick-table .player { font-weight: 600; }
+    .pick-table .muted { color: #94a3b8; font-style: italic; }
+    .pick-table .note { font-size: 0.72rem; color: #64748b; max-width: 7rem; }
     .note-box {
         background: #eff6ff;
         border: 1px solid #bfdbfe;
@@ -227,10 +319,27 @@ def _render_llm_tab(state: DraftState, config: dict[str, Any]) -> None:
             st.markdown(f"#{row['pick_no']} **{row['team']}** → {row['name']} ({row['pos']})")
 
 
-def _player_line(row: dict[str, Any]) -> str:
-    worp = f" · WORP {row['worp']:.2f}" if row.get("worp") is not None else ""
-    note = f" · {row['note']}" if row.get("note") else ""
-    return f"**{row['name']}** ({row['team']}) · TV {row['trade_value']:,.0f}{worp}{note}"
+def _fmt_tv(value: float | int | None) -> str:
+    return f"{value:,.0f}" if value is not None else "—"
+
+
+def _fmt_worp(value: float | None) -> str:
+    return f"{value:.2f}" if value is not None else "—"
+
+
+def _html_table(headers: list[str], body_rows: list[list[str]], row_classes: list[str] | None = None) -> str:
+    head = "".join(f"<th>{html.escape(h)}</th>" for h in headers)
+    rows_html: list[str] = []
+    for i, cells in enumerate(body_rows):
+        cls = row_classes[i] if row_classes else ""
+        class_attr = f' class="{cls}"' if cls else ""
+        tds = "".join(f"<td>{cell}</td>" for cell in cells)
+        rows_html.append(f"<tr{class_attr}>{tds}</tr>")
+    return (
+        f'<div class="table-wrap"><table class="pick-table">'
+        f"<thead><tr>{head}</tr></thead>"
+        f"<tbody>{''.join(rows_html)}</tbody></table></div>"
+    )
 
 
 def _render_quick_picks(state: DraftState) -> None:
@@ -240,8 +349,71 @@ def _render_quick_picks(state: DraftState) -> None:
         if not rows:
             continue
         with st.expander(f"{pos} — top {len(rows)}", expanded=pos in ("QB", "WR")):
+            body: list[list[str]] = []
             for row in rows:
-                st.markdown(f'<div class="player-row">{_player_line(row)}</div>', unsafe_allow_html=True)
+                note = html.escape(row["note"]) if row.get("note") else ""
+                body.append(
+                    [
+                        f'<span class="player">{html.escape(row["name"])}</span>',
+                        html.escape(row.get("team") or ""),
+                        f'<span class="num">{_fmt_tv(row.get("trade_value"))}</span>',
+                        f'<span class="num">{_fmt_worp(row.get("worp"))}</span>',
+                        f'<span class="note">{note}</span>' if note else "",
+                    ]
+                )
+            st.markdown(
+                _html_table(["Player", "Tm", "TV", "WORP", "Note"], body),
+                unsafe_allow_html=True,
+            )
+
+
+def _render_draft_timeline(state: DraftState) -> None:
+    timeline = build_draft_timeline(state, past=8, upcoming=10)
+    if not timeline:
+        return
+    st.markdown('<div class="section-title">Draft timeline</div>', unsafe_allow_html=True)
+    body: list[list[str]] = []
+    row_classes: list[str] = []
+    for row in timeline:
+        status = row.get("status", "done")
+        if status == "on_clock":
+            row_classes.append("row-clock")
+        elif row.get("is_me"):
+            row_classes.append("row-me" if status == "done" else "row-me row-mine")
+        else:
+            row_classes.append("")
+
+        pick_label = f"#{row['pick_no']}"
+        if status == "on_clock":
+            pick_label = f"#{row['pick_no']} ●"
+
+        team = html.escape(str(row.get("team") or ""))
+        if row.get("is_me") and status != "done":
+            team = f"<strong>{team}</strong>"
+
+        if row.get("name"):
+            player = (
+                f'<span class="player">{html.escape(row["name"])}</span> '
+                f'<span class="pos">{html.escape(row.get("pos") or "")}</span>'
+            )
+            tv = f'<span class="num">{_fmt_tv(row.get("trade_value"))}</span>'
+        else:
+            player = '<span class="muted">On the clock</span>' if status == "on_clock" else '<span class="muted">—</span>'
+            tv = '<span class="num muted">—</span>'
+
+        body.append(
+            [
+                pick_label,
+                str(row.get("round") or ""),
+                team,
+                player,
+                tv,
+            ]
+        )
+    st.markdown(
+        _html_table(["Pick", "Rd", "Team", "Player", "TV"], body, row_classes),
+        unsafe_allow_html=True,
+    )
 
 
 def _render_draft_tab(state: DraftState, config: dict[str, Any]) -> None:
@@ -255,7 +427,8 @@ def _render_draft_tab(state: DraftState, config: dict[str, Any]) -> None:
         _render_stats(live_state)
         for note in live_state.strategy.strategy_notes(live_state.war):
             st.markdown(f'<div class="note-box">{note}</div>', unsafe_allow_html=True)
-        st.subheader("Quick picks")
+        _render_draft_timeline(live_state)
+        st.markdown('<div class="section-title">Quick picks</div>', unsafe_allow_html=True)
         _render_quick_picks(live_state)
 
     live_board()
@@ -318,14 +491,23 @@ def main() -> None:
     st.markdown(MOBILE_CSS, unsafe_allow_html=True)
 
     config = st.session_state.config
-    header = st.columns([4, 1])
+    state = _load_state(config)
+    draft_name = (
+        (state.draft.get("metadata") or {}).get("name") if state else None
+    ) or "Dynasty draft companion"
+    subtitle = html.escape(draft_name)
+
+    header = st.columns([5, 1])
     with header[0]:
-        st.title("Pickbook")
+        st.markdown(
+            f'<div class="app-header"><div><div class="app-title">Pickbook</div>'
+            f'<div class="app-subtitle">{subtitle}</div></div></div>',
+            unsafe_allow_html=True,
+        )
     with header[1]:
         if st.button("Sync", type="primary", use_container_width=True):
             st.rerun()
 
-    state = _load_state(config)
     if state is None:
         st.info("Add your Sleeper username in Settings.")
         tab_ask, tab_draft, tab_team, tab_league, tab_settings = st.tabs(
@@ -334,9 +516,6 @@ def main() -> None:
         with tab_settings:
             _render_settings_tab(config)
         return
-
-    draft_name = (state.draft.get("metadata") or {}).get("name") or "Draft"
-    st.caption(draft_name)
 
     tab_ask, tab_draft, tab_team, tab_league, tab_settings = st.tabs(
         ["Ask", "Draft", "Team", "League", "Settings"]
