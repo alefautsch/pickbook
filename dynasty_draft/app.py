@@ -14,7 +14,13 @@ from dynasty_draft.draft_context import (
     build_league_rankings,
     build_my_team_lineup,
 )
-from dynasty_draft.llm_advisor import stream_evaluate_picks
+from dynasty_draft.llm_advisor import (
+    ADVISOR_MODELS,
+    advisor_model_by_id,
+    build_advisor_context,
+    build_initial_user_message,
+    stream_advisor_reply,
+)
 from dynasty_draft.pick_projector import project_next_picks
 from dynasty_draft.recommender import DraftState
 
@@ -27,10 +33,16 @@ st.set_page_config(
 
 MOBILE_CSS = """
 <style>
+    :root { color-scheme: light; }
     header[data-testid="stHeader"] { display: none; }
     [data-testid="stToolbar"] { display: none; }
-    .stApp {
+    .stApp,
+    [data-testid="stAppViewContainer"],
+    .main .block-container {
         margin-top: 0;
+        background-color: #ffffff !important;
+        color: #0f172a !important;
+        color-scheme: light !important;
     }
     .block-container {
         padding-top: max(1.25rem, calc(env(safe-area-inset-top, 0px) + 0.75rem)) !important;
@@ -68,7 +80,29 @@ MOBILE_CSS = """
         border-radius: 999px;
     }
     [data-testid="stTabs"] { margin-top: 0.25rem; }
-    [data-testid="stTabs"] button { font-size: 0.95rem; font-weight: 600; }
+    [data-testid="stTabs"] button {
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: #475569 !important;
+        background-color: transparent !important;
+    }
+    [data-testid="stTabs"] button[aria-selected="true"] {
+        color: #2563eb !important;
+        border-color: #2563eb !important;
+    }
+    [data-testid="stCaptionContainer"],
+    [data-testid="stCaptionContainer"] p,
+    .stCaption {
+        color: #64748b !important;
+    }
+    [data-testid="stExpander"] summary,
+    [data-testid="stExpander"] summary span {
+        color: #0f172a !important;
+    }
+    [data-testid="stChatMessage"],
+    [data-testid="stChatMessage"] p {
+        color: #0f172a !important;
+    }
     .stButton > button {
         min-height: 2.75rem;
         border-radius: 10px;
@@ -120,21 +154,22 @@ MOBILE_CSS = """
         font-size: 0.82rem;
     }
     .pick-table th {
-        background: #f8fafc;
-        color: #64748b;
-        font-weight: 600;
+        background: #f1f5f9 !important;
+        color: #334155 !important;
+        font-weight: 700;
         text-transform: uppercase;
         font-size: 0.62rem;
         letter-spacing: 0.05em;
         padding: 0.55rem 0.5rem;
-        border-bottom: 1px solid #e2e8f0;
+        border-bottom: 1px solid #cbd5e1 !important;
         text-align: left;
         white-space: nowrap;
     }
     .pick-table td {
         padding: 0.55rem 0.5rem;
         border-bottom: 1px solid #f1f5f9;
-        color: #0f172a;
+        color: #0f172a !important;
+        background: #ffffff !important;
         vertical-align: middle;
     }
     .pick-table tr:last-child td { border-bottom: none; }
@@ -200,6 +235,27 @@ MOBILE_CSS = """
         color: #1e3a5f;
     }
     [data-testid="stSidebar"] { display: none; }
+
+    @media (prefers-color-scheme: dark) {
+        .stApp,
+        [data-testid="stAppViewContainer"],
+        .main .block-container {
+            background-color: #ffffff !important;
+            color: #0f172a !important;
+        }
+        .table-wrap { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        .pick-table th {
+            background: #f1f5f9 !important;
+            color: #334155 !important;
+        }
+        .pick-table td { color: #0f172a !important; background: #ffffff !important; }
+        .stat-card { background: #f1f5f9 !important; border-color: #cbd5e1 !important; }
+        .stat-value, .section-title, .app-title { color: #0f172a !important; }
+        [data-testid="stTabs"] button { color: #475569 !important; }
+        [data-testid="stTabs"] button[aria-selected="true"] { color: #2563eb !important; }
+        [data-testid="stExpander"] summary,
+        [data-testid="stExpander"] summary span { color: #0f172a !important; }
+    }
 </style>
 """
 
@@ -207,16 +263,20 @@ MOBILE_CSS = """
 def _init_session() -> None:
     if "config" not in st.session_state:
         st.session_state.config = load_config()
-    if "llm_result" not in st.session_state:
-        st.session_state.llm_result = ""
     if "anthropic_api_key" not in st.session_state:
         st.session_state.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if "moonshot_api_key" not in st.session_state:
+        st.session_state.moonshot_api_key = os.environ.get("MOONSHOT_API_KEY", "").strip()
+    if "advisor_model_id" not in st.session_state:
+        st.session_state.advisor_model_id = ADVISOR_MODELS[0]["id"]
+    if "llm_thread_key" not in st.session_state:
+        st.session_state.llm_thread_key = ""
+    if "llm_messages" not in st.session_state:
+        st.session_state.llm_messages = []
     if "auto_refresh" not in st.session_state:
         st.session_state.auto_refresh = True
     if "last_sync_at" not in st.session_state:
         st.session_state.last_sync_at = None
-    if "llm_question_key" not in st.session_state:
-        st.session_state.llm_question_key = ""
 
 
 def _load_state(config: dict[str, Any]) -> DraftState | None:
@@ -326,41 +386,109 @@ def _render_projection_preview(state: DraftState) -> None:
         st.caption(f"Likely gone before next bookend: {top_gone}")
 
 
+def _llm_thread_key(state: DraftState) -> str:
+    info = state.next_pick_info()
+    return f"{len(state.picks)}_{info.get('pick_no')}"
+
+
+def _sync_llm_thread(state: DraftState) -> None:
+    thread_key = _llm_thread_key(state)
+    if st.session_state.llm_thread_key != thread_key:
+        st.session_state.llm_thread_key = thread_key
+        st.session_state.llm_messages = []
+
+
+def _advisor_api_key(provider: str) -> str:
+    if provider == "moonshot":
+        return st.session_state.moonshot_api_key
+    return st.session_state.anthropic_api_key
+
+
+def _run_advisor_turn(state: DraftState, config: dict[str, Any], user_text: str) -> None:
+    user_text = user_text.strip()
+    if not user_text:
+        return
+
+    model_row = advisor_model_by_id(st.session_state.advisor_model_id)
+    provider = model_row["provider"]
+    api_key = _advisor_api_key(provider)
+    if not api_key:
+        st.error(f"Add a {model_row['label']} API key in Settings or .env.")
+        return
+
+    fresh = build_state(config, exit_on_error=False)
+    is_first_turn = not st.session_state.llm_messages
+    if is_first_turn:
+        context = build_advisor_context(fresh)
+        user_content = build_initial_user_message(context, user_text)
+    else:
+        user_content = user_text
+
+    st.session_state.llm_messages.append(
+        {"role": "user", "content": user_content, "label": user_text}
+    )
+    api_messages = [
+        {"role": m["role"], "content": m["content"]}
+        for m in st.session_state.llm_messages
+        if m["role"] in ("user", "assistant")
+    ]
+
+    try:
+        def _stream() -> Any:
+            yield from stream_advisor_reply(
+                api_key,
+                provider=provider,  # type: ignore[arg-type]
+                model=model_row["model"],
+                messages=api_messages,
+            )
+
+        reply = st.write_stream(_stream)
+        st.session_state.llm_messages.append({"role": "assistant", "content": reply})
+    except Exception as exc:
+        st.session_state.llm_messages.pop()
+        st.error(f"AI advisor failed: {exc}")
+
+
 def _render_llm_tab(state: DraftState, config: dict[str, Any]) -> None:
     _render_hero(state)
     _render_stats(state)
     _render_projection_preview(state)
+    _sync_llm_thread(state)
 
-    info = state.next_pick_info()
-    question_key = f"llm_q_{len(state.picks)}_{info.get('pick_no')}"
-    if st.session_state.llm_question_key != question_key:
-        st.session_state.llm_question_key = question_key
-        st.session_state[question_key] = _default_llm_question(state)
+    controls = st.columns([3, 1])
+    with controls[0]:
+        model_labels = {row["id"]: row["label"] for row in ADVISOR_MODELS}
+        st.selectbox(
+            "Model",
+            options=list(model_labels.keys()),
+            format_func=lambda key: model_labels[key],
+            label_visibility="collapsed",
+            key="advisor_model_id",
+        )
+    with controls[1]:
+        if st.button("New chat", use_container_width=True):
+            st.session_state.llm_messages = []
+            st.rerun()
 
-    question = st.text_area(
-        "Question",
-        height=88,
-        key=question_key,
-        label_visibility="collapsed",
-        placeholder="Ask about pairings, who falls, what to grab before they're gone…",
-    )
+    model_row = advisor_model_by_id(st.session_state.advisor_model_id)
+    if not _advisor_api_key(model_row["provider"]):
+        st.caption(f"Set {'MOONSHOT_API_KEY' if model_row['provider'] == 'moonshot' else 'ANTHROPIC_API_KEY'} to chat.")
 
-    if st.button("Ask Claude", type="primary", use_container_width=True, disabled=not st.session_state.anthropic_api_key):
-        try:
-            fresh = build_state(config, exit_on_error=False)
+    for msg in st.session_state.llm_messages:
+        with st.chat_message(msg["role"]):
+            shown = msg.get("label") if msg["role"] == "user" and msg.get("label") else msg["content"]
+            st.markdown(shown)
 
-            def _stream() -> Any:
-                yield from stream_evaluate_picks(
-                    fresh,
-                    st.session_state.anthropic_api_key,
-                    user_question=question,
-                )
+    if not st.session_state.llm_messages:
+        suggested = _default_llm_question(state)
+        if st.button("Ask suggested question", use_container_width=True):
+            _run_advisor_turn(state, config, suggested)
+            st.rerun()
 
-            st.session_state.llm_result = st.write_stream(_stream)
-        except Exception as exc:
-            st.error(f"AI advisor failed: {exc}")
-    elif st.session_state.llm_result:
-        st.markdown(st.session_state.llm_result)
+    prompt = st.chat_input("Ask or follow up…")
+    if prompt:
+        _run_advisor_turn(state, config, prompt)
+        st.rerun()
 
     with st.expander("Bookend projection detail"):
         proj = project_next_picks(state)
@@ -708,6 +836,8 @@ def _render_settings_tab(config: dict[str, Any]) -> None:
     strategy["reserved_rookies"] = [line.strip() for line in reserved_text.splitlines() if line.strip()]
     if not st.session_state.anthropic_api_key:
         st.session_state.anthropic_api_key = st.text_input("Anthropic API key", type="password")
+    if not st.session_state.moonshot_api_key:
+        st.session_state.moonshot_api_key = st.text_input("Moonshot API key (Kimi)", type="password")
     if st.button("Save settings", use_container_width=True):
         save_config(config)
         st.success("Saved")

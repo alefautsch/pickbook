@@ -2,17 +2,43 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, Literal
 
 import anthropic
+import requests
 
 from dynasty_draft.draft_context import build_league_team_rosters, build_scoring_context
 from dynasty_draft.pick_projector import project_next_picks
 from dynasty_draft.recommender import DraftState
 
+Provider = Literal["anthropic", "moonshot"]
+
 DEFAULT_MODEL = "claude-sonnet-4-6"
+MOONSHOT_BASE_URL = "https://api.moonshot.ai/v1"
 RECENT_PICKS_LIMIT = 24
 AVAILABLE_PER_POSITION = 12
+
+ADVISOR_MODELS: list[dict[str, str]] = [
+    {
+        "id": "claude-sonnet-4-6",
+        "label": "Claude Sonnet 4.6",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-6",
+    },
+    {
+        "id": "kimi-k2.6",
+        "label": "Kimi K2.6",
+        "provider": "moonshot",
+        "model": "kimi-k2.6",
+    },
+]
+
+
+def advisor_model_by_id(model_id: str) -> dict[str, str]:
+    for row in ADVISOR_MODELS:
+        if row["id"] == model_id:
+            return row
+    return ADVISOR_MODELS[0]
 
 
 def _recent_picks(state: DraftState, limit: int = RECENT_PICKS_LIMIT) -> list[dict[str, Any]]:
@@ -133,10 +159,11 @@ Account for:
 - Superflex / 2QB leagues (QB premium is real)
 - Tier cliffs in the data
 
+On follow-up messages, stay concise and reference prior advice when helpful.
 Format with clear headings. Keep under 800 words unless the decision is complex."""
 
 
-def _user_prompt(context: dict[str, Any], user_question: str) -> str:
+def build_initial_user_message(context: dict[str, Any], user_question: str) -> str:
     payload = json.dumps(context, indent=2, default=str)
     question = user_question.strip() or (
         "I'm at the bookend with two picks in a row. What should I take with each pick "
@@ -149,6 +176,90 @@ Question:
 {question}"""
 
 
+def _stream_anthropic(
+    *,
+    api_key: str,
+    model: str,
+    messages: list[dict[str, str]],
+    max_tokens: int = 2500,
+) -> Iterator[str]:
+    client = anthropic.Anthropic(api_key=api_key.strip())
+    with client.messages.stream(
+        model=model,
+        max_tokens=max_tokens,
+        system=_system_prompt(),
+        messages=messages,
+    ) as stream:
+        yield from stream.text_stream
+
+
+def _stream_moonshot(
+    *,
+    api_key: str,
+    model: str,
+    messages: list[dict[str, str]],
+    max_tokens: int = 2500,
+) -> Iterator[str]:
+    payload = {
+        "model": model,
+        "messages": [{"role": "system", "content": _system_prompt()}, *messages],
+        "max_tokens": max_tokens,
+        "stream": True,
+        "temperature": 0.6,
+        "thinking": {"type": "disabled"},
+    }
+    response = requests.post(
+        f"{MOONSHOT_BASE_URL}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {api_key.strip()}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        stream=True,
+        timeout=180,
+    )
+    response.raise_for_status()
+    for line in response.iter_lines(decode_unicode=True):
+        if not line or not line.startswith("data: "):
+            continue
+        data = line[6:].strip()
+        if data == "[DONE]":
+            break
+        try:
+            chunk = json.loads(data)
+        except json.JSONDecodeError:
+            continue
+        choices = chunk.get("choices") or []
+        if not choices:
+            continue
+        delta = choices[0].get("delta") or {}
+        text = delta.get("content")
+        if text:
+            yield text
+
+
+def stream_advisor_reply(
+    api_key: str,
+    *,
+    provider: Provider,
+    model: str,
+    messages: list[dict[str, str]],
+) -> Iterator[str]:
+    if not api_key.strip():
+        raise ValueError("API key is required for the selected advisor.")
+
+    if not messages or messages[-1]["role"] != "user":
+        raise ValueError("Last message must be from the user.")
+
+    if provider == "anthropic":
+        yield from _stream_anthropic(api_key=api_key, model=model, messages=messages)
+        return
+    if provider == "moonshot":
+        yield from _stream_moonshot(api_key=api_key, model=model, messages=messages)
+        return
+    raise ValueError(f"Unsupported provider: {provider}")
+
+
 def stream_evaluate_picks(
     state: DraftState,
     api_key: str,
@@ -157,23 +268,20 @@ def stream_evaluate_picks(
     model: str = DEFAULT_MODEL,
     per_position: int = AVAILABLE_PER_POSITION,
 ) -> Iterator[str]:
-    if not api_key.strip():
-        raise ValueError("Anthropic API key is required.")
-
+    """Single-turn helper (CLI / legacy)."""
+    row = advisor_model_by_id(model)
     context = build_advisor_context(state, per_position=per_position)
-    client = anthropic.Anthropic(api_key=api_key.strip())
-    with client.messages.stream(
-        model=model,
-        max_tokens=2500,
-        system=_system_prompt(),
+    yield from stream_advisor_reply(
+        api_key,
+        provider=row["provider"],  # type: ignore[arg-type]
+        model=row["model"],
         messages=[
             {
                 "role": "user",
-                "content": _user_prompt(context, user_question),
+                "content": build_initial_user_message(context, user_question),
             }
         ],
-    ) as stream:
-        yield from stream.text_stream
+    )
 
 
 def evaluate_picks(
