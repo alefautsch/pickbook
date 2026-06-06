@@ -866,9 +866,15 @@ def _render_draft_timeline(state: DraftState) -> None:
                 f'<span class="player">{html.escape(row["name"])}</span> '
                 f'<span class="pos">{html.escape(row.get("pos") or "")}</span>'
             )
+            ovr = _fmt_dynasty_rating(row.get("dynasty_rating"))
+            worp = _fmt_worp_cell(row)
+            porp = f'<span class="num">{_fmt_porp(row.get("porp"))}</span>'
             tv = f'<span class="num">{_fmt_tv(row.get("trade_value"))}</span>'
         else:
             player = '<span class="muted">On the clock</span>' if status == "on_clock" else '<span class="muted">—</span>'
+            ovr = '<span class="num muted">—</span>'
+            worp = '<span class="num muted">—</span>'
+            porp = '<span class="num muted">—</span>'
             tv = '<span class="num muted">—</span>'
 
         body.append(
@@ -877,11 +883,14 @@ def _render_draft_timeline(state: DraftState) -> None:
                 str(row.get("round") or ""),
                 team,
                 player,
+                ovr,
+                worp,
+                porp,
                 tv,
             ]
         )
     st.markdown(
-        _html_table(["Pick", "Rd", "Team", "Player", "TV"], body, row_classes),
+        _html_table(["Pick", "Rd", "Team", "Player", "OVR", "WORP", "PORP", "TV"], body, row_classes),
         unsafe_allow_html=True,
     )
 

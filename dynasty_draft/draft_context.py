@@ -69,6 +69,9 @@ def _pick_row(state: DraftState, pick: dict[str, Any]) -> dict[str, Any]:
         "pos": meta.get("position") or (war_player.pos if war_player else ""),
         "trade_value": war_player.trade_value if war_player else None,
         "worp": war_player.worp if war_player else None,
+        "porp": war_player.porp if war_player else None,
+        "projected_worp": None,
+        "dynasty_rating": None,
     }
 
 
@@ -140,10 +143,36 @@ def build_draft_timeline(
                 "pos": "",
                 "trade_value": None,
                 "worp": None,
+                "porp": None,
+                "projected_worp": None,
+                "dynasty_rating": None,
                 "status": status,
                 "is_me": is_me,
             }
         )
+
+    pool: list[tuple[str, Any]] = []
+    enrich_by_pick: dict[int, tuple[str, Any]] = {}
+    for row in rows:
+        if row.get("status") != "done":
+            continue
+        pick = picks_by_no.get(int(row["pick_no"]))
+        if not pick:
+            continue
+        player_id = pick.get("player_id")
+        war_player = state._match_war(player_id) if player_id else None
+        if player_id and war_player:
+            pool.append((player_id, war_player))
+            enrich_by_pick[int(row["pick_no"])] = (player_id, war_player)
+
+    dynasty_by_id = state.dynasty_scores(pool) if pool else {}
+    for pick_no, (player_id, war_player) in enrich_by_pick.items():
+        row = next(r for r in rows if r.get("pick_no") == pick_no)
+        eff_worp, worp_projected = state._effective_worp(player_id, war_player)
+        row["projected_worp"] = eff_worp if worp_projected else None
+        dynasty = dynasty_by_id.get(player_id) or {}
+        row["dynasty_rating"] = dynasty.get("dynasty_rating")
+
     return rows
 
 
