@@ -14,6 +14,10 @@
   },
   "poll_seconds": 20,
   "ktc_enabled": true,
+  "trade_value_blend": {
+    "dd_weight": 0.5,
+    "ktc_weight": 0.5
+  },
   "war_csv": "war.csv",
   "strategy": {
     "draft_phase": "vets",

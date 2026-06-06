@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from dynasty_draft.adp import AdpIndex
 from dynasty_draft.pick_values import _simulate_through
 from dynasty_draft.recommender import DraftState
 from dynasty_draft.worp_projection import WorpProjector
@@ -17,9 +16,9 @@ def _score_pool_at_pick(
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     """Rank simulated remaining pool the way the user would at a future pick."""
-    adp = AdpIndex(state.war)
+    adp = state._adp_index()
     round_no = (pick_no - 1) // state._teams() + 1
-    fake_available = list(pool)
+    fake_available = state.blend_pool(list(pool))
     if not fake_available:
         return []
 
@@ -54,7 +53,6 @@ def _score_pool_at_pick(
                 "name": player.name,
                 "pos": player.pos,
                 "trade_value": player.trade_value,
-                "ktc_value": state.ktc_value(player.name),
                 "worp": player.worp,
                 "projected_worp": eff_worp if worp_proj else None,
                 "dynasty_rating": dynasty.get("dynasty_rating"),
@@ -106,7 +104,7 @@ def build_fall_analysis(state: DraftState) -> dict[str, Any]:
                                 "name": p.name,
                                 "pos": p.pos,
                                 "trade_value": p.trade_value,
-                                "adp_pick": AdpIndex(state.war).pick_no(p.name),
+                                "adp_pick": state._adp_index().pick_no(p.name),
                             }
                             for _, p in pool
                         ],

@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from dynasty_draft.war_data import WarData, normalize_name
+from collections.abc import Callable
+
+from dynasty_draft.war_data import PlayerValue, WarData, normalize_name
 
 
 class AdpIndex:
-    """Consensus ADP from dynasty-daddy trade value (higher TV = earlier pick)."""
+    """Consensus ADP from trade value rank (higher TV = earlier pick)."""
 
-    def __init__(self, war: WarData) -> None:
-        ranked = sorted(war.players, key=lambda p: p.trade_value, reverse=True)
+    def __init__(self, war: WarData, tv_getter: Callable[[PlayerValue], float] | None = None) -> None:
+        getter = tv_getter or (lambda player: player.trade_value)
+        ranked = sorted(war.players, key=getter, reverse=True)
         self._by_name: dict[str, int] = {}
         for index, player in enumerate(ranked, start=1):
             key = normalize_name(player.name)

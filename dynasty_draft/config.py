@@ -23,6 +23,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "trajectory": 0.05,
     },
     "poll_seconds": 20,
+    "ktc_enabled": True,
+    "trade_value_blend": {
+        "dd_weight": 0.5,
+        "ktc_weight": 0.5,
+    },
     "war_csv": "war.csv",
     "strategy": {
         "draft_phase": "vets",

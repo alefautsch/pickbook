@@ -881,7 +881,6 @@ def _recommendation_table_rows(
             *([_fmt_adp_cell(row)] if include_adp else []),
             _fmt_dynasty_cell(row),
             f'<span class="num">{_fmt_tv(row.get("trade_value"))}</span>',
-            f'<span class="num">{_fmt_tv(row.get("ktc_value"))}</span>',
             _fmt_worp_cell(row),
             f'<span class="note">{note}</span>' if note else "",
         ]
@@ -897,12 +896,13 @@ def _render_best_available(state: DraftState) -> None:
     st.markdown('<div class="section-title">Best available</div>', unsafe_allow_html=True)
     st.caption(
         f"ADP vs pick #{ref} (green = value). "
+        "TV = blended dynasty-daddy + KTC. "
         "Dyn = 50–99 rating (TV + proj WORP + ceiling + age + trajectory). "
         "WORP* = projected for rookies/sophomores. Sorted by pick fit, not Dyn."
     )
     st.markdown(
         _html_table(
-            ["Player", "Pos", "Tm", "ADP", "Dyn", "TV", "KTC", "WORP", "Note"],
+            ["Player", "Pos", "Tm", "ADP", "Dyn", "TV", "WORP", "Note"],
             _recommendation_table_rows(rows, include_pos=True, include_adp=True),
         ),
         unsafe_allow_html=True,
@@ -940,7 +940,7 @@ def _render_quick_picks(state: DraftState) -> None:
         with st.expander(f"{pos} — top {len(rows)}", expanded=pos in ("QB", "WR")):
             st.markdown(
                 _html_table(
-                    ["Player", "Tm", "ADP", "Dyn", "TV", "KTC", "WORP", "Note"],
+                    ["Player", "Tm", "ADP", "Dyn", "TV", "WORP", "Note"],
                     _recommendation_table_rows(rows, include_adp=True),
                 ),
                 unsafe_allow_html=True,
@@ -980,14 +980,12 @@ def _render_draft_timeline(state: DraftState) -> None:
             worp = _fmt_worp_cell(row)
             porp = f'<span class="num">{_fmt_porp(row.get("porp"))}</span>'
             tv = f'<span class="num">{_fmt_tv(row.get("trade_value"))}</span>'
-            ktc = f'<span class="num">{_fmt_tv(row.get("ktc_value"))}</span>'
         else:
             player = '<span class="muted">On the clock</span>' if status == "on_clock" else '<span class="muted">—</span>'
             ovr = '<span class="num muted">—</span>'
             worp = '<span class="num muted">—</span>'
             porp = '<span class="num muted">—</span>'
             tv = '<span class="num muted">—</span>'
-            ktc = '<span class="num muted">—</span>'
 
         body.append(
             [
@@ -999,11 +997,10 @@ def _render_draft_timeline(state: DraftState) -> None:
                 worp,
                 porp,
                 tv,
-                ktc,
             ]
         )
     st.markdown(
-        _html_table(["Pick", "Rd", "Team", "Player", "OVR", "WORP", "PORP", "TV", "KTC"], body, row_classes),
+        _html_table(["Pick", "Rd", "Team", "Player", "OVR", "WORP", "PORP", "TV"], body, row_classes),
         unsafe_allow_html=True,
     )
 
@@ -1017,7 +1014,9 @@ def _render_draft_tab(state: DraftState, config: dict[str, Any]) -> None:
         live_state = _load_state(config) or state
         _render_hero(live_state)
         _render_stats(live_state)
-        for note in live_state.strategy.strategy_notes(live_state.war):
+        for note in live_state.strategy.strategy_notes(
+            live_state.war, tv_fn=live_state.blended_trade_value
+        ):
             st.markdown(f'<div class="note-box">{note}</div>', unsafe_allow_html=True)
         _render_draft_timeline(live_state)
         _render_best_available(live_state)
@@ -1033,7 +1032,6 @@ def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]
         return (
             [
                 '<span class="muted">Empty</span>',
-                "",
                 "",
                 "",
                 "",
@@ -1062,7 +1060,6 @@ def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]
             f'<span class="age">{_fmt_age(player.get("age"))}</span>',
             dynasty_cell,
             f'<span class="num tv">{_fmt_tv(player.get("trade_value"))}</span>',
-            f'<span class="num">{_fmt_tv(player.get("ktc_value"))}</span>',
             f'<span class="num worp">{_fmt_worp(player.get("worp"))}</span>',
         ],
         row_class,
@@ -1107,7 +1104,7 @@ def _render_lineup_table(lineup: dict[str, Any]) -> None:
         body.append([f'<span class="slot-label">{html.escape(row["slot"])}</span>', *cells])
         row_classes.append(row_class)
 
-    body.append(['<span class="slot-label">BENCH</span>', "", "", "", "", "", "", "", ""])
+    body.append(['<span class="slot-label">BENCH</span>', "", "", "", "", "", "", ""])
     row_classes.append("lineup-divider")
 
     if lineup["bench"]:
@@ -1116,12 +1113,12 @@ def _render_lineup_table(lineup: dict[str, Any]) -> None:
             body.append(["", *cells])
             row_classes.append(row_class)
     else:
-        body.append(["", '<span class="muted">No bench players yet</span>', "", "", "", "", "", "", ""])
+        body.append(["", '<span class="muted">No bench players yet</span>', "", "", "", "", "", ""])
         row_classes.append("row-empty")
 
     st.markdown(
         _html_table(
-            ["", "Player", "Pos", "Tm", "Age", "OVR", "TV", "KTC", "WORP"],
+            ["", "Player", "Pos", "Tm", "Age", "OVR", "TV", "WORP"],
             body,
             row_classes,
             table_class="pick-table lineup-table",

@@ -38,7 +38,7 @@ def render_board(state, limit: int) -> str:
     if upcoming:
         lines.append(f"Your upcoming picks: {', '.join(str(p) for p in upcoming)}")
 
-    for note in state.strategy.strategy_notes(state.war):
+    for note in state.strategy.strategy_notes(state.war, tv_fn=state.blended_trade_value):
         lines.append(f"Strategy: {note}")
 
     my_roster = state.roster_summary()

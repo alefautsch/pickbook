@@ -65,8 +65,7 @@ def _recent_picks(state: DraftState, limit: int = RECENT_PICKS_LIMIT) -> list[di
                 "roster_id": pick.get("roster_id"),
                 "name": war.name if war else name,
                 "pos": meta.get("position"),
-                "trade_value": war.trade_value if war else None,
-                "ktc_value": state.ktc_value(war.name if war else name),
+                "trade_value": state.blended_trade_value(war) if war else None,
                 "worp": war.worp if war else None,
             }
         )
@@ -90,8 +89,7 @@ def _bookend_plan_summary(state: DraftState) -> dict[str, Any]:
 
 def _metric_definitions() -> dict[str, str]:
     return {
-        "trade_value": "Dynasty-daddy blended market capital (war.csv). Higher = more dynasty trade demand.",
-        "ktc_value": "KeepTradeCut crowdsourced dynasty value (SF or 1QB per league). Compare to trade_value for market disagreement.",
+        "trade_value": "Blended dynasty market capital (dynasty-daddy + KeepTradeCut). Higher = more dynasty trade demand.",
         "worp": "Wins over replacement — backward-looking 2024 production. Misleading for rising sophomores.",
         "projected_worp": "Sleeper season VOR → WORP for rookies/thin samples; TV imputation fallback. Prefer over raw worp when present.",
         "dynasty_rating": "50–99 Madden-style rating: 45% TV + 25% proj WORP + 15% ceiling + 10% age + 5% trajectory.",
@@ -129,8 +127,16 @@ def build_advisor_context(
         "consecutive_pick_numbers": streak,
         "back_to_back": len(streak) >= 2,
         "upcoming_pick_path": info.get("my_upcoming"),
-        "strategy_notes": state.strategy.strategy_notes(state.war),
-        "reserved_rookies": state.strategy.reserved_players(state.war),
+        "strategy_notes": state.strategy.strategy_notes(
+            state.war, tv_fn=state.blended_trade_value
+        ),
+        "reserved_rookies": state.strategy.reserved_players(
+            state.war, tv_fn=state.blended_trade_value
+        ),
+        "trade_value_blend": {
+            "dd_weight": state.trade_blend.dd_weight,
+            "ktc_weight": state.trade_blend.ktc_weight,
+        },
         "my_roster": state.roster_summary(),
         "starter_needs": state.starter_needs(),
         "league_team_rosters": build_league_team_rosters(state),

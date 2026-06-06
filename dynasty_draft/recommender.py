@@ -9,6 +9,7 @@ from dynasty_draft.strategy import DraftStrategy
 from dynasty_draft.war_data import POSITIONS, PlayerValue, WarData, normalize_name
 from dynasty_draft.projections import SleeperProjectionStore
 from dynasty_draft.ktc_values import KtcStore
+from dynasty_draft.trade_value_blend import TradeValueBlend
 from dynasty_draft.worp_projection import WorpProjector
 
 
@@ -34,6 +35,7 @@ class DraftState:
     dynasty_weights: DynastyWeights | None = None
     projection_store: SleeperProjectionStore | None = None
     ktc: KtcStore | None = None
+    trade_blend: TradeValueBlend = field(default_factory=TradeValueBlend)
     strategy: DraftStrategy = field(default_factory=DraftStrategy)
     league_users: list[dict[str, Any]] = field(default_factory=list)
 
@@ -179,6 +181,16 @@ class DraftState:
             return None
         return self.ktc.lookup(name)
 
+    def blended_trade_value(self, player: PlayerValue) -> float:
+        blended = self.trade_blend.blend(player.trade_value, self.ktc_value(player.name))
+        return blended if blended is not None else player.trade_value
+
+    def with_blended_tv(self, player: PlayerValue) -> PlayerValue:
+        return self.trade_blend.apply(player, self.ktc_value(player.name))
+
+    def blend_pool(self, pool: list[tuple[str, PlayerValue]]) -> list[tuple[str, PlayerValue]]:
+        return [(player_id, self.with_blended_tv(player)) for player_id, player in pool]
+
     def available_players(self) -> list[tuple[str, PlayerValue]]:
         reserved_names = {normalize_name(name) for name in self.strategy.reserved_rookies}
         available: list[tuple[str, PlayerValue]] = []
@@ -192,7 +204,7 @@ class DraftState:
             war_player = self.war.lookup(name)
             if war_player is None:
                 continue
-            if war_player.trade_value <= 0:
+            if self.blended_trade_value(war_player) <= 0:
                 continue
             is_rookie = self._is_rookie(player_id)
             if self.strategy.is_vet_draft and is_rookie:
@@ -242,7 +254,7 @@ class DraftState:
     def _adp_index(self) -> AdpIndex:
         cached = getattr(self, "_cached_adp_index", None)
         if cached is None:
-            cached = AdpIndex(self.war)
+            cached = AdpIndex(self.war, self.blended_trade_value)
             self._cached_adp_index = cached
         return cached
 
@@ -284,7 +296,7 @@ class DraftState:
     def dynasty_scores(
         self, players: list[tuple[str, PlayerValue]] | None = None
     ) -> dict[str, dict[str, Any]]:
-        pool = players if players is not None else self.available_players()
+        pool = self.blend_pool(players if players is not None else self.available_players())
         ids = [player_id for player_id, _ in pool]
         return self._dynasty_scorer().score_pool(
             pool,
@@ -294,16 +306,17 @@ class DraftState:
         )
 
     def _normalize_scores(self, available: list[tuple[str, PlayerValue]]) -> dict[str, float]:
-        trade_vals = [p.trade_value for _, p in available]
+        blended = self.blend_pool(available)
+        trade_vals = [p.trade_value for _, p in blended]
         effective_worps: list[float] = []
-        for player_id, player in available:
+        for player_id, player in blended:
             eff, _ = self._effective_worp(player_id, player)
             if eff is not None:
                 effective_worps.append(max(eff, 0))
         max_tv = max(trade_vals) if trade_vals else 1.0
         max_worp = max(effective_worps) if effective_worps else 1.0
         scores: dict[str, float] = {}
-        for player_id, player in available:
+        for player_id, player in blended:
             tv_norm = player.trade_value / max_tv if max_tv else 0.0
             eff, _ = self._effective_worp(player_id, player)
             if eff is not None and max_worp:
@@ -375,6 +388,7 @@ class DraftState:
         dynasty_by_id = self.dynasty_scores(available)
         recommendations: list[dict[str, Any]] = []
         for player_id, player in available:
+            blended_tv = self.blended_trade_value(player)
             pos = player.pos
             vor = base_scores[player_id] - replacement.get(pos, 0.0)
             need_boost = needs.get(pos, 0) * need_weights.get(pos, 0.05)
@@ -386,7 +400,8 @@ class DraftState:
             note = ""
             if penalty > 0 and pos == "RB":
                 note = "RB deprioritized (Jeremiyah Love reserved)"
-            eff_worp, worp_projected = self._effective_worp(player_id, player)
+            blended_player = self.with_blended_tv(player)
+            eff_worp, worp_projected = self._effective_worp(player_id, blended_player)
             adp_pick = adp.pick_no(player.name)
             adp_delta = adp.delta(player.name, ref_pick) if ref_pick and adp_pick else None
             dynasty = dynasty_by_id.get(player_id) or {}
@@ -397,8 +412,7 @@ class DraftState:
                     "pos": pos,
                     "team": player.team,
                     "age": dynasty.get("age"),
-                    "trade_value": player.trade_value,
-                    "ktc_value": self.ktc_value(player.name),
+                    "trade_value": blended_tv,
                     "worp": player.worp,
                     "projected_worp": eff_worp if worp_projected else None,
                     "worp_tier": player.worp_tier,
@@ -439,13 +453,13 @@ class DraftState:
                     "round": pick.get("round"),
                     "name": war_player.name if war_player else self._sleeper_name(player_id or "") or "Unknown",
                     "pos": meta.get("position") or (war_player.pos if war_player else ""),
-                    "trade_value": war_player.trade_value if war_player else None,
+                    "trade_value": self.blended_trade_value(war_player) if war_player else None,
                     "worp": war_player.worp if war_player else None,
                     "status": "drafted",
                 }
             )
         if self.strategy.is_vet_draft:
-            for reserved in self.strategy.reserved_players(self.war):
+            for reserved in self.strategy.reserved_players(self.war, tv_fn=self.blended_trade_value):
                 rows.append(
                     {
                         "pick_no": None,
@@ -460,12 +474,18 @@ class DraftState:
         return rows
 
     def tier_cliffs(self, top_n: int = 5) -> list[dict[str, Any]]:
-        available = sorted(self.available_players(), key=lambda item: item[1].trade_value, reverse=True)
+        available = sorted(
+            self.available_players(),
+            key=lambda item: self.blended_trade_value(item[1]),
+            reverse=True,
+        )
         cliffs: list[dict[str, Any]] = []
         for pos in POSITIONS:
             pos_players = [p for _, p in available if p.pos == pos][:top_n + 1]
             for idx in range(len(pos_players) - 1):
-                gap = pos_players[idx].trade_value - pos_players[idx + 1].trade_value
+                gap = self.blended_trade_value(pos_players[idx]) - self.blended_trade_value(
+                    pos_players[idx + 1]
+                )
                 if gap >= 400:
                     cliffs.append(
                         {

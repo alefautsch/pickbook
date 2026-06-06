@@ -7,6 +7,7 @@ from typing import Any
 from dynasty_draft.draft_context import build_scoring_context
 from dynasty_draft.dynasty_score import DynastyWeights
 from dynasty_draft.ktc_values import KtcStore
+from dynasty_draft.trade_value_blend import TradeValueBlend
 from dynasty_draft.projections import SleeperProjectionStore
 from dynasty_draft.recommender import DraftState
 from dynasty_draft.sleeper_client import SleeperClient
@@ -100,6 +101,7 @@ def build_state(config: dict[str, Any], *, exit_on_error: bool = True) -> DraftS
             state.ktc = KtcStore.load(superflex=state.is_superflex())
         except Exception:
             state.ktc = None
+    state.trade_blend = TradeValueBlend.from_config(config, ktc_available=state.ktc is not None)
 
     try:
         scoring = build_scoring_context(state)

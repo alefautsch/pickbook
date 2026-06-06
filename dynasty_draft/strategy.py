@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from collections.abc import Callable
 from typing import Any
 
-from dynasty_draft.war_data import POSITIONS, WarData, normalize_name
+from dynasty_draft.war_data import POSITIONS, PlayerValue, WarData, normalize_name
 
 
 @dataclass
@@ -55,7 +56,13 @@ class DraftStrategy:
                 counts[player.pos] += 1
         return counts
 
-    def reserved_players(self, war: WarData) -> list[dict[str, Any]]:
+    def reserved_players(
+        self,
+        war: WarData,
+        *,
+        tv_fn: Callable[[PlayerValue], float] | None = None,
+    ) -> list[dict[str, Any]]:
+        getter = tv_fn or (lambda player: player.trade_value)
         rows: list[dict[str, Any]] = []
         for name in self.reserved_rookies:
             player = war.lookup(name)
@@ -66,13 +73,18 @@ class DraftStrategy:
                 {
                     "name": player.name,
                     "pos": player.pos,
-                    "trade_value": player.trade_value,
+                    "trade_value": getter(player),
                     "note": "locked for rookie draft",
                 }
             )
         return rows
 
-    def strategy_notes(self, war: WarData) -> list[str]:
+    def strategy_notes(
+        self,
+        war: WarData,
+        *,
+        tv_fn: Callable[[PlayerValue], float] | None = None,
+    ) -> list[str]:
         notes: list[str] = []
         if self.is_vet_draft and self.reserved_rookies:
             reserved = ", ".join(self.reserved_rookies)
@@ -82,11 +94,12 @@ class DraftStrategy:
                 "deprioritize early RB in this draft."
             )
             love = war.lookup("Jeremiyah Love")
+            getter = tv_fn or (lambda player: player.trade_value)
             if love and normalize_name("Jeremiyah Love") in {
                 normalize_name(n) for n in self.reserved_rookies
             }:
                 notes.append(
-                    f"Jeremiyah Love (TV {love.trade_value:,.0f}) fills your RB1 pipeline — "
+                    f"Jeremiyah Love (TV {getter(love):,.0f}) fills your RB1 pipeline — "
                     "target QB/WR/TE value in rounds 1–4, then take a vet RB2 later."
                 )
         if self.is_rookie_draft:

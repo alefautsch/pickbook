@@ -78,7 +78,8 @@ def _need_boost(pos: str, roster_counts: Counter[str], targets: dict[str, int], 
 
 
 def _available_pool(state: DraftState) -> list[tuple[str, PlayerValue]]:
-    return sorted(state.available_players(), key=lambda item: item[1].trade_value, reverse=True)
+    pool = state.blend_pool(state.available_players())
+    return sorted(pool, key=lambda item: item[1].trade_value, reverse=True)
 
 
 def _pick_for_team(
