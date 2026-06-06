@@ -18,6 +18,40 @@ def composite_to_rating(composite: float) -> int:
     return max(RATING_MIN, min(RATING_MAX, raw))
 
 
+@dataclass(frozen=True)
+class DynastyRatingCurve:
+    """Stretch raw composite scores so elites land in the mid/high 90s."""
+
+    exponent: float = 0.52
+
+    @classmethod
+    def from_config(cls, raw: dict[str, float] | None) -> DynastyRatingCurve:
+        if not raw:
+            return cls()
+        return cls(exponent=float(raw.get("exponent", 0.52)))
+
+
+def curved_composite_to_rating(
+    composite: float,
+    *,
+    raw_min: float,
+    raw_max: float,
+    exponent: float = 0.52,
+) -> int:
+    """
+    Map raw 0–1 composite to 50–99 using board min/max stretch + power curve.
+    Top board players (e.g. Josh Allen) land ~96–99; the median shifts up modestly.
+    """
+    if raw_max <= raw_min:
+        stretched = 1.0 if composite >= raw_max else 0.0
+    else:
+        stretched = (composite - raw_min) / (raw_max - raw_min)
+        stretched = max(0.0, min(1.0, stretched))
+    if exponent > 0:
+        stretched **= exponent
+    return composite_to_rating(stretched)
+
+
 DEFAULT_DYNASTY_WEIGHTS: dict[str, float] = {
     "tv": 0.45,
     "worp": 0.25,
@@ -101,8 +135,13 @@ def _trajectory_signal(tv_norm: float, worp_norm: float, years_exp: int | None) 
 
 
 class DynastyScorer:
-    def __init__(self, weights: DynastyWeights | None = None) -> None:
+    def __init__(
+        self,
+        weights: DynastyWeights | None = None,
+        rating_curve: DynastyRatingCurve | None = None,
+    ) -> None:
         self.weights = weights or DynastyWeights()
+        self.rating_curve = rating_curve or DynastyRatingCurve()
 
     def score_pool(
         self,
@@ -112,6 +151,7 @@ class DynastyScorer:
         years_exp_by_id: dict[str, int | None],
         effective_worp: Callable[[str, PlayerValue], tuple[float | None, bool]],
         reference: DynastyReferenceAnchors | None = None,
+        rating_bounds: tuple[float, float] | None = None,
     ) -> dict[str, dict[str, Any]]:
         if not players:
             return {}
@@ -157,7 +197,15 @@ class DynastyScorer:
                 + w.age * age_norm
                 + w.trajectory * traj_norm
             )
-            rating = composite_to_rating(composite)
+            if rating_bounds is not None:
+                rating = curved_composite_to_rating(
+                    composite,
+                    raw_min=rating_bounds[0],
+                    raw_max=rating_bounds[1],
+                    exponent=self.rating_curve.exponent,
+                )
+            else:
+                rating = composite_to_rating(composite)
             is_rookie = years_exp == 0 if years_exp is not None else player.worp is None
             results[player_id] = {
                 "dynasty_score": composite,

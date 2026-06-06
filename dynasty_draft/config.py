@@ -22,6 +22,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "age": 0.10,
         "trajectory": 0.05,
     },
+    "dynasty_rating_curve": {
+        "exponent": 0.52,
+    },
     "poll_seconds": 20,
     "ktc_enabled": True,
     "trade_value_blend": {

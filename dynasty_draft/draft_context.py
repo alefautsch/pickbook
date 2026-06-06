@@ -181,6 +181,8 @@ def build_draft_timeline(
         state.enrich_player_row(row)
         dynasty = dynasty_by_id.get(player_id) or {}
         row["dynasty_rating"] = dynasty.get("dynasty_rating")
+        row["dynasty_score"] = dynasty.get("dynasty_score")
+        row["dynasty_components"] = dynasty.get("dynasty_components")
         row["dynasty_rookie"] = dynasty.get("dynasty_rookie")
 
     return rows
@@ -444,6 +446,8 @@ def _apply_dynasty_to_lineup(state: DraftState, team: dict[str, Any]) -> dict[st
             continue
         scored = scores[score_id]
         player["dynasty_rating"] = scored.get("dynasty_rating")
+        player["dynasty_score"] = scored.get("dynasty_score")
+        player["dynasty_components"] = scored.get("dynasty_components")
         player["dynasty_rookie"] = scored.get("dynasty_rookie")
 
     ratings = [row.get("dynasty_rating", 0) for row in scores.values()]

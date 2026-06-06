@@ -931,6 +931,7 @@ def _fmt_dynasty_rating(
     rating: int | None,
     *,
     components: dict[str, Any] | None = None,
+    raw_score: float | None = None,
     age: int | None = None,
     rookie: bool = False,
 ) -> str:
@@ -942,6 +943,8 @@ def _fmt_dynasty_rating(
         f"upside {comp.get('upside', '—')} · age {comp.get('age', '—')} · "
         f"trajectory {comp.get('trajectory', '—')}"
     )
+    if raw_score is not None:
+        title += f" · raw {raw_score:.2f}"
     if age is not None:
         title += f" · player age {age}"
     if rookie:
@@ -957,6 +960,7 @@ def _fmt_dynasty_cell(row: dict[str, Any]) -> str:
     return _fmt_dynasty_rating(
         row.get("dynasty_rating"),
         components=row.get("dynasty_components"),
+        raw_score=row.get("dynasty_score"),
         age=row.get("age"),
         rookie=bool(row.get("dynasty_rookie")),
     )
@@ -1126,7 +1130,7 @@ def _render_draft_timeline(state: DraftState) -> None:
                 f'<span class="player">{html.escape(row["name"])}</span> '
                 f'<span class="pos">{html.escape(row.get("pos") or "")}</span>'
             )
-            ovr = _fmt_dynasty_rating(row.get("dynasty_rating"))
+            ovr = _fmt_dynasty_cell(row)
             worp = _fmt_worp_cell(row)
             porp = f'<span class="num">{_fmt_porp(row.get("porp"))}</span>'
             age = _fmt_age_cell(row)
@@ -1198,10 +1202,7 @@ def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]
     note = ' <span class="note">(reserved)</span>' if status == "reserved" else ""
     row_class = "row-reserved" if status == "reserved" else ""
     dynasty_cell = (
-        _fmt_dynasty_rating(
-            player.get("dynasty_rating"),
-            rookie=bool(player.get("dynasty_rookie")),
-        )
+        _fmt_dynasty_cell(player)
         if player.get("dynasty_rating") is not None
         else '<span class="muted">—</span>'
     )

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from dynasty_draft.draft_context import build_scoring_context
-from dynasty_draft.dynasty_score import DynastyWeights
+from dynasty_draft.dynasty_score import DynastyRatingCurve, DynastyWeights
 from dynasty_draft.ktc_values import KtcStore
 from dynasty_draft.trade_value_blend import TradeValueBlend
 from dynasty_draft.worp_blend import WorpBlend
@@ -94,6 +94,7 @@ def build_state(config: dict[str, Any], *, exit_on_error: bool = True) -> DraftS
         trade_weight=float(config.get("trade_weight", 0.65)),
         worp_weight=float(config.get("worp_weight", 0.35)),
         dynasty_weights=DynastyWeights.from_config(config.get("dynasty_weights")),
+        dynasty_rating_curve=DynastyRatingCurve.from_config(config.get("dynasty_rating_curve")),
         strategy=strategy,
     )
 

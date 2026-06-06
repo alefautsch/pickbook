@@ -5,6 +5,7 @@ from typing import Any
 
 from dynasty_draft.adp import AdpIndex
 from dynasty_draft.dynasty_score import (
+    DynastyRatingCurve,
     DynastyReferenceAnchors,
     DynastyScorer,
     DynastyWeights,
@@ -39,6 +40,7 @@ class DraftState:
     trade_weight: float = 0.45
     worp_weight: float = 0.55
     dynasty_weights: DynastyWeights | None = None
+    dynasty_rating_curve: DynastyRatingCurve | None = None
     projection_store: SleeperProjectionStore | None = None
     ktc: KtcStore | None = None
     trade_blend: TradeValueBlend = field(default_factory=TradeValueBlend)
@@ -226,13 +228,29 @@ class DraftState:
         """Pre-draft eligible board — OVR anchors stay fixed as picks are made."""
         return self._eligible_players()
 
-    def _dynasty_reference_anchors(self) -> DynastyReferenceAnchors:
-        cached = getattr(self, "_dynasty_ref_anchors", None)
-        if cached is not None:
-            return cached
+    def _dynasty_curve_context(self) -> tuple[DynastyReferenceAnchors, tuple[float, float]]:
+        if getattr(self, "_dynasty_curve_ready", False):
+            return self._dynasty_ref_anchors, self._dynasty_rating_bounds
         ref_pool = self.blend_pool(self._dynasty_reference_pool())
         anchors = compute_reference_anchors(ref_pool, self._effective_worp)
+        ids = [player_id for player_id, _ in ref_pool]
+        raw_scores = self._dynasty_scorer().score_pool(
+            ref_pool,
+            age_by_id={pid: self._player_age(pid) for pid in ids},
+            years_exp_by_id={pid: self._years_exp(pid) for pid in ids},
+            effective_worp=self._effective_worp,
+            reference=anchors,
+            rating_bounds=None,
+        )
+        composites = [row["dynasty_score"] for row in raw_scores.values()]
+        bounds = (min(composites), max(composites)) if composites else (0.0, 1.0)
         self._dynasty_ref_anchors = anchors
+        self._dynasty_rating_bounds = bounds
+        self._dynasty_curve_ready = True
+        return anchors, bounds
+
+    def _dynasty_reference_anchors(self) -> DynastyReferenceAnchors:
+        anchors, _ = self._dynasty_curve_context()
         return anchors
 
     def available_players(self) -> list[tuple[str, PlayerValue]]:
@@ -353,7 +371,10 @@ class DraftState:
     def _dynasty_scorer(self) -> DynastyScorer:
         cached = getattr(self, "_cached_dynasty_scorer", None)
         if cached is None:
-            cached = DynastyScorer(self.dynasty_weights)
+            cached = DynastyScorer(
+                self.dynasty_weights,
+                self.dynasty_rating_curve,
+            )
             self._cached_dynasty_scorer = cached
         return cached
 
@@ -362,12 +383,14 @@ class DraftState:
     ) -> dict[str, dict[str, Any]]:
         score_pool = self.blend_pool(players if players is not None else self.available_players())
         ids = [player_id for player_id, _ in score_pool]
+        anchors, bounds = self._dynasty_curve_context()
         return self._dynasty_scorer().score_pool(
             score_pool,
             age_by_id={pid: self._player_age(pid) for pid in ids},
             years_exp_by_id={pid: self._years_exp(pid) for pid in ids},
             effective_worp=self._effective_worp,
-            reference=self._dynasty_reference_anchors(),
+            reference=anchors,
+            rating_bounds=bounds,
         )
 
     def _normalize_scores(self, available: list[tuple[str, PlayerValue]]) -> dict[str, float]:
