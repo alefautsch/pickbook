@@ -9,6 +9,7 @@ import requests
 
 from dynasty_draft.draft_context import build_league_team_rosters, build_scoring_context
 from dynasty_draft.pick_projector import project_next_picks
+from dynasty_draft.pick_values import build_pick_trade_context
 from dynasty_draft.recommender import DraftState
 
 Provider = Literal["anthropic", "moonshot"]
@@ -112,6 +113,7 @@ def build_advisor_context(
         "available_by_position": state.recommend_by_position(per_pos=per_position),
         "pick_projection": project_next_picks(state),
         "bookend_plan": _bookend_plan_summary(state),
+        "pick_trade_analysis": build_pick_trade_context(state),
         "tier_cliffs": state.tier_cliffs(),
         "recent_draft_picks": _recent_picks(state),
         "trade_weight": state.trade_weight,
@@ -146,6 +148,13 @@ Use `pick_projection` and `bookend_plan`:
 - `bookend_plan.likely_gone_before_next_bookend` — do NOT tell them to wait on these
 
 ADP proxy = trade value, adjusted per team positional needs.
+
+Startup PICK-POSITION trades (not player trades):
+- Use `pick_trade_analysis.my_future_pick_values` — projected player + TV at each of your remaining picks
+- `pick_trade_analysis.example_swaps` shows 2-for-2 bookend-for-spread math (e.g. 2.01+8.01 ↔ 3.01+5.01)
+- Trades are almost always even pick counts (2-for-2). Compare `give_total_tv` vs `receive_total_tv`
+- Bookend pairs are valuable; swapping them spreads picks through a round — good if you hate the bookend targets (e.g. QB run at 1.11)
+- When user asks about trading picks, evaluate net TV AND roster fit (superflex QB timing, avoiding Caleb if that's the projection)
 
 Use the full league context:
 - `league_team_rosters`: every manager's picks — infer tendencies (QB early, RB heavy, etc.)

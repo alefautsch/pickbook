@@ -22,6 +22,7 @@ from dynasty_draft.llm_advisor import (
     stream_advisor_reply,
 )
 from dynasty_draft.pick_projector import project_next_picks
+from dynasty_draft.pick_values import build_pick_trade_context
 from dynasty_draft.recommender import DraftState
 
 st.set_page_config(
@@ -147,6 +148,10 @@ MOBILE_CSS = """
         background-color: #f8fafc !important;
         -webkit-text-fill-color: #0f172a !important;
         caret-color: #0f172a !important;
+    }
+    .thinking-line {
+        color: #64748b !important;
+        font-style: italic;
     }
     .stButton > button {
         min-height: 2.75rem;
@@ -338,6 +343,8 @@ def _init_session() -> None:
         st.session_state.llm_thread_key = ""
     if "llm_messages" not in st.session_state:
         st.session_state.llm_messages = []
+    if "llm_generating" not in st.session_state:
+        st.session_state.llm_generating = False
     if "auto_refresh" not in st.session_state:
         st.session_state.auto_refresh = True
     if "last_sync_at" not in st.session_state:
@@ -461,6 +468,7 @@ def _sync_llm_thread(state: DraftState) -> None:
     if st.session_state.llm_thread_key != thread_key:
         st.session_state.llm_thread_key = thread_key
         st.session_state.llm_messages = []
+        st.session_state.llm_generating = False
 
 
 def _advisor_api_key(provider: str) -> str:
@@ -469,17 +477,15 @@ def _advisor_api_key(provider: str) -> str:
     return st.session_state.anthropic_api_key
 
 
-def _run_advisor_turn(state: DraftState, config: dict[str, Any], user_text: str) -> None:
+def _queue_advisor_message(state: DraftState, config: dict[str, Any], user_text: str) -> bool:
     user_text = user_text.strip()
     if not user_text:
-        return
+        return False
 
     model_row = advisor_model_by_id(st.session_state.advisor_model_id)
-    provider = model_row["provider"]
-    api_key = _advisor_api_key(provider)
-    if not api_key:
+    if not _advisor_api_key(model_row["provider"]):
         st.error(f"Add a {model_row['label']} API key in Settings or .env.")
-        return
+        return False
 
     fresh = build_state(config, exit_on_error=False)
     is_first_turn = not st.session_state.llm_messages
@@ -492,6 +498,19 @@ def _run_advisor_turn(state: DraftState, config: dict[str, Any], user_text: str)
     st.session_state.llm_messages.append(
         {"role": "user", "content": user_content, "label": user_text}
     )
+    st.session_state.llm_generating = True
+    return True
+
+
+def _awaiting_advisor_reply() -> bool:
+    msgs = st.session_state.llm_messages
+    return bool(st.session_state.llm_generating and msgs and msgs[-1]["role"] == "user")
+
+
+def _complete_advisor_reply(config: dict[str, Any]) -> None:
+    model_row = advisor_model_by_id(st.session_state.advisor_model_id)
+    provider = model_row["provider"]
+    api_key = _advisor_api_key(provider)
     api_messages = [
         {"role": m["role"], "content": m["content"]}
         for m in st.session_state.llm_messages
@@ -499,29 +518,66 @@ def _run_advisor_turn(state: DraftState, config: dict[str, Any], user_text: str)
     ]
 
     try:
-        with st.chat_message("user"):
-            st.markdown(user_text)
-
         with st.chat_message("assistant"):
-            def _stream() -> Any:
-                yield from stream_advisor_reply(
-                    api_key,
-                    provider=provider,  # type: ignore[arg-type]
-                    model=model_row["model"],
-                    messages=api_messages,
-                )
-
-            reply = st.write_stream(_stream)
+            output = st.empty()
+            output.markdown('<p class="thinking-line">Thinking…</p>', unsafe_allow_html=True)
+            chunks: list[str] = []
+            for chunk in stream_advisor_reply(
+                api_key,
+                provider=provider,  # type: ignore[arg-type]
+                model=model_row["model"],
+                messages=api_messages,
+            ):
+                chunks.append(chunk)
+                output.markdown("".join(chunks) + " ▍")
+            reply = "".join(chunks)
+            output.markdown(reply)
         st.session_state.llm_messages.append({"role": "assistant", "content": reply})
     except Exception as exc:
         st.session_state.llm_messages.pop()
         st.error(f"AI advisor failed: {exc}")
+    finally:
+        st.session_state.llm_generating = False
+
+
+def _render_pick_values_preview(state: DraftState) -> None:
+    trade_ctx = build_pick_trade_context(state)
+    future = trade_ctx.get("my_future_pick_values") or []
+    if not future:
+        return
+    st.markdown('<div class="section-title">Future pick values</div>', unsafe_allow_html=True)
+    st.caption("Projected best available at each of your remaining picks (ADP + needs sim)")
+    body: list[list[str]] = []
+    for row in future[:14]:
+        bookend = " · bookend" if row.get("is_bookend") else ""
+        body.append(
+            [
+                f"#{row['pick_no']} ({row['label']}){bookend}",
+                html.escape(str(row.get("expected_player") or "—")),
+                f'<span class="num tv">{_fmt_tv(row.get("expected_tv"))}</span>',
+            ]
+        )
+    st.markdown(
+        _html_table(["Pick", "Projected", "TV"], body),
+        unsafe_allow_html=True,
+    )
+    examples = trade_ctx.get("example_swaps") or []
+    if examples:
+        ex = examples[0]
+        give = ", ".join(f"{r['label']} (#{r['pick_no']})" for r in ex.get("give", []))
+        recv = ", ".join(f"{r['label']} (#{r['pick_no']})" for r in ex.get("receive", []))
+        net = ex.get("net_tv", 0)
+        sign = "+" if net >= 0 else ""
+        st.caption(
+            f"Example 2-for-2: give {give} → get {recv} · net TV {sign}{net:,.0f}"
+        )
 
 
 def _render_llm_tab(state: DraftState, config: dict[str, Any]) -> None:
     _render_hero(state)
     _render_stats(state)
     _render_projection_preview(state)
+    _render_pick_values_preview(state)
     _sync_llm_thread(state)
 
     controls = st.columns([3, 1])
@@ -537,6 +593,7 @@ def _render_llm_tab(state: DraftState, config: dict[str, Any]) -> None:
     with controls[1]:
         if st.button("New chat", use_container_width=True):
             st.session_state.llm_messages = []
+            st.session_state.llm_generating = False
             st.rerun()
 
     model_row = advisor_model_by_id(st.session_state.advisor_model_id)
@@ -544,19 +601,31 @@ def _render_llm_tab(state: DraftState, config: dict[str, Any]) -> None:
         st.caption(f"Set {'MOONSHOT_API_KEY' if model_row['provider'] == 'moonshot' else 'ANTHROPIC_API_KEY'} to chat.")
 
     history = st.session_state.llm_messages
-    for msg in history:
+    for i, msg in enumerate(history):
+        if _awaiting_advisor_reply() and i == len(history) - 1 and msg["role"] == "user":
+            continue
         with st.chat_message(msg["role"]):
             shown = msg.get("label") if msg["role"] == "user" and msg.get("label") else msg["content"]
             st.markdown(shown)
 
-    if not history:
+    if _awaiting_advisor_reply():
+        last = history[-1]
+        with st.chat_message("user"):
+            st.markdown(last.get("label") or last["content"])
+        _complete_advisor_reply(config)
+        st.rerun()
+
+    busy = st.session_state.llm_generating
+    if not history and not busy:
         suggested = _default_llm_question(state)
         if st.button("Ask suggested question", use_container_width=True):
-            _run_advisor_turn(state, config, suggested)
+            if _queue_advisor_message(state, config, suggested):
+                st.rerun()
 
-    prompt = st.chat_input("Ask or follow up…")
-    if prompt:
-        _run_advisor_turn(state, config, prompt)
+    prompt = st.chat_input("Ask or follow up…", disabled=busy)
+    if prompt and not busy:
+        if _queue_advisor_message(state, config, prompt):
+            st.rerun()
 
     with st.expander("Bookend projection detail"):
         proj = project_next_picks(state)
