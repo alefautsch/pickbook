@@ -24,7 +24,6 @@ from dynasty_draft.llm_advisor import (
 )
 from dynasty_draft.fall_analysis import build_fall_analysis
 from dynasty_draft.pick_projector import project_next_picks
-from dynasty_draft.pick_values import build_pick_trade_context
 from dynasty_draft.recommender import DraftState
 
 st.set_page_config(
@@ -144,9 +143,99 @@ MOBILE_CSS = """
         color: inherit;
     }
     [data-testid="stChatMessage"] {
-        background-color: #f8fafc !important;
+        background-color: #ffffff !important;
         border: 1px solid #e2e8f0;
+        border-radius: 14px !important;
         color: #0f172a !important;
+        margin-bottom: 0.6rem;
+        padding: 0.35rem 0.5rem;
+        max-width: 96%;
+    }
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+        margin-left: auto;
+        background: #eff6ff !important;
+        border-color: #bfdbfe !important;
+    }
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) {
+        margin-right: auto;
+        background: #f8fafc !important;
+    }
+    [data-testid="stChatInput"] {
+        border-top: 1px solid #e2e8f0;
+        padding-top: 0.65rem;
+        margin-top: 0.25rem;
+    }
+    .ask-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.45rem 0.75rem;
+        padding: 0.6rem 0.85rem;
+        margin-bottom: 0.65rem;
+        background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+    }
+    .ask-toolbar-left { display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; }
+    .ask-status {
+        font-size: 0.8rem;
+        font-weight: 800;
+        padding: 0.22rem 0.6rem;
+        border-radius: 999px;
+        white-space: nowrap;
+        letter-spacing: 0.01em;
+    }
+    .ask-status-clock { background: #dcfce7; color: #166534; }
+    .ask-status-book { background: #dbeafe; color: #1e40af; }
+    .ask-status-wait { background: #ffedd5; color: #9a3412; }
+    .ask-meta {
+        font-size: 0.76rem;
+        color: #64748b;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    .ask-empty {
+        text-align: center;
+        padding: 1.5rem 0.75rem 0.75rem;
+        margin-bottom: 0.25rem;
+    }
+    .ask-empty-title {
+        font-size: 1.12rem;
+        font-weight: 800;
+        color: #0f172a;
+        margin-bottom: 0.3rem;
+        letter-spacing: -0.01em;
+    }
+    .ask-empty-sub {
+        font-size: 0.84rem;
+        color: #64748b;
+        line-height: 1.45;
+        max-width: 22rem;
+        margin: 0 auto;
+    }
+    div[data-testid="stVerticalBlock"]:has(> div .ask-chips-marker) .stButton > button {
+        min-height: 2.35rem;
+        font-size: 0.82rem;
+        font-weight: 600;
+        background: #ffffff !important;
+        color: #1e40af !important;
+        border: 1px solid #bfdbfe !important;
+        border-radius: 999px !important;
+        box-shadow: none !important;
+    }
+    div[data-testid="stVerticalBlock"]:has(> div .ask-chips-marker) .stButton > button:hover {
+        background: #eff6ff !important;
+        border-color: #93c5fd !important;
+    }
+    .ask-controls .stButton > button {
+        min-height: 2.35rem;
+        font-size: 0.8rem;
+        border-radius: 10px;
+    }
+    .ask-controls [data-baseweb="select"] > div {
+        min-height: 2.35rem !important;
+        font-size: 0.82rem !important;
     }
     [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"],
     [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] p,
@@ -311,6 +400,7 @@ MOBILE_CSS = """
     }
     .pick-table tr:last-child td { border-bottom: none; }
     .pick-table .num { text-align: right; font-variant-numeric: tabular-nums; color: #334155; }
+    .pick-table .age { color: #64748b; font-size: 0.78rem; text-align: center; }
     .pick-table .pos {
         font-size: 0.68rem;
         font-weight: 700;
@@ -477,6 +567,86 @@ def _load_state(config: dict[str, Any]) -> DraftState | None:
         return None
 
 
+def _ask_status_badge(state: DraftState) -> tuple[str, str]:
+    info = state.next_pick_info()
+    if info.get("is_my_pick"):
+        return "On the clock", "ask-status-clock"
+    picks = info.get("consecutive_picks") or []
+    if info.get("back_to_back") and info.get("picks_until_mine", 99) <= 3 and len(picks) >= 2:
+        return f"Bookend · #{picks[0]} & #{picks[1]}", "ask-status-book"
+    until = info.get("picks_until_mine")
+    return f"{until} picks away" if until is not None else "Waiting", "ask-status-wait"
+
+
+def _ask_suggestion_prompts(state: DraftState) -> list[tuple[str, str]]:
+    return [
+        ("Bookend plan", _default_llm_question(state)),
+        (
+            "Who falls to me?",
+            "Use falls_to_you and pick_projection. Who realistically falls to me at each of my "
+            "upcoming bookend picks given league roster needs? Top 5 per pick with TV and dynasty rating.",
+        ),
+        (
+            "Roster needs",
+            "Review my_roster, starter_needs, and league_rankings. What positions should I "
+            "prioritize at my next picks in this superflex startup?",
+        ),
+    ]
+
+
+def _render_ask_toolbar(state: DraftState) -> None:
+    info = state.next_pick_info()
+    status, status_class = _ask_status_badge(state)
+    slot = f"1.{state.my_slot:02d}" if state.my_slot else "?"
+    fmt = "SF" if state.is_superflex() else "1QB"
+    pick_prog = f"{len(state.picks)}/{info.get('total_picks', '?')}"
+    st.markdown(
+        f"""
+        <div class="ask-toolbar">
+          <div class="ask-toolbar-left">
+            <span class="ask-status {status_class}">{html.escape(status)}</span>
+            <span class="ask-meta">Pick {pick_prog} · Slot {slot} · {fmt}</span>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_ask_chip_prompts(state: DraftState, config: dict[str, Any]) -> None:
+    prompts = _ask_suggestion_prompts(state)
+    st.markdown('<div class="ask-chips-marker"></div>', unsafe_allow_html=True)
+    cols = st.columns(len(prompts))
+    for col, (label, prompt) in zip(cols, prompts):
+        with col:
+            if st.button(label, key=f"ask_chip_{label}", use_container_width=True):
+                if _queue_advisor_message(state, config, prompt):
+                    st.rerun()
+
+
+def _render_ask_draft_context(state: DraftState) -> None:
+    with st.expander("Draft context", expanded=False):
+        _render_hero(state)
+        _render_stats(state)
+        _render_projection_preview(state)
+        proj = project_next_picks(state)
+        current = proj.get("current_bookend") or {}
+        if current.get("planned_picks"):
+            st.markdown("**Current bookend (you)**")
+            for row in current["planned_picks"]:
+                st.markdown(f"#{row['pick_no']} **{_fmt_player_brief(row)}**")
+        between = (proj.get("between_bookends") or {}).get("projected_picks") or []
+        if between:
+            st.markdown("**Between bookends**")
+            for row in between:
+                st.markdown(f"#{row['pick_no']} **{row['team']}** → {_fmt_player_brief(row)}")
+        nxt = proj.get("next_bookend") or {}
+        if nxt.get("planned_picks"):
+            st.markdown("**Next bookend (you)**")
+            for row in nxt["planned_picks"]:
+                st.markdown(f"#{row['pick_no']} **{_fmt_player_brief(row)}**")
+
+
 def _default_llm_question(state: DraftState) -> str:
     info = state.next_pick_info()
     picks = info.get("consecutive_picks") or []
@@ -559,12 +729,12 @@ def _render_projection_preview(state: DraftState) -> None:
     if cur_nums:
         st.caption(f"Current bookend: #{cur_nums[0]}" + (f" & #{cur_nums[1]}" if len(cur_nums) > 1 else ""))
     if current.get("planned_picks"):
-        yours = ", ".join(f"{p['name']} ({p['pos']})" for p in current["planned_picks"])
+        yours = ", ".join(_fmt_player_brief(p) for p in current["planned_picks"])
         st.caption(f"Assuming you take: {yours}")
     if nxt_nums:
         st.caption(f"Next bookend: #{nxt_nums[0]}" + (f" & #{nxt_nums[1]}" if len(nxt_nums) > 1 else ""))
     if nxt.get("planned_picks"):
-        nxt_yours = ", ".join(f"{p['name']} ({p['pos']})" for p in nxt["planned_picks"])
+        nxt_yours = ", ".join(_fmt_player_brief(p) for p in nxt["planned_picks"])
         st.caption(f"Projected next pair: {nxt_yours}")
     gone = (proj.get("between_bookends") or {}).get("likely_off_board") or []
     if gone:
@@ -655,46 +825,11 @@ def _complete_advisor_reply(config: dict[str, Any]) -> None:
         st.session_state.llm_generating = False
 
 
-def _render_pick_values_preview(state: DraftState) -> None:
-    trade_ctx = build_pick_trade_context(state)
-    future = trade_ctx.get("my_future_pick_values") or []
-    if not future:
-        return
-    st.markdown('<div class="section-title">Future pick values</div>', unsafe_allow_html=True)
-    st.caption("Projected best available at each of your remaining picks (ADP + needs sim)")
-    body: list[list[str]] = []
-    for row in future[:14]:
-        bookend = " · bookend" if row.get("is_bookend") else ""
-        body.append(
-            [
-                f"#{row['pick_no']} ({row['label']}){bookend}",
-                html.escape(str(row.get("expected_player") or "—")),
-                f'<span class="num tv">{_fmt_tv(row.get("expected_tv"))}</span>',
-            ]
-        )
-    st.markdown(
-        _html_table(["Pick", "Projected", "TV"], body),
-        unsafe_allow_html=True,
-    )
-    examples = trade_ctx.get("example_swaps") or []
-    if examples:
-        ex = examples[0]
-        give = ", ".join(f"{r['label']} (#{r['pick_no']})" for r in ex.get("give", []))
-        recv = ", ".join(f"{r['label']} (#{r['pick_no']})" for r in ex.get("receive", []))
-        net = ex.get("net_tv", 0)
-        sign = "+" if net >= 0 else ""
-        st.caption(
-            f"Example 2-for-2: give {give} → get {recv} · net TV {sign}{net:,.0f}"
-        )
-
-
 def _render_llm_tab(state: DraftState, config: dict[str, Any]) -> None:
-    _render_hero(state)
-    _render_stats(state)
-    _render_projection_preview(state)
-    _render_pick_values_preview(state)
     _sync_llm_thread(state)
+    _render_ask_toolbar(state)
 
+    st.markdown('<div class="ask-controls">', unsafe_allow_html=True)
     controls = st.columns([3, 1])
     with controls[0]:
         model_labels = {row["id"]: row["label"] for row in ADVISOR_MODELS}
@@ -710,12 +845,30 @@ def _render_llm_tab(state: DraftState, config: dict[str, Any]) -> None:
             st.session_state.llm_messages = []
             st.session_state.llm_generating = False
             st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
     model_row = advisor_model_by_id(st.session_state.advisor_model_id)
     if not _advisor_api_key(model_row["provider"]):
-        st.caption(f"Set {'MOONSHOT_API_KEY' if model_row['provider'] == 'moonshot' else 'ANTHROPIC_API_KEY'} to chat.")
+        env_key = "MOONSHOT_API_KEY" if model_row["provider"] == "moonshot" else "ANTHROPIC_API_KEY"
+        st.warning(f"Add {env_key} in Settings to use the advisor.")
 
     history = st.session_state.llm_messages
+    busy = st.session_state.llm_generating
+
+    if not history and not busy:
+        st.markdown(
+            """
+            <div class="ask-empty">
+              <div class="ask-empty-title">What do you want to know?</div>
+              <div class="ask-empty-sub">
+                Bookend strategy, fallers, roster fit — answers use your live draft and league data.
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        _render_ask_chip_prompts(state, config)
+
     for i, msg in enumerate(history):
         if _awaiting_advisor_reply() and i == len(history) - 1 and msg["role"] == "user":
             continue
@@ -730,35 +883,12 @@ def _render_llm_tab(state: DraftState, config: dict[str, Any]) -> None:
         _complete_advisor_reply(config)
         st.rerun()
 
-    busy = st.session_state.llm_generating
-    if not history and not busy:
-        suggested = _default_llm_question(state)
-        if st.button("Ask suggested question", use_container_width=True):
-            if _queue_advisor_message(state, config, suggested):
-                st.rerun()
-
-    prompt = st.chat_input("Ask or follow up…", disabled=busy)
+    prompt = st.chat_input("Ask about your draft…", disabled=busy)
     if prompt and not busy:
         if _queue_advisor_message(state, config, prompt):
             st.rerun()
 
-    with st.expander("Bookend projection detail"):
-        proj = project_next_picks(state)
-        current = proj.get("current_bookend") or {}
-        if current.get("planned_picks"):
-            st.markdown("**Current bookend (you)**")
-            for row in current["planned_picks"]:
-                st.markdown(f"#{row['pick_no']} **{row['name']}** ({row['pos']})")
-        between = (proj.get("between_bookends") or {}).get("projected_picks") or []
-        if between:
-            st.markdown("**Between bookends**")
-            for row in between:
-                st.markdown(f"#{row['pick_no']} **{row['team']}** → {row['name']} ({row['pos']})")
-        nxt = proj.get("next_bookend") or {}
-        if nxt.get("planned_picks"):
-            st.markdown("**Next bookend (you)**")
-            for row in nxt["planned_picks"]:
-                st.markdown(f"#{row['pick_no']} **{row['name']}** ({row['pos']})")
+    _render_ask_draft_context(state)
 
 
 def _fmt_tv(value: float | int | None) -> str:
@@ -849,6 +979,17 @@ def _fmt_age(value: int | None) -> str:
     return str(value) if value is not None else "—"
 
 
+def _fmt_age_cell(row: dict[str, Any]) -> str:
+    return f'<span class="age">{_fmt_age(row.get("age"))}</span>'
+
+
+def _fmt_player_brief(row: dict[str, Any]) -> str:
+    bits = [row.get("pos") or ""]
+    if row.get("age") is not None:
+        bits.append(str(row["age"]))
+    return f"{row['name']} ({', '.join(bits)})"
+
+
 def _fmt_porp(value: float | None) -> str:
     return f"{value:.0f}" if value is not None else "—"
 
@@ -888,6 +1029,7 @@ def _recommendation_table_rows(
             f'<span class="player">{html.escape(row["name"])}</span>',
             *( [pos_cell] if include_pos else [] ),
             html.escape(row.get("team") or ""),
+            _fmt_age_cell(row),
             *([_fmt_adp_cell(row)] if include_adp else []),
             _fmt_dynasty_cell(row),
             f'<span class="num">{_fmt_tv(row.get("trade_value"))}</span>',
@@ -912,7 +1054,7 @@ def _render_best_available(state: DraftState) -> None:
     )
     st.markdown(
         _html_table(
-            ["Player", "Pos", "Tm", "ADP", "Dyn", "TV", "WORP", "Note"],
+            ["Player", "Pos", "Tm", "Age", "ADP", "Dyn", "TV", "WORP", "Note"],
             _recommendation_table_rows(rows, include_pos=True, include_adp=True),
         ),
         unsafe_allow_html=True,
@@ -932,12 +1074,10 @@ def _render_fall_preview(state: DraftState) -> None:
         fallers = block.get("likely_fallers") or []
         if not top:
             continue
-        names = ", ".join(
-            f"{row['name']} ({row['pos']})" for row in top[:6]
-        )
+        names = ", ".join(_fmt_player_brief(row) for row in top[:6])
         st.markdown(f"**Pick #{pick_no}** — sim top: {html.escape(names)}")
         if fallers:
-            fall_names = ", ".join(f"{row['name']}" for row in fallers[:4])
+            fall_names = ", ".join(_fmt_player_brief(row) for row in fallers[:4])
             st.markdown(f'<span class="note-box">Likely fallers: {html.escape(fall_names)}</span>', unsafe_allow_html=True)
 
 
@@ -950,7 +1090,7 @@ def _render_quick_picks(state: DraftState) -> None:
         with st.expander(f"{pos} — top {len(rows)}", expanded=pos in ("QB", "WR")):
             st.markdown(
                 _html_table(
-                    ["Player", "Tm", "ADP", "Dyn", "TV", "WORP", "Note"],
+                    ["Player", "Tm", "Age", "ADP", "Dyn", "TV", "WORP", "Note"],
                     _recommendation_table_rows(rows, include_adp=True),
                 ),
                 unsafe_allow_html=True,
@@ -989,10 +1129,12 @@ def _render_draft_timeline(state: DraftState) -> None:
             ovr = _fmt_dynasty_rating(row.get("dynasty_rating"))
             worp = _fmt_worp_cell(row)
             porp = f'<span class="num">{_fmt_porp(row.get("porp"))}</span>'
+            age = _fmt_age_cell(row)
             tv = f'<span class="num">{_fmt_tv(row.get("trade_value"))}</span>'
         else:
             player = '<span class="muted">On the clock</span>' if status == "on_clock" else '<span class="muted">—</span>'
             ovr = '<span class="num muted">—</span>'
+            age = '<span class="num muted">—</span>'
             worp = '<span class="num muted">—</span>'
             porp = '<span class="num muted">—</span>'
             tv = '<span class="num muted">—</span>'
@@ -1003,6 +1145,7 @@ def _render_draft_timeline(state: DraftState) -> None:
                 str(row.get("round") or ""),
                 team,
                 player,
+                age,
                 ovr,
                 worp,
                 porp,
@@ -1010,7 +1153,7 @@ def _render_draft_timeline(state: DraftState) -> None:
             ]
         )
     st.markdown(
-        _html_table(["Pick", "Rd", "Team", "Player", "OVR", "WORP", "PORP", "TV"], body, row_classes),
+        _html_table(["Pick", "Rd", "Team", "Player", "Age", "OVR", "WORP", "PORP", "TV"], body, row_classes),
         unsafe_allow_html=True,
     )
 
@@ -1067,7 +1210,7 @@ def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]
             f'<span class="player">{html.escape(player["name"])}</span>{note}',
             f'<span class="pos">{html.escape(player.get("pos") or "")}</span>',
             html.escape(player.get("team") or ""),
-            f'<span class="age">{_fmt_age(player.get("age"))}</span>',
+            _fmt_age_cell(player),
             dynasty_cell,
             f'<span class="num tv">{_fmt_tv(player.get("trade_value"))}</span>',
             _fmt_worp_cell(player),

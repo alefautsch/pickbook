@@ -100,13 +100,14 @@ def project_pick_value(state: DraftState, pick_no: int) -> dict[str, Any]:
     row, _ = _simulate_pick(state, pick_no, pool, roster_counts, targets, max_tv, source="pick_value")
     bookend = pick_no in _bookend_picks(state)
     if not row:
-        top = pool[0][1]
+        player_id, top = pool[0]
         return {
             "pick_no": pick_no,
             "label": pick_label(state, pick_no),
             "status": "future",
             "expected_player": top.name,
             "expected_pos": top.pos,
+            "expected_age": state._player_age(player_id),
             "expected_tv": top.trade_value,
             "expected_worp": top.worp,
             "is_bookend": bookend,
@@ -117,6 +118,7 @@ def project_pick_value(state: DraftState, pick_no: int) -> dict[str, Any]:
         "status": "future",
         "expected_player": row["name"],
         "expected_pos": row["pos"],
+        "expected_age": row.get("age"),
         "expected_tv": row["trade_value"],
         "expected_worp": None,
         "is_bookend": bookend,

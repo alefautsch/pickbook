@@ -74,6 +74,8 @@ def _pick_row(state: DraftState, pick: dict[str, Any]) -> dict[str, Any]:
         "round": pick.get("round"),
         "name": name,
         "pos": meta.get("position") or (war_player.pos if war_player else ""),
+        "team": (war_player.team if war_player else "") or "",
+        "age": _player_age(state, player_id),
         "trade_value": _blended_tv(state, war_player),
         "worp": war_player.worp if war_player else None,
         "porp": war_player.porp if war_player else None,
@@ -176,7 +178,7 @@ def build_draft_timeline(
     for pick_no, (player_id, war_player) in enrich_by_pick.items():
         row = next(r for r in rows if r.get("pick_no") == pick_no)
         row["player_id"] = player_id
-        state.enrich_player_worp(row)
+        state.enrich_player_row(row)
         dynasty = dynasty_by_id.get(player_id) or {}
         row["dynasty_rating"] = dynasty.get("dynasty_rating")
         row["dynasty_rookie"] = dynasty.get("dynasty_rookie")
@@ -436,7 +438,7 @@ def _apply_dynasty_to_lineup(state: DraftState, team: dict[str, Any]) -> dict[st
     scores = state.dynasty_scores(pool)
     starter_ids = {player.get("_dynasty_score_id") for player in starters}
     for player in all_players:
-        state.enrich_player_worp(player)
+        state.enrich_player_row(player)
         score_id = player.get("_dynasty_score_id")
         if not score_id or score_id not in scores:
             continue

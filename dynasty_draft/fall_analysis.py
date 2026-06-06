@@ -52,6 +52,7 @@ def _score_pool_at_pick(
             {
                 "name": player.name,
                 "pos": player.pos,
+                "age": state._player_age(player_id),
                 "trade_value": player.trade_value,
                 "worp": player.worp,
                 "effective_worp": eff_worp,

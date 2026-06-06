@@ -48,9 +48,11 @@ def render_board(state, limit: int) -> str:
         for row in my_roster:
             status_label = row.get("status", "")
             suffix = f" [{status_label}]" if status_label and status_label != "drafted" else ""
+            age = str(row["age"]) if row.get("age") is not None else "-"
+            worp_val = row.get("effective_worp") if row.get("effective_worp") is not None else row.get("worp")
             lines.append(
-                f"  {str(row.get('pick_no') or 'R'):>3}. {row['name']:<26} {row['pos']:<3} "
-                f"TV {format_money(row['trade_value']):>6}  WORP {row['worp'] if row['worp'] is not None else '-'}{suffix}"
+                f"  {str(row.get('pick_no') or 'R'):>3}. {row['name']:<26} {row['pos']:<3} {age:>2} "
+                f"TV {format_money(row['trade_value']):>6}  WORP {worp_val if worp_val is not None else '-'}{suffix}"
             )
         needs = state.starter_needs()
         need_bits = [f"{pos}:{count}" for pos, count in needs.items() if count > 0]
@@ -70,13 +72,17 @@ def render_board(state, limit: int) -> str:
     recs = state.recommend(limit=limit)
     lines.append("")
     lines.append("Top recommendations (trade value + WORP + roster fit):")
-    lines.append(f"{'#':>2} {'Player':<26} {'Pos':<3} {'TV':>6} {'WORP':>5} {'Tier':>4} {'Score':>6}")
+    lines.append(
+        f"{'#':>2} {'Player':<26} {'Pos':<3} {'Age':>3} {'TV':>6} {'WORP':>5} {'Tier':>4} {'Score':>6}"
+    )
     for idx, row in enumerate(recs, start=1):
-        worp = f"{row['worp']:.2f}" if row["worp"] is not None else "-"
+        worp_val = row.get("effective_worp") if row.get("effective_worp") is not None else row.get("worp")
+        worp = f"{worp_val:.2f}" if worp_val is not None else "-"
         tier = str(row["worp_tier"]) if row["worp_tier"] is not None else "-"
+        age = str(row["age"]) if row.get("age") is not None else "-"
         note = f"  ({row['note']})" if row.get("note") else ""
         lines.append(
-            f"{idx:>2} {row['name']:<26} {row['pos']:<3} "
+            f"{idx:>2} {row['name']:<26} {row['pos']:<3} {age:>3} "
             f"{row['trade_value']:>6,.0f} {worp:>5} {tier:>4} {row['score']:>6.3f}{note}"
         )
 

@@ -145,6 +145,7 @@ def _simulate_pick(
         "roster_id": roster_id,
         "name": player.name,
         "pos": player.pos,
+        "age": state._player_age(player_id),
         "trade_value": player.trade_value,
         "is_me": roster_id == state.my_roster_id,
         "source": source,
@@ -216,6 +217,7 @@ def _plan_user_bookend_picks(
                 "team": _team_name(state, state.my_roster_id),
                 "name": player.name,
                 "pos": player.pos,
+                "age": state._player_age(player_id),
                 "trade_value": player.trade_value,
                 "source": "projected_you",
             }

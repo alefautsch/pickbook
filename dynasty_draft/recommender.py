@@ -293,8 +293,8 @@ class DraftState:
             player_id=pid,
         )
 
-    def enrich_player_worp(self, player: dict[str, Any]) -> None:
-        """Attach blended effective_worp to a player row for display and scoring."""
+    def enrich_player_row(self, player: dict[str, Any]) -> None:
+        """Attach age and blended effective_worp to a player row."""
         player_id = player.get("player_id")
         name = player.get("name")
         war_player = None
@@ -302,13 +302,17 @@ class DraftState:
             war_player = self._match_war(str(player_id))
         if war_player is None and name:
             war_player = self.war.lookup(name)
-        if war_player and not player_id and name:
+        if not player_id and name:
             key = normalize_name(name)
             for sid, sleeper in self.sleeper_players.items():
                 if normalize_name(sleeper.get("full_name") or "") == key:
                     player_id = str(sid)
                     player["player_id"] = player_id
                     break
+        if player_id and player.get("age") is None:
+            age = self._player_age(str(player_id))
+            if age is not None:
+                player["age"] = age
         if war_player is None:
             return
         blended = self.with_blended_tv(war_player)
@@ -447,7 +451,7 @@ class DraftState:
                     "name": player.name,
                     "pos": pos,
                     "team": player.team,
-                    "age": dynasty.get("age"),
+                    "age": dynasty.get("age") or self._player_age(player_id),
                     "trade_value": blended_tv,
                     "worp": player.worp,
                     "effective_worp": eff_worp,
@@ -497,7 +501,7 @@ class DraftState:
                 }
             )
             if rows:
-                self.enrich_player_worp(rows[-1])
+                self.enrich_player_row(rows[-1])
         if self.strategy.is_vet_draft:
             for reserved in self.strategy.reserved_players(self.war, tv_fn=self.blended_trade_value):
                 rows.append(
@@ -511,7 +515,7 @@ class DraftState:
                         "status": "reserved (rookie draft)",
                     }
                 )
-                self.enrich_player_worp(rows[-1])
+                self.enrich_player_row(rows[-1])
         return rows
 
     def tier_cliffs(self, top_n: int = 5) -> list[dict[str, Any]]:

@@ -65,6 +65,7 @@ def _recent_picks(state: DraftState, limit: int = RECENT_PICKS_LIMIT) -> list[di
                 "roster_id": pick.get("roster_id"),
                 "name": war.name if war else name,
                 "pos": meta.get("position"),
+                "age": state._player_age(str(pick["player_id"])) if pick.get("player_id") else None,
                 "trade_value": state.blended_trade_value(war) if war else None,
                 "worp": war.worp if war else None,
             }
