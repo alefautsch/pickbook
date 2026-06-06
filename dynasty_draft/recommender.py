@@ -10,6 +10,7 @@ from dynasty_draft.war_data import POSITIONS, PlayerValue, WarData, normalize_na
 from dynasty_draft.projections import SleeperProjectionStore
 from dynasty_draft.ktc_values import KtcStore
 from dynasty_draft.trade_value_blend import TradeValueBlend
+from dynasty_draft.worp_blend import WorpBlend
 from dynasty_draft.worp_projection import WorpProjector
 
 
@@ -36,6 +37,7 @@ class DraftState:
     projection_store: SleeperProjectionStore | None = None
     ktc: KtcStore | None = None
     trade_blend: TradeValueBlend = field(default_factory=TradeValueBlend)
+    worp_blend: WorpBlend = field(default_factory=WorpBlend)
     strategy: DraftStrategy = field(default_factory=DraftStrategy)
     league_users: list[dict[str, Any]] = field(default_factory=list)
 
@@ -247,7 +249,7 @@ class DraftState:
     def _worp_projector(self) -> WorpProjector:
         cached = getattr(self, "_cached_worp_projector", None)
         if cached is None:
-            cached = WorpProjector(self.war, self.projection_store)
+            cached = WorpProjector(self.war, self.projection_store, self.worp_blend)
             self._cached_worp_projector = cached
         return cached
 

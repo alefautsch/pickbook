@@ -136,6 +136,6 @@ def build_fall_analysis(state: DraftState) -> dict[str, Any]:
         "next_bookend": next_analysis,
         "note": (
             "Use likely_fallers and top_available_sim — not just current-board WORP leaders. "
-            "Players with negative historical WORP may have projected_worp for sophomores."
+            "WORP blends historical + Sleeper projection; thin sophomores lean projected."
         ),
     }

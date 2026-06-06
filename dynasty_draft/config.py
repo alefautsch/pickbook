@@ -28,6 +28,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "dd_weight": 0.5,
         "ktc_weight": 0.5,
     },
+    "worp_blend": {
+        "historical_weight": 0.7,
+        "projected_weight": 0.3,
+        "auto_adjust_by_experience": True,
+    },
     "war_csv": "war.csv",
     "strategy": {
         "draft_phase": "vets",

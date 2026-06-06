@@ -90,8 +90,8 @@ def _bookend_plan_summary(state: DraftState) -> dict[str, Any]:
 def _metric_definitions() -> dict[str, str]:
     return {
         "trade_value": "Blended dynasty market capital (dynasty-daddy + KeepTradeCut). Higher = more dynasty trade demand.",
-        "worp": "Wins over replacement — backward-looking 2024 production. Misleading for rising sophomores.",
-        "projected_worp": "Sleeper season VOR → WORP for rookies/thin samples; TV imputation fallback. Prefer over raw worp when present.",
+        "worp": "Dynasty-daddy historical WORP (backward-looking production). Shown in UI when blend equals history.",
+        "projected_worp": "Blended effective WORP when projection contributes: α×historical + (1−α)×Sleeper VOR→WORP. α rises with years_exp (rookies ~0% hist, vets ~75–88%).",
         "dynasty_rating": "50–99 Madden-style rating: 45% TV + 25% proj WORP + 15% ceiling + 10% age + 5% trajectory.",
         "dynasty_rookie": "True when rating is a rookie projection (no historical WORP in war.csv). Shown as N* in UI.",
         "dynasty_components": "Normalized 0–1 breakdown: tv, worp, upside, age, trajectory for each player.",
@@ -136,6 +136,11 @@ def build_advisor_context(
         "trade_value_blend": {
             "dd_weight": state.trade_blend.dd_weight,
             "ktc_weight": state.trade_blend.ktc_weight,
+        },
+        "worp_blend": {
+            "historical_weight": state.worp_blend.historical_weight,
+            "projected_weight": state.worp_blend.projected_weight,
+            "auto_adjust_by_experience": state.worp_blend.auto_adjust_by_experience,
         },
         "my_roster": state.roster_summary(),
         "starter_needs": state.starter_needs(),
@@ -203,7 +208,7 @@ Use `pick_projection`, `bookend_plan`, and especially `falls_to_you`:
 - `falls_to_you.at_each_pick` — SIMULATED board at each bookend pick: `top_available_sim`, `likely_fallers`, `value_vs_adp`
 - `falls_to_you.next_bookend` — same for your NEXT bookend turn
 - Do NOT default to current-board WORP leaders (e.g. Dak, Loveland) if sim shows different names at picks 30/31
-- `projected_worp` on sophomores/rookies replaces negative historical WORP (Loveland breakout case)
+- `projected_worp` (WORP*) is blended effective WORP — vets still get ~25–35% Sleeper forward look; sophomores/rookies lean projected
 - `current_bookend.planned_picks` — projection assumes they take this pair NOW (align with or refine this)
 - `between_bookends` — simulated league picks between current and next bookend
 - `next_bookend.planned_picks` — projected pair at the following bookend

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from dynasty_draft.war_data import PlayerValue, WarData
+from dynasty_draft.worp_blend import WorpBlend
 
 if TYPE_CHECKING:
     from dynasty_draft.projections import SleeperProjectionStore
@@ -78,9 +79,26 @@ class WorpProjector:
         self,
         war: WarData,
         projections: SleeperProjectionStore | None = None,
+        worp_blend: WorpBlend | None = None,
     ) -> None:
         self._slopes = _tv_to_worp_slopes(war)
         self._projections = projections
+        self._blend = worp_blend or WorpBlend()
+
+    def _projected_worp(
+        self,
+        player: PlayerValue,
+        *,
+        years_exp: int,
+        player_id: str | None,
+    ) -> float | None:
+        if self._projections is not None and player_id:
+            sleeper_worp = self._projections.projected_worp(player_id, player.pos)
+            if sleeper_worp is not None:
+                return sleeper_worp
+        if _needs_projection(player, years_exp=years_exp):
+            return _fallback_projection(player, years_exp=years_exp, slopes=self._slopes)
+        return None
 
     def effective_worp(
         self,
@@ -90,25 +108,24 @@ class WorpProjector:
         player_id: str | None = None,
     ) -> tuple[float | None, bool]:
         """
-        Return (worp_for_scoring, is_projected).
+        Return (blended WORP for scoring, uses_projection).
 
-        Priority:
-        1) Established vets — dynasty-daddy historical WORP
-        2) Rookies / thin samples — Sleeper season VOR → WORP scale
-        3) Fallback — TV + PORP + spike imputation
+        Blends dynasty-daddy historical WORP with Sleeper VOR → WORP (or TV imputation).
+        Weight on historical rises with years of experience; rookies lean on projection.
         """
         if years_exp is None:
             years_exp = 2 if player.worp is not None else 0
 
-        if years_exp >= 2 and not _needs_projection(player, years_exp=years_exp):
-            return player.worp, False
+        historical = player.worp
+        thin_sample = _needs_projection(player, years_exp=years_exp)
+        projected = self._projected_worp(player, years_exp=years_exp, player_id=player_id)
 
-        if self._projections is not None and player_id:
-            sleeper_worp = self._projections.projected_worp(player_id, player.pos)
-            if sleeper_worp is not None:
-                return sleeper_worp, True
-
-        if not _needs_projection(player, years_exp=years_exp):
-            return player.worp, False
-
-        return _fallback_projection(player, years_exp=years_exp, slopes=self._slopes), True
+        alpha = self._blend.historical_alpha(
+            years_exp=years_exp,
+            thin_sample=thin_sample,
+            has_historical=historical is not None,
+            has_projected=projected is not None,
+        )
+        blended = self._blend.blend(historical, projected, alpha)
+        uses_projection = self._blend.uses_projection(alpha, has_projected=projected is not None)
+        return blended, uses_projection

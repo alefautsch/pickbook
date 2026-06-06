@@ -772,7 +772,10 @@ def _fmt_worp(value: float | None) -> str:
 def _fmt_worp_cell(row: dict[str, Any]) -> str:
     projected = row.get("projected_worp")
     if projected is not None:
-        return f'<span class="num worp-proj" title="Projected WORP (Sleeper VOR or imputed)">{projected:.2f}*</span>'
+        return (
+            f'<span class="num worp-proj" title="Blended WORP (historical + Sleeper projection)">'
+            f"{projected:.2f}*</span>"
+        )
     return f'<span class="num">{_fmt_worp(row.get("worp"))}</span>'
 
 
@@ -898,7 +901,7 @@ def _render_best_available(state: DraftState) -> None:
         f"ADP vs pick #{ref} (green = value). "
         "TV = blended dynasty-daddy + KTC. "
         "Dyn = 50–99 rating (TV + proj WORP + ceiling + age + trajectory). "
-        "WORP* = projected for rookies/sophomores. Sorted by pick fit, not Dyn."
+        "WORP* = blended historical + Sleeper projection (more * for rookies). Sorted by pick fit, not Dyn."
     )
     st.markdown(
         _html_table(
