@@ -35,7 +35,11 @@ def _score_pool_at_pick(
     for player_id, player in fake_available:
         years_exp = state.sleeper_players.get(player_id, {}).get("years_exp")
         years_exp_int = int(years_exp) if years_exp is not None else None
-        eff_worp, worp_proj = worp_projector.effective_worp(player, years_exp=years_exp_int)
+        eff_worp, worp_proj = worp_projector.effective_worp(
+            player,
+            years_exp=years_exp_int,
+            player_id=player_id,
+        )
         tv_norm = player.trade_value / max_tv if max_tv else 0.0
         worp_norm = (max(eff_worp or 0, 0) / 1.5) if eff_worp is not None else tv_norm * 0.85
         base = state.trade_weight * tv_norm + state.worp_weight * min(worp_norm, 1.0)
@@ -76,7 +80,7 @@ def build_fall_analysis(state: DraftState) -> dict[str, Any]:
         if pick_no:
             bookend = [pick_no]
 
-    worp_projector = WorpProjector(state.war)
+    worp_projector = WorpProjector(state.war, state.projection_store)
     picks_analysis: list[dict[str, Any]] = []
 
     for pick_no in bookend:

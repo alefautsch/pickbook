@@ -4,7 +4,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from dynasty_draft.draft_context import build_scoring_context
 from dynasty_draft.dynasty_score import DynastyWeights
+from dynasty_draft.projections import SleeperProjectionStore
 from dynasty_draft.recommender import DraftState
 from dynasty_draft.sleeper_client import SleeperClient
 from dynasty_draft.strategy import DraftStrategy
@@ -78,7 +80,7 @@ def build_state(config: dict[str, Any], *, exit_on_error: bool = True) -> DraftS
     war = WarData(war_path)
     strategy = DraftStrategy.from_config(config)
 
-    return DraftState(
+    state = DraftState(
         draft=draft,
         picks=picks,
         league=league,
@@ -91,3 +93,20 @@ def build_state(config: dict[str, Any], *, exit_on_error: bool = True) -> DraftS
         dynasty_weights=DynastyWeights.from_config(config.get("dynasty_weights")),
         strategy=strategy,
     )
+
+    try:
+        scoring = build_scoring_context(state)
+        state.projection_store = SleeperProjectionStore.load(
+            client,
+            season=str(config.get("season", "2026")),
+            teams=state._teams(),
+            roster_positions=state.roster_positions,
+            superflex=state.is_superflex(),
+            ppr=float(scoring.get("ppr", 0.5)),
+            war=war,
+            sleeper_players=players,
+        )
+    except Exception:
+        state.projection_store = None
+
+    return state

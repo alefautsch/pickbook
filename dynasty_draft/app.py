@@ -670,7 +670,7 @@ def _fmt_worp(value: float | None) -> str:
 def _fmt_worp_cell(row: dict[str, Any]) -> str:
     projected = row.get("projected_worp")
     if projected is not None:
-        return f'<span class="num worp-proj" title="Projected WORP (sophomore/rookie)">{projected:.2f}*</span>'
+        return f'<span class="num worp-proj" title="Projected WORP (Sleeper VOR or imputed)">{projected:.2f}*</span>'
     return f'<span class="num">{_fmt_worp(row.get("worp"))}</span>'
 
 
@@ -690,6 +690,7 @@ def _fmt_dynasty_rating(
     *,
     components: dict[str, Any] | None = None,
     age: int | None = None,
+    rookie: bool = False,
 ) -> str:
     if rating is None:
         return '<span class="dynasty dynasty-low">—</span>'
@@ -701,8 +702,13 @@ def _fmt_dynasty_rating(
     )
     if age is not None:
         title += f" · player age {age}"
+    if rookie:
+        title += " · rookie projection (no historical WORP)"
     cls = _dynasty_class(rating)
-    return f'<span class="dynasty {cls}" title="{html.escape(title)}">{rating}</span>'
+    suffix = "*" if rookie else ""
+    return (
+        f'<span class="dynasty {cls}" title="{html.escape(title)}">{rating}{suffix}</span>'
+    )
 
 
 def _fmt_dynasty_cell(row: dict[str, Any]) -> str:
@@ -710,6 +716,7 @@ def _fmt_dynasty_cell(row: dict[str, Any]) -> str:
         row.get("dynasty_rating"),
         components=row.get("dynasty_components"),
         age=row.get("age"),
+        rookie=bool(row.get("dynasty_rookie")),
     )
 
 
@@ -933,7 +940,10 @@ def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]
     note = ' <span class="note">(reserved)</span>' if status == "reserved" else ""
     row_class = "row-reserved" if status == "reserved" else ""
     dynasty_cell = (
-        _fmt_dynasty_rating(player.get("dynasty_rating"))
+        _fmt_dynasty_rating(
+            player.get("dynasty_rating"),
+            rookie=bool(player.get("dynasty_rookie")),
+        )
         if player.get("dynasty_rating") is not None
         else '<span class="muted">—</span>'
     )

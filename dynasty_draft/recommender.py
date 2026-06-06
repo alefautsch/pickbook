@@ -7,6 +7,7 @@ from dynasty_draft.adp import AdpIndex
 from dynasty_draft.dynasty_score import DynastyScorer, DynastyWeights
 from dynasty_draft.strategy import DraftStrategy
 from dynasty_draft.war_data import POSITIONS, PlayerValue, WarData, normalize_name
+from dynasty_draft.projections import SleeperProjectionStore
 from dynasty_draft.worp_projection import WorpProjector
 
 
@@ -30,6 +31,7 @@ class DraftState:
     trade_weight: float = 0.45
     worp_weight: float = 0.55
     dynasty_weights: DynastyWeights | None = None
+    projection_store: SleeperProjectionStore | None = None
     strategy: DraftStrategy = field(default_factory=DraftStrategy)
     league_users: list[dict[str, Any]] = field(default_factory=list)
 
@@ -226,7 +228,7 @@ class DraftState:
     def _worp_projector(self) -> WorpProjector:
         cached = getattr(self, "_cached_worp_projector", None)
         if cached is None:
-            cached = WorpProjector(self.war)
+            cached = WorpProjector(self.war, self.projection_store)
             self._cached_worp_projector = cached
         return cached
 
@@ -259,7 +261,11 @@ class DraftState:
         return int(age) if age is not None else None
 
     def _effective_worp(self, player_id: str, player: PlayerValue) -> tuple[float | None, bool]:
-        return self._worp_projector().effective_worp(player, years_exp=self._years_exp(player_id))
+        return self._worp_projector().effective_worp(
+            player,
+            years_exp=self._years_exp(player_id),
+            player_id=player_id,
+        )
 
     def _dynasty_scorer(self) -> DynastyScorer:
         cached = getattr(self, "_cached_dynasty_scorer", None)
@@ -393,6 +399,7 @@ class DraftState:
                     "adp_class": adp.adp_class(adp_delta),
                     "dynasty_score": dynasty.get("dynasty_score"),
                     "dynasty_rating": dynasty.get("dynasty_rating"),
+                    "dynasty_rookie": dynasty.get("dynasty_rookie"),
                     "dynasty_components": dynasty.get("dynasty_components"),
                     "score": final,
                     "vor": vor,

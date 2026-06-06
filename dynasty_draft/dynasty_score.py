@@ -124,9 +124,11 @@ class DynastyScorer:
                 + w.trajectory * traj_norm
             )
             rating = composite_to_rating(composite)
+            is_rookie = years_exp == 0 if years_exp is not None else player.worp is None
             results[player_id] = {
                 "dynasty_score": composite,
                 "dynasty_rating": rating,
+                "dynasty_rookie": is_rookie,
                 "dynasty_components": {
                     "tv": round(tv_norm, 3),
                     "worp": round(worp_norm, 3),

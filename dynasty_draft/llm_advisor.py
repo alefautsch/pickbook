@@ -91,8 +91,9 @@ def _metric_definitions() -> dict[str, str]:
     return {
         "trade_value": "Dynasty-daddy market capital (aggregated KTC/FantasyCalc etc.). Higher = more dynasty trade demand.",
         "worp": "Wins over replacement — backward-looking 2024 production. Misleading for rising sophomores.",
-        "projected_worp": "Forward-adjusted WORP for rookies/sophomores (TV + PORP + spike upside blend). Prefer over raw worp when present.",
+        "projected_worp": "Sleeper season VOR → WORP for rookies/thin samples; TV imputation fallback. Prefer over raw worp when present.",
         "dynasty_rating": "50–99 Madden-style rating: 45% TV + 25% proj WORP + 15% ceiling + 10% age + 5% trajectory.",
+        "dynasty_rookie": "True when rating is a rookie projection (no historical WORP in war.csv). Shown as N* in UI.",
         "dynasty_components": "Normalized 0–1 breakdown: tv, worp, upside, age, trajectory for each player.",
         "avg_dynasty_rating": "Team roster average dynasty_rating (50–99). Primary sort for league_rankings.by_dynasty.",
         "starter_avg_dynasty_rating": "Average dynasty_rating of optimal starters only.",
@@ -149,6 +150,15 @@ def build_advisor_context(
             "trajectory": state.dynasty_weights.trajectory if state.dynasty_weights else 0.05,
         },
         "metric_definitions": _metric_definitions(),
+        "projection_source": (
+            {
+                "provider": "sleeper",
+                "season": state.projection_store.season,
+                "ppr": state.projection_store.ppr,
+            }
+            if state.projection_store
+            else {"provider": "imputed_only"}
+        ),
         "league_name": league.get("name"),
     }
 

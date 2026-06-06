@@ -4,6 +4,7 @@ from collections import Counter, defaultdict
 from typing import Any
 
 from dynasty_draft.recommender import DraftState
+from dynasty_draft.war_data import normalize_name
 
 
 def build_scoring_context(state: DraftState) -> dict[str, Any]:
@@ -172,6 +173,7 @@ def build_draft_timeline(
         row["projected_worp"] = eff_worp if worp_projected else None
         dynasty = dynasty_by_id.get(player_id) or {}
         row["dynasty_rating"] = dynasty.get("dynasty_rating")
+        row["dynasty_rookie"] = dynasty.get("dynasty_rookie")
 
     return rows
 
@@ -179,6 +181,32 @@ def build_draft_timeline(
 _FLEX_ELIGIBLE = frozenset({"RB", "WR", "TE"})
 _SF_ELIGIBLE = frozenset({"QB", "RB", "WR", "TE"})
 _SLOT_LABELS = {"SUPER_FLEX": "SF"}
+
+
+def _sleeper_id_for_name(state: DraftState, name: str) -> str | None:
+    key = normalize_name(name)
+    for player_id, sleeper in state.sleeper_players.items():
+        if normalize_name(sleeper.get("full_name") or "") == key:
+            return player_id
+    return None
+
+
+def _war_player_for_roster_player(
+    state: DraftState,
+    player: dict[str, Any],
+) -> tuple[str | None, Any | None]:
+    """Resolve Sleeper id + war row for drafted or reserved (name-only) players."""
+    player_id = player.get("player_id")
+    if player_id:
+        return player_id, state._match_war(player_id)
+    name = player.get("name")
+    if not name:
+        return None, None
+    war_player = state.war.lookup(name)
+    if war_player is None:
+        return None, None
+    resolved_id = _sleeper_id_for_name(state, name)
+    return resolved_id, war_player
 
 
 def _player_age(state: DraftState, player_id: str | None) -> int | None:
@@ -349,17 +377,19 @@ def build_team_lineup(state: DraftState, roster_id: int, *, include_reserved: bo
     reserved: list[dict[str, Any]] = []
     if include_reserved and state.strategy.is_vet_draft and roster_id == state.my_roster_id:
         for row in state.strategy.reserved_players(state.war):
+            war_player = state.war.lookup(row["name"])
+            player_id = _sleeper_id_for_name(state, row["name"])
             reserved.append(
                 {
-                    "player_id": None,
+                    "player_id": player_id,
                     "pick_no": None,
                     "name": row["name"],
-                    "pos": row.get("pos") or "?",
-                    "team": "",
-                    "age": None,
+                    "pos": (war_player.pos if war_player else row.get("pos")) or "?",
+                    "team": (war_player.team if war_player else "") or "",
+                    "age": _player_age(state, player_id),
                     "trade_value": row.get("trade_value"),
-                    "worp": None,
-                    "porp": None,
+                    "worp": war_player.worp if war_player else None,
+                    "porp": war_player.porp if war_player else None,
                     "status": "reserved",
                 }
             )
@@ -373,12 +403,18 @@ def _apply_dynasty_to_lineup(state: DraftState, team: dict[str, Any]) -> dict[st
     all_players = starters + bench
     pool: list[tuple[str, Any]] = []
     for player in all_players:
-        player_id = player.get("player_id")
-        if not player_id:
+        player_id, war_player = _war_player_for_roster_player(state, player)
+        if not war_player:
             continue
-        war_player = state._match_war(player_id)
-        if war_player:
-            pool.append((player_id, war_player))
+        if player_id and not player.get("player_id"):
+            player["player_id"] = player_id
+            player["age"] = _player_age(state, player_id)
+            if not player.get("team") and war_player.team:
+                player["team"] = war_player.team
+        score_id = player_id or f"reserved:{normalize_name(player['name'])}"
+        pool.append((score_id, war_player))
+        player["_dynasty_score_id"] = score_id
+
     if not pool:
         return {
             "total_dynasty_rating": 0,
@@ -387,17 +423,25 @@ def _apply_dynasty_to_lineup(state: DraftState, team: dict[str, Any]) -> dict[st
         }
 
     scores = state.dynasty_scores(pool)
-    starter_ids = {player.get("player_id") for player in starters}
+    starter_ids = {player.get("_dynasty_score_id") for player in starters}
     for player in all_players:
-        player_id = player.get("player_id")
-        if player_id and player_id in scores:
-            player["dynasty_rating"] = scores[player_id].get("dynasty_rating")
+        score_id = player.get("_dynasty_score_id")
+        if not score_id or score_id not in scores:
+            continue
+        scored = scores[score_id]
+        player["dynasty_rating"] = scored.get("dynasty_rating")
+        player["dynasty_rookie"] = scored.get("dynasty_rookie")
+        _pid, war_player = _war_player_for_roster_player(state, player)
+        if _pid and war_player:
+            eff_worp, worp_projected = state._effective_worp(_pid, war_player)
+            if worp_projected:
+                player["projected_worp"] = eff_worp
 
     ratings = [row.get("dynasty_rating", 0) for row in scores.values()]
     starter_ratings = [
-        scores[pid].get("dynasty_rating", 0)
-        for pid in starter_ids
-        if pid and pid in scores
+        scores[sid].get("dynasty_rating", 0)
+        for sid in starter_ids
+        if sid and sid in scores
     ]
     return {
         "total_dynasty_rating": sum(ratings),
