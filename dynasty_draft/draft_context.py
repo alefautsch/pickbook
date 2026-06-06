@@ -147,6 +147,235 @@ def build_draft_timeline(
     return rows
 
 
+_FLEX_ELIGIBLE = frozenset({"RB", "WR", "TE"})
+_SF_ELIGIBLE = frozenset({"QB", "RB", "WR", "TE"})
+_SLOT_LABELS = {"SUPER_FLEX": "SF"}
+
+
+def _player_age(state: DraftState, player_id: str | None) -> int | None:
+    if not player_id:
+        return None
+    sleeper = state.sleeper_players.get(player_id) or {}
+    age = sleeper.get("age")
+    if age is not None:
+        return int(age)
+    years_exp = sleeper.get("years_exp")
+    if years_exp is not None and years_exp == 0:
+        return None
+    return None
+
+
+def _roster_player_from_pick(state: DraftState, pick: dict[str, Any]) -> dict[str, Any]:
+    player_id = pick.get("player_id")
+    war_player = state._match_war(player_id) if player_id else None
+    meta = pick.get("metadata") or {}
+    sleeper = state.sleeper_players.get(player_id or "") or {}
+    pos = (meta.get("position") or sleeper.get("position") or (war_player.pos if war_player else "")).upper()
+    return {
+        "player_id": player_id,
+        "pick_no": pick.get("pick_no"),
+        "name": war_player.name if war_player else state._sleeper_name(player_id or "") or "Unknown",
+        "pos": pos,
+        "team": (war_player.team if war_player else sleeper.get("team") or "").upper(),
+        "age": _player_age(state, player_id),
+        "trade_value": war_player.trade_value if war_player else None,
+        "worp": war_player.worp if war_player else None,
+        "porp": war_player.porp if war_player else None,
+        "status": "drafted",
+    }
+
+
+def _starter_slot_plan(roster_positions: list[str]) -> list[tuple[str, str]]:
+    """Return (slot_type, display_label) for each starter slot before bench."""
+    plan: list[tuple[str, str]] = []
+    for pos in roster_positions:
+        if pos == "BN":
+            break
+        plan.append((pos, _SLOT_LABELS.get(pos, pos)))
+    return plan
+
+
+def _take_best(
+    pool: list[dict[str, Any]],
+    used: set[str],
+    eligible: frozenset[str],
+) -> dict[str, Any] | None:
+    for player in pool:
+        key = player.get("player_id") or player.get("name") or ""
+        if not key or key in used:
+            continue
+        if player.get("pos") in eligible:
+            used.add(key)
+            return player
+    return None
+
+
+def _assign_lineup(
+    players: list[dict[str, Any]],
+    roster_positions: list[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    pool = sorted(players, key=lambda row: row.get("trade_value") or 0, reverse=True)
+    used: set[str] = set()
+    starters: list[dict[str, Any]] = []
+
+    for slot_type, label in _starter_slot_plan(roster_positions):
+        if slot_type == "QB":
+            player = _take_best(pool, used, frozenset({"QB"}))
+        elif slot_type == "RB":
+            player = _take_best(pool, used, frozenset({"RB"}))
+        elif slot_type == "WR":
+            player = _take_best(pool, used, frozenset({"WR"}))
+        elif slot_type == "TE":
+            player = _take_best(pool, used, frozenset({"TE"}))
+        elif slot_type == "FLEX":
+            player = _take_best(pool, used, _FLEX_ELIGIBLE)
+        elif slot_type == "SUPER_FLEX":
+            player = _take_best(pool, used, _SF_ELIGIBLE)
+        else:
+            player = None
+        starters.append({"slot": label, "player": player})
+
+    bench = [
+        player
+        for player in pool
+        if (player.get("player_id") or player.get("name") or "") not in used
+    ]
+    return starters, bench
+
+
+def _starter_metric(starters: list[dict[str, Any]], field: str) -> float | None:
+    values = [
+        row["player"][field]
+        for row in starters
+        if row.get("player") and row["player"].get(field) is not None
+    ]
+    return sum(values) if values else None
+
+
+def _finalize_lineup(
+    drafted: list[dict[str, Any]],
+    reserved: list[dict[str, Any]],
+    roster_positions: list[str],
+) -> dict[str, Any]:
+    starters, bench = _assign_lineup(drafted, roster_positions)
+    bench = sorted(bench, key=lambda row: row.get("trade_value") or 0, reverse=True)
+    bench.extend(reserved)
+    all_players = [row["player"] for row in starters if row.get("player")] + bench
+    total_tv = sum(player.get("trade_value") or 0 for player in all_players)
+    worp_values = [player.get("worp") for player in all_players if player.get("worp") is not None]
+    starter_worp = _starter_metric(starters, "worp")
+    starter_porp = _starter_metric(starters, "porp")
+    win_now_score = None
+    if starter_worp is not None or starter_porp is not None:
+        win_now_score = (starter_worp or 0.0) + (starter_porp or 0.0) / 100.0
+    return {
+        "starters": starters,
+        "bench": bench,
+        "pick_count": len(drafted),
+        "reserved_count": len(reserved),
+        "total_trade_value": total_tv,
+        "total_worp": sum(worp_values) if worp_values else None,
+        "starter_worp": starter_worp,
+        "starter_porp": starter_porp,
+        "win_now_score": win_now_score,
+    }
+
+
+def _picks_for_roster(state: DraftState, roster_id: int) -> list[dict[str, Any]]:
+    return [
+        pick
+        for pick in state.picks
+        if pick.get("player_id") and int(pick.get("roster_id", -1)) == roster_id
+    ]
+
+
+def _league_teams(state: DraftState) -> list[dict[str, Any]]:
+    users_by_id = {str(u.get("user_id")): u for u in (state.league_users or [])}
+    draft_order = state.draft.get("draft_order") or {}
+    slot_to_roster = state.draft.get("slot_to_roster_id") or {}
+    teams: list[dict[str, Any]] = []
+    for user_id, slot in draft_order.items():
+        roster_id = slot_to_roster.get(str(slot))
+        if roster_id is None:
+            continue
+        roster_id = int(roster_id)
+        user = users_by_id.get(str(user_id))
+        teams.append(
+            {
+                "team_name": _team_display_name(user, roster_id),
+                "owner": (user or {}).get("display_name"),
+                "roster_id": roster_id,
+                "draft_slot": int(slot),
+                "is_me": state.my_roster_id is not None and roster_id == state.my_roster_id,
+            }
+        )
+    return sorted(teams, key=lambda row: row.get("draft_slot") or 99)
+
+
+def build_team_lineup(state: DraftState, roster_id: int, *, include_reserved: bool = False) -> dict[str, Any]:
+    drafted = [
+        _roster_player_from_pick(state, pick)
+        for pick in sorted(_picks_for_roster(state, roster_id), key=lambda row: row.get("pick_no", 0))
+    ]
+    reserved: list[dict[str, Any]] = []
+    if include_reserved and state.strategy.is_vet_draft and roster_id == state.my_roster_id:
+        for row in state.strategy.reserved_players(state.war):
+            reserved.append(
+                {
+                    "player_id": None,
+                    "pick_no": None,
+                    "name": row["name"],
+                    "pos": row.get("pos") or "?",
+                    "team": "",
+                    "age": None,
+                    "trade_value": row.get("trade_value"),
+                    "worp": None,
+                    "porp": None,
+                    "status": "reserved",
+                }
+            )
+    return _finalize_lineup(drafted, reserved, state.roster_positions)
+
+
+def build_my_team_lineup(state: DraftState) -> dict[str, Any]:
+    if state.my_roster_id is None:
+        return _finalize_lineup([], [], state.roster_positions)
+    return build_team_lineup(state, state.my_roster_id, include_reserved=True)
+
+
+def build_league_lineups(state: DraftState) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for team in _league_teams(state):
+        lineup = build_team_lineup(
+            state,
+            team["roster_id"],
+            include_reserved=team["is_me"],
+        )
+        rows.append({**team, **lineup})
+    return rows
+
+
+def build_league_rankings(state: DraftState) -> dict[str, list[dict[str, Any]]]:
+    teams = build_league_lineups(state)
+
+    def _rank_key_tv(row: dict[str, Any]) -> float:
+        return float(row.get("total_trade_value") or 0)
+
+    def _rank_key_win(row: dict[str, Any]) -> float:
+        return float(row.get("win_now_score") or -1)
+
+    by_trade_value = sorted(teams, key=_rank_key_tv, reverse=True)
+    by_win_now = sorted(teams, key=_rank_key_win, reverse=True)
+    for idx, row in enumerate(by_trade_value, start=1):
+        row["tv_rank"] = idx
+    for idx, row in enumerate(by_win_now, start=1):
+        row["win_rank"] = idx
+    return {
+        "by_trade_value": by_trade_value,
+        "by_win_now": by_win_now,
+    }
+
+
 def build_league_team_rosters(state: DraftState) -> list[dict[str, Any]]:
     users_by_id = {str(u.get("user_id")): u for u in (state.league_users or [])}
     by_roster: dict[int, list[dict[str, Any]]] = defaultdict(list)

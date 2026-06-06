@@ -9,7 +9,11 @@ import streamlit as st
 
 from dynasty_draft.builder import build_state
 from dynasty_draft.config import load_config, save_config
-from dynasty_draft.draft_context import build_draft_timeline, build_league_team_rosters
+from dynasty_draft.draft_context import (
+    build_draft_timeline,
+    build_league_rankings,
+    build_my_team_lineup,
+)
 from dynasty_draft.llm_advisor import stream_evaluate_picks
 from dynasty_draft.pick_projector import project_next_picks
 from dynasty_draft.recommender import DraftState
@@ -154,6 +158,38 @@ MOBILE_CSS = """
     .pick-table .player { font-weight: 600; }
     .pick-table .muted { color: #94a3b8; font-style: italic; }
     .pick-table .note { font-size: 0.72rem; color: #64748b; max-width: 7rem; }
+    .lineup-table .slot-label {
+        width: 2.75rem;
+        font-size: 0.68rem;
+        font-weight: 800;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+    }
+    .lineup-table tr.row-empty td { color: #94a3b8; font-style: italic; }
+    .lineup-table tr.row-reserved { background: #faf5ff; }
+    .lineup-table .tv { font-weight: 700; color: #1d4ed8; }
+    .lineup-table .worp { font-weight: 700; color: #15803d; }
+    .pick-table tr.row-you { background: #eff6ff; }
+    .rank-badge {
+        display: inline-block;
+        min-width: 1.5rem;
+        font-weight: 800;
+        color: #64748b;
+    }
+    .rank-you .rank-badge { color: #1d4ed8; }
+    .lineup-table .age { color: #64748b; font-size: 0.78rem; }
+    .lineup-divider td {
+        background: #f8fafc;
+        color: #64748b;
+        font-size: 0.65rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 0.45rem 0.5rem;
+        border-bottom: 1px solid #e2e8f0;
+    }
     .note-box {
         background: #eff6ff;
         border: 1px solid #bfdbfe;
@@ -327,7 +363,21 @@ def _fmt_worp(value: float | None) -> str:
     return f"{value:.2f}" if value is not None else "—"
 
 
-def _html_table(headers: list[str], body_rows: list[list[str]], row_classes: list[str] | None = None) -> str:
+def _fmt_age(value: int | None) -> str:
+    return str(value) if value is not None else "—"
+
+
+def _fmt_porp(value: float | None) -> str:
+    return f"{value:.0f}" if value is not None else "—"
+
+
+def _html_table(
+    headers: list[str],
+    body_rows: list[list[str]],
+    row_classes: list[str] | None = None,
+    *,
+    table_class: str = "pick-table",
+) -> str:
     head = "".join(f"<th>{html.escape(h)}</th>" for h in headers)
     rows_html: list[str] = []
     for i, cells in enumerate(body_rows):
@@ -336,9 +386,40 @@ def _html_table(headers: list[str], body_rows: list[list[str]], row_classes: lis
         tds = "".join(f"<td>{cell}</td>" for cell in cells)
         rows_html.append(f"<tr{class_attr}>{tds}</tr>")
     return (
-        f'<div class="table-wrap"><table class="pick-table">'
+        f'<div class="table-wrap"><table class="{table_class}">'
         f"<thead><tr>{head}</tr></thead>"
         f"<tbody>{''.join(rows_html)}</tbody></table></div>"
+    )
+
+
+def _recommendation_table_rows(rows: list[dict[str, Any]], *, include_pos: bool = False) -> list[list[str]]:
+    body: list[list[str]] = []
+    for row in rows:
+        note = html.escape(row["note"]) if row.get("note") else ""
+        pos_cell = f'<span class="pos">{html.escape(row.get("pos") or "")}</span>'
+        cells = [
+            f'<span class="player">{html.escape(row["name"])}</span>',
+            *( [pos_cell] if include_pos else [] ),
+            html.escape(row.get("team") or ""),
+            f'<span class="num">{_fmt_tv(row.get("trade_value"))}</span>',
+            f'<span class="num">{_fmt_worp(row.get("worp"))}</span>',
+            f'<span class="note">{note}</span>' if note else "",
+        ]
+        body.append(cells)
+    return body
+
+
+def _render_best_available(state: DraftState) -> None:
+    rows = state.recommend(limit=15)
+    if not rows:
+        return
+    st.markdown('<div class="section-title">Best available</div>', unsafe_allow_html=True)
+    st.markdown(
+        _html_table(
+            ["Player", "Pos", "Tm", "TV", "WORP", "Note"],
+            _recommendation_table_rows(rows, include_pos=True),
+        ),
+        unsafe_allow_html=True,
     )
 
 
@@ -349,20 +430,11 @@ def _render_quick_picks(state: DraftState) -> None:
         if not rows:
             continue
         with st.expander(f"{pos} — top {len(rows)}", expanded=pos in ("QB", "WR")):
-            body: list[list[str]] = []
-            for row in rows:
-                note = html.escape(row["note"]) if row.get("note") else ""
-                body.append(
-                    [
-                        f'<span class="player">{html.escape(row["name"])}</span>',
-                        html.escape(row.get("team") or ""),
-                        f'<span class="num">{_fmt_tv(row.get("trade_value"))}</span>',
-                        f'<span class="num">{_fmt_worp(row.get("worp"))}</span>',
-                        f'<span class="note">{note}</span>' if note else "",
-                    ]
-                )
             st.markdown(
-                _html_table(["Player", "Tm", "TV", "WORP", "Note"], body),
+                _html_table(
+                    ["Player", "Tm", "TV", "WORP", "Note"],
+                    _recommendation_table_rows(rows),
+                ),
                 unsafe_allow_html=True,
             )
 
@@ -428,38 +500,167 @@ def _render_draft_tab(state: DraftState, config: dict[str, Any]) -> None:
         for note in live_state.strategy.strategy_notes(live_state.war):
             st.markdown(f'<div class="note-box">{note}</div>', unsafe_allow_html=True)
         _render_draft_timeline(live_state)
+        _render_best_available(live_state)
         st.markdown('<div class="section-title">Quick picks</div>', unsafe_allow_html=True)
         _render_quick_picks(live_state)
 
     live_board()
 
 
-def _render_league_tab(state: DraftState) -> None:
-    teams = build_league_team_rosters(state)
-    for team in teams:
-        label = f"{'★ ' if team['is_me'] else ''}{team['team_name']} ({team['pick_count']})"
-        with st.expander(label, expanded=team["is_me"]):
-            if team["position_counts"]:
-                st.caption(" · ".join(f"{k}:{v}" for k, v in team["position_counts"].items()))
-            for pick in team["picks"]:
-                tv = f"TV {pick['trade_value']:,.0f}" if pick.get("trade_value") else ""
-                st.markdown(f"#{pick['pick_no']} **{pick['name']}** {pick['pos']} {tv}")
+def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]:
+    if not player:
+        return (
+            [
+                '<span class="muted">Empty</span>',
+                "",
+                "",
+                "",
+                "",
+                "",
+            ],
+            "row-empty",
+        )
+    status = player.get("status")
+    note = ' <span class="note">(reserved)</span>' if status == "reserved" else ""
+    row_class = "row-reserved" if status == "reserved" else ""
+    return (
+        [
+            f'<span class="player">{html.escape(player["name"])}</span>{note}',
+            f'<span class="pos">{html.escape(player.get("pos") or "")}</span>',
+            html.escape(player.get("team") or ""),
+            f'<span class="age">{_fmt_age(player.get("age"))}</span>',
+            f'<span class="num tv">{_fmt_tv(player.get("trade_value"))}</span>',
+            f'<span class="num worp">{_fmt_worp(player.get("worp"))}</span>',
+        ],
+        row_class,
+    )
+
+
+def _render_lineup_stats(lineup: dict[str, Any]) -> None:
+    st.markdown(
+        f"""
+        <div class="stat-row">
+          <div class="stat-card"><div class="stat-label">Picks</div>
+            <div class="stat-value">{lineup["pick_count"]}</div></div>
+          <div class="stat-card"><div class="stat-label">Trade value</div>
+            <div class="stat-value">{lineup["total_trade_value"]:,.0f}</div></div>
+          <div class="stat-card"><div class="stat-label">Starter WORP</div>
+            <div class="stat-value">{_fmt_worp(lineup.get("starter_worp"))}</div></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_lineup_table(lineup: dict[str, Any]) -> None:
+    body: list[list[str]] = []
+    row_classes: list[str] = []
+    for row in lineup["starters"]:
+        cells, row_class = _lineup_player_cells(row.get("player"))
+        body.append([f'<span class="slot-label">{html.escape(row["slot"])}</span>', *cells])
+        row_classes.append(row_class)
+
+    body.append(['<span class="slot-label">BENCH</span>', "", "", "", "", "", ""])
+    row_classes.append("lineup-divider")
+
+    if lineup["bench"]:
+        for player in lineup["bench"]:
+            cells, row_class = _lineup_player_cells(player)
+            body.append(["", *cells])
+            row_classes.append(row_class)
+    else:
+        body.append(["", '<span class="muted">No bench players yet</span>', "", "", "", "", ""])
+        row_classes.append("row-empty")
+
+    st.markdown(
+        _html_table(
+            ["", "Player", "Pos", "Tm", "Age", "TV", "WORP"],
+            body,
+            row_classes,
+            table_class="pick-table lineup-table",
+        ),
+        unsafe_allow_html=True,
+    )
 
 
 def _render_my_team_tab(state: DraftState) -> None:
-    roster = state.roster_summary()
-    if not roster:
+    lineup = build_my_team_lineup(state)
+    if lineup["pick_count"] == 0 and lineup["reserved_count"] == 0:
         st.info("No picks yet.")
         return
-    for row in roster:
-        tv = f"TV {row['trade_value']:,.0f}" if row.get("trade_value") else ""
-        status = f" · {row['status']}" if row.get("status") and row["status"] != "drafted" else ""
-        pick_label = f"#{row['pick_no']}" if row.get("pick_no") else "Rookie"
-        st.markdown(f"{pick_label} **{row['name']}** {row['pos']} {tv}{status}")
+
+    _render_lineup_stats(lineup)
+    if lineup["reserved_count"]:
+        st.caption(f"{lineup['reserved_count']} reserved for rookie draft")
+    _render_lineup_table(lineup)
+
     needs = state.starter_needs()
     need_bits = [f"{pos}: {count}" for pos, count in needs.items() if count > 0]
     if need_bits:
-        st.caption("Needs: " + ", ".join(need_bits))
+        st.caption("Starter needs: " + ", ".join(need_bits))
+
+
+def _render_league_tab(state: DraftState) -> None:
+    teams = build_league_rankings(state)
+    st.caption("Tap a team for full lineup · optimal starters by trade value")
+    for team in teams["by_trade_value"]:
+        slot = f"1.{team['draft_slot']:02d}" if team.get("draft_slot") else "?"
+        label = (
+            f"{'★ ' if team['is_me'] else ''}{team['team_name']} · "
+            f"{slot} · {team['pick_count']} picks · TV {team['total_trade_value']:,.0f}"
+        )
+        with st.expander(label, expanded=team["is_me"]):
+            _render_lineup_stats(team)
+            if team.get("reserved_count"):
+                st.caption(f"{team['reserved_count']} reserved for rookie draft")
+            _render_lineup_table(team)
+
+
+def _render_rankings_tab(state: DraftState) -> None:
+    rankings = build_league_rankings(state)
+
+    st.markdown('<div class="section-title">Win now</div>', unsafe_allow_html=True)
+    st.caption("Ranked by optimal starter WORP + PORP/100 (position projection)")
+    win_body: list[list[str]] = []
+    win_classes: list[str] = []
+    for team in rankings["by_win_now"]:
+        row_class = "row-you rank-you" if team["is_me"] else ""
+        win_body.append(
+            [
+                f'<span class="rank-badge">{team["win_rank"]}</span>',
+                f"<strong>{html.escape(team['team_name'])}</strong>" if team["is_me"] else html.escape(team["team_name"]),
+                str(team.get("pick_count") or 0),
+                f'<span class="num worp">{_fmt_worp(team.get("starter_worp"))}</span>',
+                f'<span class="num">{_fmt_porp(team.get("starter_porp"))}</span>',
+                f'<span class="num">{_fmt_worp(team.get("win_now_score"))}</span>',
+            ]
+        )
+        win_classes.append(row_class)
+    st.markdown(
+        _html_table(["#", "Team", "Picks", "WORP", "PORP", "Score"], win_body, win_classes),
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div class="section-title">Dynasty value</div>', unsafe_allow_html=True)
+    st.caption("Ranked by total roster trade value")
+    tv_body: list[list[str]] = []
+    tv_classes: list[str] = []
+    for team in rankings["by_trade_value"]:
+        row_class = "row-you rank-you" if team["is_me"] else ""
+        tv_body.append(
+            [
+                f'<span class="rank-badge">{team["tv_rank"]}</span>',
+                f"<strong>{html.escape(team['team_name'])}</strong>" if team["is_me"] else html.escape(team["team_name"]),
+                str(team.get("pick_count") or 0),
+                f'<span class="num tv">{_fmt_tv(team.get("total_trade_value"))}</span>',
+                f'<span class="num worp">{_fmt_worp(team.get("starter_worp"))}</span>',
+            ]
+        )
+        tv_classes.append(row_class)
+    st.markdown(
+        _html_table(["#", "Team", "Picks", "Total TV", "WORP"], tv_body, tv_classes),
+        unsafe_allow_html=True,
+    )
 
 
 def _render_settings_tab(config: dict[str, Any]) -> None:
@@ -510,15 +711,15 @@ def main() -> None:
 
     if state is None:
         st.info("Add your Sleeper username in Settings.")
-        tab_ask, tab_draft, tab_team, tab_league, tab_settings = st.tabs(
-            ["Ask", "Draft", "Team", "League", "Settings"]
+        tab_ask, tab_draft, tab_team, tab_league, tab_rankings, tab_settings = st.tabs(
+            ["Ask", "Draft", "Team", "League", "Rankings", "Settings"]
         )
         with tab_settings:
             _render_settings_tab(config)
         return
 
-    tab_ask, tab_draft, tab_team, tab_league, tab_settings = st.tabs(
-        ["Ask", "Draft", "Team", "League", "Settings"]
+    tab_ask, tab_draft, tab_team, tab_league, tab_rankings, tab_settings = st.tabs(
+        ["Ask", "Draft", "Team", "League", "Rankings", "Settings"]
     )
 
     with tab_ask:
@@ -532,6 +733,9 @@ def main() -> None:
 
     with tab_league:
         _render_league_tab(state)
+
+    with tab_rankings:
+        _render_rankings_tab(state)
 
     with tab_settings:
         _render_settings_tab(config)
