@@ -3,8 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from dynasty_draft.adp import AdpIndex
+from dynasty_draft.dynasty_score import DynastyScorer, DynastyWeights
 from dynasty_draft.strategy import DraftStrategy
 from dynasty_draft.war_data import POSITIONS, PlayerValue, WarData, normalize_name
+from dynasty_draft.worp_projection import WorpProjector
 
 
 STARTER_COUNTS: dict[str, int] = {
@@ -26,6 +29,7 @@ class DraftState:
     sleeper_players: dict[str, dict[str, Any]]
     trade_weight: float = 0.45
     worp_weight: float = 0.55
+    dynasty_weights: DynastyWeights | None = None
     strategy: DraftStrategy = field(default_factory=DraftStrategy)
     league_users: list[dict[str, Any]] = field(default_factory=list)
 
@@ -219,16 +223,78 @@ class DraftState:
         needs["FLEX"] = max(0, flex_slots - max(0, skill - base_skill))
         return needs
 
+    def _worp_projector(self) -> WorpProjector:
+        cached = getattr(self, "_cached_worp_projector", None)
+        if cached is None:
+            cached = WorpProjector(self.war)
+            self._cached_worp_projector = cached
+        return cached
+
+    def _adp_index(self) -> AdpIndex:
+        cached = getattr(self, "_cached_adp_index", None)
+        if cached is None:
+            cached = AdpIndex(self.war)
+            self._cached_adp_index = cached
+        return cached
+
+    def _adp_reference_pick(self) -> int | None:
+        info = self.next_pick_info()
+        if info.get("is_my_pick"):
+            return info.get("pick_no")
+        streak = info.get("consecutive_picks") or []
+        if streak:
+            return streak[0]
+        pick_no = info.get("pick_no")
+        until = info.get("picks_until_mine")
+        if pick_no is not None and until is not None:
+            return pick_no + until
+        return pick_no
+
+    def _years_exp(self, player_id: str) -> int | None:
+        years_exp = self.sleeper_players.get(player_id, {}).get("years_exp")
+        return int(years_exp) if years_exp is not None else None
+
+    def _player_age(self, player_id: str) -> int | None:
+        age = self.sleeper_players.get(player_id, {}).get("age")
+        return int(age) if age is not None else None
+
+    def _effective_worp(self, player_id: str, player: PlayerValue) -> tuple[float | None, bool]:
+        return self._worp_projector().effective_worp(player, years_exp=self._years_exp(player_id))
+
+    def _dynasty_scorer(self) -> DynastyScorer:
+        cached = getattr(self, "_cached_dynasty_scorer", None)
+        if cached is None:
+            cached = DynastyScorer(self.dynasty_weights)
+            self._cached_dynasty_scorer = cached
+        return cached
+
+    def dynasty_scores(
+        self, players: list[tuple[str, PlayerValue]] | None = None
+    ) -> dict[str, dict[str, Any]]:
+        pool = players if players is not None else self.available_players()
+        ids = [player_id for player_id, _ in pool]
+        return self._dynasty_scorer().score_pool(
+            pool,
+            age_by_id={pid: self._player_age(pid) for pid in ids},
+            years_exp_by_id={pid: self._years_exp(pid) for pid in ids},
+            effective_worp=self._effective_worp,
+        )
+
     def _normalize_scores(self, available: list[tuple[str, PlayerValue]]) -> dict[str, float]:
         trade_vals = [p.trade_value for _, p in available]
-        worps = [p.worp for _, p in available if p.worp is not None]
+        effective_worps: list[float] = []
+        for player_id, player in available:
+            eff, _ = self._effective_worp(player_id, player)
+            if eff is not None:
+                effective_worps.append(max(eff, 0))
         max_tv = max(trade_vals) if trade_vals else 1.0
-        max_worp = max(worps) if worps else 1.0
+        max_worp = max(effective_worps) if effective_worps else 1.0
         scores: dict[str, float] = {}
         for player_id, player in available:
             tv_norm = player.trade_value / max_tv if max_tv else 0.0
-            if player.worp is not None and max_worp:
-                worp_norm = max(player.worp, 0) / max_worp
+            eff, _ = self._effective_worp(player_id, player)
+            if eff is not None and max_worp:
+                worp_norm = max(eff, 0) / max_worp
             else:
                 worp_norm = tv_norm * 0.85
             upside_norm = player.upside
@@ -291,6 +357,9 @@ class DraftState:
         need_weights: dict[str, float] = adjustments["need_weights"]
         penalties: dict[str, float] = adjustments["penalties"]
 
+        adp = self._adp_index()
+        ref_pick = self._adp_reference_pick()
+        dynasty_by_id = self.dynasty_scores(available)
         recommendations: list[dict[str, Any]] = []
         for player_id, player in available:
             pos = player.pos
@@ -304,15 +373,27 @@ class DraftState:
             note = ""
             if penalty > 0 and pos == "RB":
                 note = "RB deprioritized (Jeremiyah Love reserved)"
+            eff_worp, worp_projected = self._effective_worp(player_id, player)
+            adp_pick = adp.pick_no(player.name)
+            adp_delta = adp.delta(player.name, ref_pick) if ref_pick and adp_pick else None
+            dynasty = dynasty_by_id.get(player_id) or {}
             recommendations.append(
                 {
                     "player_id": player_id,
                     "name": player.name,
                     "pos": pos,
                     "team": player.team,
+                    "age": dynasty.get("age"),
                     "trade_value": player.trade_value,
                     "worp": player.worp,
+                    "projected_worp": eff_worp if worp_projected else None,
                     "worp_tier": player.worp_tier,
+                    "adp_pick": adp_pick,
+                    "adp_delta": adp_delta,
+                    "adp_class": adp.adp_class(adp_delta),
+                    "dynasty_score": dynasty.get("dynasty_score"),
+                    "dynasty_pct": dynasty.get("dynasty_pct"),
+                    "dynasty_components": dynasty.get("dynasty_components"),
                     "score": final,
                     "vor": vor,
                     "need_boost": need_boost,

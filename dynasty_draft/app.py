@@ -18,9 +18,11 @@ from dynasty_draft.llm_advisor import (
     ADVISOR_MODELS,
     advisor_model_by_id,
     build_advisor_context,
+    build_followup_context_snippet,
     build_initial_user_message,
     stream_advisor_reply,
 )
+from dynasty_draft.fall_analysis import build_fall_analysis
 from dynasty_draft.pick_projector import project_next_picks
 from dynasty_draft.pick_values import build_pick_trade_context
 from dynasty_draft.recommender import DraftState
@@ -243,6 +245,16 @@ MOBILE_CSS = """
     .pick-table .player { font-weight: 600; }
     .pick-table .muted { color: #94a3b8; font-style: italic; }
     .pick-table .note { font-size: 0.72rem; color: #64748b; max-width: 7rem; }
+    .pick-table .adp { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+    .pick-table .adp-steal { color: #15803d; background: #f0fdf4; border-radius: 4px; padding: 0.1rem 0.35rem; }
+    .pick-table .adp-fair { color: #475569; }
+    .pick-table .adp-reach { color: #b45309; background: #fffbeb; border-radius: 4px; padding: 0.1rem 0.35rem; }
+    .pick-table .adp-unknown { color: #94a3b8; }
+    .pick-table .worp-proj { color: #7c3aed; font-weight: 700; }
+    .pick-table .dynasty { font-variant-numeric: tabular-nums; font-weight: 800; }
+    .pick-table .dynasty-high { color: #1d4ed8; }
+    .pick-table .dynasty-mid { color: #475569; }
+    .pick-table .dynasty-low { color: #94a3b8; }
     .lineup-table .slot-label {
         width: 2.75rem;
         font-size: 0.68rem;
@@ -493,7 +505,8 @@ def _queue_advisor_message(state: DraftState, config: dict[str, Any], user_text:
         context = build_advisor_context(fresh)
         user_content = build_initial_user_message(context, user_text)
     else:
-        user_content = user_text
+        snippet = build_followup_context_snippet(fresh)
+        user_content = f"{snippet}\n\n{user_text}"
 
     st.session_state.llm_messages.append(
         {"role": "user", "content": user_content, "label": user_text}
@@ -654,6 +667,54 @@ def _fmt_worp(value: float | None) -> str:
     return f"{value:.2f}" if value is not None else "—"
 
 
+def _fmt_worp_cell(row: dict[str, Any]) -> str:
+    projected = row.get("projected_worp")
+    if projected is not None:
+        return f'<span class="num worp-proj" title="Projected WORP (sophomore/rookie)">{projected:.2f}*</span>'
+    return f'<span class="num">{_fmt_worp(row.get("worp"))}</span>'
+
+
+def _dynasty_class(pct: int | None) -> str:
+    if pct is None:
+        return "dynasty-low"
+    if pct >= 70:
+        return "dynasty-high"
+    if pct >= 45:
+        return "dynasty-mid"
+    return "dynasty-low"
+
+
+def _fmt_dynasty_cell(row: dict[str, Any]) -> str:
+    pct = row.get("dynasty_pct")
+    if pct is None:
+        return '<span class="dynasty dynasty-low">—</span>'
+    components = row.get("dynasty_components") or {}
+    title = (
+        f"TV {components.get('tv', '—')} · WORP {components.get('worp', '—')} · "
+        f"upside {components.get('upside', '—')} · age {components.get('age', '—')} · "
+        f"trajectory {components.get('trajectory', '—')}"
+    )
+    cls = _dynasty_class(pct)
+    age = row.get("age")
+    age_hint = f", age {age}" if age is not None else ""
+    return (
+        f'<span class="dynasty {cls}" title="{html.escape(title + age_hint)}">{pct}</span>'
+    )
+
+
+def _fmt_adp_cell(row: dict[str, Any]) -> str:
+    adp_pick = row.get("adp_pick")
+    if adp_pick is None:
+        return '<span class="adp adp-unknown">—</span>'
+    delta = row.get("adp_delta")
+    cls = row.get("adp_class") or "adp-fair"
+    label = f"#{adp_pick}"
+    if delta is not None and delta != 0:
+        sign = "+" if delta > 0 else ""
+        label = f"#{adp_pick} ({sign}{delta})"
+    return f'<span class="adp {cls}">{html.escape(label)}</span>'
+
+
 def _fmt_age(value: int | None) -> str:
     return str(value) if value is not None else "—"
 
@@ -683,7 +744,12 @@ def _html_table(
     )
 
 
-def _recommendation_table_rows(rows: list[dict[str, Any]], *, include_pos: bool = False) -> list[list[str]]:
+def _recommendation_table_rows(
+    rows: list[dict[str, Any]],
+    *,
+    include_pos: bool = False,
+    include_adp: bool = False,
+) -> list[list[str]]:
     body: list[list[str]] = []
     for row in rows:
         note = html.escape(row["note"]) if row.get("note") else ""
@@ -692,8 +758,10 @@ def _recommendation_table_rows(rows: list[dict[str, Any]], *, include_pos: bool 
             f'<span class="player">{html.escape(row["name"])}</span>',
             *( [pos_cell] if include_pos else [] ),
             html.escape(row.get("team") or ""),
+            *([_fmt_adp_cell(row)] if include_adp else []),
+            _fmt_dynasty_cell(row),
             f'<span class="num">{_fmt_tv(row.get("trade_value"))}</span>',
-            f'<span class="num">{_fmt_worp(row.get("worp"))}</span>',
+            _fmt_worp_cell(row),
             f'<span class="note">{note}</span>' if note else "",
         ]
         body.append(cells)
@@ -704,14 +772,42 @@ def _render_best_available(state: DraftState) -> None:
     rows = state.recommend(limit=15)
     if not rows:
         return
+    ref = state._adp_reference_pick()
     st.markdown('<div class="section-title">Best available</div>', unsafe_allow_html=True)
+    st.caption(
+        f"ADP vs pick #{ref} (green = value). "
+        "Dynasty = blended score (45% TV, 25% proj WORP, 15% ceiling, 10% age, 5% trajectory). "
+        "WORP* = projected for rookies/sophomores. Sorted by pick fit, not Dynasty."
+    )
     st.markdown(
         _html_table(
-            ["Player", "Pos", "Tm", "TV", "WORP", "Note"],
-            _recommendation_table_rows(rows, include_pos=True),
+            ["Player", "Pos", "Tm", "ADP", "Dyn", "TV", "WORP", "Note"],
+            _recommendation_table_rows(rows, include_pos=True, include_adp=True),
         ),
         unsafe_allow_html=True,
     )
+
+
+def _render_fall_preview(state: DraftState) -> None:
+    fall = build_fall_analysis(state)
+    blocks = fall.get("at_each_pick") or []
+    if not blocks:
+        return
+    st.markdown('<div class="section-title">Who could fall to you</div>', unsafe_allow_html=True)
+    st.caption("Simulated board at each bookend pick (ADP + league needs). Not just current WORP rank.")
+    for block in blocks:
+        pick_no = block.get("pick_no")
+        top = block.get("top_available_sim") or []
+        fallers = block.get("likely_fallers") or []
+        if not top:
+            continue
+        names = ", ".join(
+            f"{row['name']} ({row['pos']})" for row in top[:6]
+        )
+        st.markdown(f"**Pick #{pick_no}** — sim top: {html.escape(names)}")
+        if fallers:
+            fall_names = ", ".join(f"{row['name']}" for row in fallers[:4])
+            st.markdown(f'<span class="note-box">Likely fallers: {html.escape(fall_names)}</span>', unsafe_allow_html=True)
 
 
 def _render_quick_picks(state: DraftState) -> None:
@@ -723,8 +819,8 @@ def _render_quick_picks(state: DraftState) -> None:
         with st.expander(f"{pos} — top {len(rows)}", expanded=pos in ("QB", "WR")):
             st.markdown(
                 _html_table(
-                    ["Player", "Tm", "TV", "WORP", "Note"],
-                    _recommendation_table_rows(rows),
+                    ["Player", "Tm", "ADP", "Dyn", "TV", "WORP", "Note"],
+                    _recommendation_table_rows(rows, include_adp=True),
                 ),
                 unsafe_allow_html=True,
             )
@@ -792,6 +888,7 @@ def _render_draft_tab(state: DraftState, config: dict[str, Any]) -> None:
             st.markdown(f'<div class="note-box">{note}</div>', unsafe_allow_html=True)
         _render_draft_timeline(live_state)
         _render_best_available(live_state)
+        _render_fall_preview(live_state)
         st.markdown('<div class="section-title">Quick picks</div>', unsafe_allow_html=True)
         _render_quick_picks(live_state)
 

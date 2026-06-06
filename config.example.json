@@ -5,6 +5,13 @@
   "season": "2026",
   "trade_weight": 0.65,
   "worp_weight": 0.35,
+  "dynasty_weights": {
+    "tv": 0.45,
+    "worp": 0.25,
+    "upside": 0.15,
+    "age": 0.10,
+    "trajectory": 0.05
+  },
   "poll_seconds": 20,
   "war_csv": "war.csv",
   "strategy": {

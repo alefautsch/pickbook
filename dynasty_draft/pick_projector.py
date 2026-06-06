@@ -309,7 +309,7 @@ def project_next_picks(
                 roster_counts,
                 targets,
                 max_tv,
-                prefer_recommendations=False,
+                prefer_recommendations=True,
             )
         else:
             sim_start = current_bookend[-1] + 1

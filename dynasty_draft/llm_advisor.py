@@ -8,6 +8,7 @@ import anthropic
 import requests
 
 from dynasty_draft.draft_context import build_league_team_rosters, build_scoring_context
+from dynasty_draft.fall_analysis import build_fall_analysis
 from dynasty_draft.pick_projector import project_next_picks
 from dynasty_draft.pick_values import build_pick_trade_context
 from dynasty_draft.recommender import DraftState
@@ -82,6 +83,20 @@ def _bookend_plan_summary(state: DraftState) -> dict[str, Any]:
     }
 
 
+def _metric_definitions() -> dict[str, str]:
+    return {
+        "trade_value": "Dynasty-daddy market capital (aggregated KTC/FantasyCalc etc.). Higher = more dynasty trade demand.",
+        "worp": "Wins over replacement — backward-looking 2024 production. Misleading for rising sophomores.",
+        "projected_worp": "Forward-adjusted WORP for rookies/sophomores (TV + PORP + spike upside blend). Prefer over raw worp when present.",
+        "dynasty_pct": "0–100 composite: 45% TV + 25% proj WORP + 15% ceiling + 10% age + 5% trajectory. Long-term dynasty value.",
+        "dynasty_components": "Normalized 0–1 breakdown: tv, worp, upside, age, trajectory for each player.",
+        "score": "Pick-fit score (TV + WORP weights + roster needs + penalties). Use for THIS pick, not long-term ranking.",
+        "adp_pick": "Consensus pick # from trade value rank. adp_delta positive = player usually goes later (value at your slot).",
+        "falls_to_you": "Simulated board at your bookend picks — who is actually there after league needs sim, not current-board rank.",
+        "pick_projection": "Bookend-centric draft sim: picks before you, your planned pair, between bookends, next bookend.",
+    }
+
+
 def build_advisor_context(
     state: DraftState,
     *,
@@ -113,11 +128,20 @@ def build_advisor_context(
         "available_by_position": state.recommend_by_position(per_pos=per_position),
         "pick_projection": project_next_picks(state),
         "bookend_plan": _bookend_plan_summary(state),
+        "falls_to_you": build_fall_analysis(state),
         "pick_trade_analysis": build_pick_trade_context(state),
         "tier_cliffs": state.tier_cliffs(),
         "recent_draft_picks": _recent_picks(state),
         "trade_weight": state.trade_weight,
         "worp_weight": state.worp_weight,
+        "dynasty_weights": {
+            "tv": state.dynasty_weights.tv if state.dynasty_weights else 0.45,
+            "worp": state.dynasty_weights.worp if state.dynasty_weights else 0.25,
+            "upside": state.dynasty_weights.upside if state.dynasty_weights else 0.15,
+            "age": state.dynasty_weights.age if state.dynasty_weights else 0.10,
+            "trajectory": state.dynasty_weights.trajectory if state.dynasty_weights else 0.05,
+        },
+        "metric_definitions": _metric_definitions(),
         "league_name": league.get("name"),
     }
 
@@ -125,7 +149,17 @@ def build_advisor_context(
 def _system_prompt() -> str:
     return """You are an expert dynasty fantasy football draft advisor.
 
-Your user weights trade value 65% and WORP (win-now) 35%.
+Read `metric_definitions` in the context JSON for field meanings. Key decision rule:
+- `score` + `starter_needs` → best pick RIGHT NOW at this bookend
+- `dynasty_pct` + `dynasty_components` → long-term dynasty value (age, development, ceiling)
+- `falls_to_you` → who realistically remains at your pick after sim (override gut feel)
+- `adp_delta` → reach vs value at your slot
+
+Your user weights trade value 65% and WORP (win-now) 35% for pick fit.
+Use `dynasty_pct` / `dynasty_score` for dynasty capital + age + development:
+- Blends market TV (45%), projected WORP (25%), spike ceiling (15%), age premium (10%), trajectory (5%)
+- Prefer high `dynasty_pct` for long-term value; use `score` for roster-fit at this pick
+- `dynasty_components` shows the breakdown; hover/tooltip fields in UI
 Think in BOOKEND PAIRS — the current snake turn AND the next one.
 
 When they have back-to-back picks, always cover:
@@ -140,14 +174,18 @@ Required sections in every answer:
 - **Targets at your NEXT bookend** — who to plan for at picks A & B based on projection
 - **Bridge strategy** — what roster hole the current pair sets up for the next bookend
 
-Use `pick_projection` and `bookend_plan`:
+Use `pick_projection`, `bookend_plan`, and especially `falls_to_you`:
+- `falls_to_you.at_each_pick` — SIMULATED board at each bookend pick: `top_available_sim`, `likely_fallers`, `value_vs_adp`
+- `falls_to_you.next_bookend` — same for your NEXT bookend turn
+- Do NOT default to current-board WORP leaders (e.g. Dak, Loveland) if sim shows different names at picks 30/31
+- `projected_worp` on sophomores/rookies replaces negative historical WORP (Loveland breakout case)
 - `current_bookend.planned_picks` — projection assumes they take this pair NOW (align with or refine this)
 - `between_bookends` — simulated league picks between current and next bookend
 - `next_bookend.planned_picks` — projected pair at the following bookend
 - `next_bookend.targets_at_bookend` — best available if plans change
 - `bookend_plan.likely_gone_before_next_bookend` — do NOT tell them to wait on these
 
-ADP proxy = trade value, adjusted per team positional needs.
+ADP = dynasty-daddy trade value rank (consensus pick #). `adp_delta` positive = value at your slot.
 
 Startup PICK-POSITION trades (not player trades):
 - Use `pick_trade_analysis.my_future_pick_values` — projected player + TV at each of your remaining picks
@@ -170,6 +208,35 @@ Account for:
 
 On follow-up messages, stay concise and reference prior advice when helpful.
 Format with clear headings. Keep under 800 words unless the decision is complex."""
+
+
+def build_followup_context_snippet(state: DraftState) -> str:
+    """Compact live context for follow-up turns (full JSON only on first message)."""
+    info = state.next_pick_info()
+    fall = build_fall_analysis(state)
+    lines = [
+        f"[Live update — overall pick #{info.get('pick_no')}, {len(state.picks)} picks made]",
+    ]
+    for block in fall.get("at_each_pick") or []:
+        pick_no = block.get("pick_no")
+        top = ", ".join(
+            f"{row['name']} ({row['pos']})" for row in (block.get("top_available_sim") or [])[:5]
+        )
+        lines.append(f"Sim board at #{pick_no}: {top or '—'}")
+        fallers = block.get("likely_fallers") or []
+        if fallers:
+            lines.append(
+                "Likely fallers: "
+                + ", ".join(f"{row['name']}" for row in fallers[:5])
+            )
+    next_blocks = fall.get("next_bookend") or []
+    if next_blocks:
+        nb = next_blocks[0]
+        top = ", ".join(
+            f"{row['name']}" for row in (nb.get("top_available_sim") or [])[:4]
+        )
+        lines.append(f"Next bookend #{nb.get('pick_no')}: {top or '—'}")
+    return "\n".join(lines)
 
 
 def build_initial_user_message(context: dict[str, Any], user_question: str) -> str:
