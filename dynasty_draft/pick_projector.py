@@ -102,6 +102,22 @@ def _pick_for_team(
     return best
 
 
+def _rank_pool_candidates(
+    pool: list[tuple[str, PlayerValue]],
+    roster_counts: Counter[str],
+    targets: dict[str, int],
+    round_no: int,
+    max_tv: float,
+) -> list[tuple[float, str, PlayerValue]]:
+    ranked: list[tuple[float, str, PlayerValue]] = []
+    for player_id, player in pool:
+        adp_norm = player.trade_value / max_tv if max_tv else 0.0
+        need = _need_boost(player.pos, roster_counts, targets, round_no)
+        ranked.append((_ADP_WEIGHT * adp_norm + _NEED_WEIGHT * need, player_id, player))
+    ranked.sort(key=lambda row: row[0], reverse=True)
+    return ranked
+
+
 def _simulate_pick(
     state: DraftState,
     pick_no: int,
@@ -135,15 +151,87 @@ def _simulate_pick(
     return row, pool
 
 
-def _next_user_pick_after(state: DraftState, from_pick: int) -> int | None:
-    total = state._teams() * state._rounds()
-    my_slot = state.my_slot
-    if my_slot is None:
-        return None
-    for pick_no in range(from_pick, total + 1):
-        if state._pick_slot(pick_no) == my_slot:
-            return pick_no
-    return None
+def _plan_user_bookend_picks(
+    state: DraftState,
+    pick_numbers: list[int],
+    pool: list[tuple[str, PlayerValue]],
+    roster_counts: dict[int, Counter[str]],
+    targets: dict[str, int],
+    max_tv: float,
+    *,
+    prefer_recommendations: bool = False,
+) -> tuple[list[dict[str, Any]], list[tuple[str, PlayerValue]]]:
+    """Assume the user takes their top diversified picks at a bookend pair."""
+    if state.my_roster_id is None or not pick_numbers:
+        return [], pool
+
+    planned: list[dict[str, Any]] = []
+    recs = state.recommend(limit=15) if prefer_recommendations else []
+    used_positions: set[str] = set()
+    my_counts = roster_counts[state.my_roster_id]
+
+    for pick_no in pick_numbers:
+        round_no = (pick_no - 1) // state._teams() + 1
+        chosen: tuple[str, PlayerValue] | None = None
+
+        if prefer_recommendations:
+            for candidate in recs:
+                match = next((p for p in pool if p[0] == candidate["player_id"]), None)
+                if not match:
+                    continue
+                if len(pick_numbers) > 1 and candidate["pos"] in used_positions:
+                    continue
+                chosen = match
+                used_positions.add(candidate["pos"])
+                break
+            if chosen is None and len(pick_numbers) > 1 and used_positions:
+                for candidate in recs:
+                    match = next((p for p in pool if p[0] == candidate["player_id"]), None)
+                    if match:
+                        chosen = match
+                        break
+
+        if chosen is None:
+            ranked = _rank_pool_candidates(pool, my_counts, targets, round_no, max_tv)
+            for _, player_id, player in ranked:
+                if len(pick_numbers) > 1 and player.pos in used_positions:
+                    continue
+                chosen = (player_id, player)
+                used_positions.add(player.pos)
+                break
+            if chosen is None and ranked:
+                chosen = (ranked[0][1], ranked[0][2])
+                used_positions.add(chosen[1].pos)
+
+        if chosen is None:
+            break
+
+        player_id, player = chosen
+        pool = [p for p in pool if p[0] != player_id]
+        my_counts[player.pos] += 1
+        planned.append(
+            {
+                "pick_no": pick_no,
+                "team": _team_name(state, state.my_roster_id),
+                "name": player.name,
+                "pos": player.pos,
+                "trade_value": player.trade_value,
+                "source": "projected_you",
+            }
+        )
+
+    return planned, pool
+
+
+def _bookend_from(state: DraftState, from_pick: int) -> list[int]:
+    return state.consecutive_pick_numbers(from_pick=from_pick)
+
+
+def _targets_snapshot(pool: list[tuple[str, PlayerValue]], limit: int = 12) -> list[dict[str, Any]]:
+    return [
+        {"name": player.name, "pos": player.pos, "trade_value": player.trade_value}
+        for _, player in pool[:limit]
+    ]
 
 
 def project_next_picks(
@@ -153,92 +241,128 @@ def project_next_picks(
     assume_user_recommendations: bool = True,
 ) -> dict[str, Any]:
     """
-    Simulate picks before user's turn, user's bookend (hypothetical), then the next
-    `num_picks` for the rest of the league. ADP = trade value; blended with team needs.
+    Bookend-centric projection:
+    1) Picks before your current bookend
+    2) You take your planned pair at the current bookend
+    3) League picks until your next bookend
+    4) You take your planned pair at the next bookend
     """
     start_pick = len(state.picks) + 1
-    consecutive = state.consecutive_pick_numbers(from_pick=start_pick)
+    current_bookend = _bookend_from(state, start_pick)
+    next_bookend = (
+        _bookend_from(state, current_bookend[-1] + 1) if current_bookend else []
+    )
 
     pool = _available_pool(state)
     roster_counts = _initial_roster_counts(state)
     targets = _target_needs(state)
     max_tv = pool[0][1].trade_value if pool else 1.0
 
-    picks_before_user: list[dict[str, Any]] = []
-    user_hypothetical: list[dict[str, Any]] = []
+    picks_before_current: list[dict[str, Any]] = []
+    current_planned: list[dict[str, Any]] = []
+    between_projected: list[dict[str, Any]] = []
+    next_planned: list[dict[str, Any]] = []
 
-    if consecutive and state.my_roster_id is not None:
-        for pick_no in range(start_pick, consecutive[0]):
+    if current_bookend and state.my_roster_id is not None:
+        for pick_no in range(start_pick, current_bookend[0]):
             row, pool = _simulate_pick(
-                state, pick_no, pool, roster_counts, targets, max_tv, source="before_your_turn"
+                state,
+                pick_no,
+                pool,
+                roster_counts,
+                targets,
+                max_tv,
+                source="before_current_bookend",
             )
             if row:
-                picks_before_user.append(row)
+                picks_before_current.append(row)
 
-        recs = state.recommend(limit=12) if assume_user_recommendations else []
-        used_positions: set[str] = set()
-        for pick_no in consecutive:
-            chosen: tuple[str, PlayerValue] | None = None
-            if assume_user_recommendations:
-                for candidate in recs:
-                    match = next((p for p in pool if p[0] == candidate["player_id"]), None)
-                    if not match:
-                        continue
-                    if used_positions and candidate["pos"] in used_positions and len(consecutive) > 1:
-                        continue
-                    chosen = match
-                    used_positions.add(candidate["pos"])
-                    break
-            if chosen is None:
-                round_no = (pick_no - 1) // state._teams() + 1
-                chosen = _pick_for_team(pool, roster_counts[state.my_roster_id], targets, round_no, max_tv)
-            if chosen is None:
-                break
-            player_id, player = chosen
-            pool = [p for p in pool if p[0] != player_id]
-            roster_counts[state.my_roster_id][player.pos] += 1
-            user_hypothetical.append(
-                {
-                    "pick_no": pick_no,
-                    "team": _team_name(state, state.my_roster_id),
-                    "name": player.name,
-                    "pos": player.pos,
-                    "trade_value": player.trade_value,
-                    "source": "projected_you",
-                }
+        current_planned, pool = _plan_user_bookend_picks(
+            state,
+            current_bookend,
+            pool,
+            roster_counts,
+            targets,
+            max_tv,
+            prefer_recommendations=assume_user_recommendations,
+        )
+
+        if next_bookend:
+            after_current = current_bookend[-1] + 1
+            for pick_no in range(after_current, next_bookend[0]):
+                row, pool = _simulate_pick(
+                    state,
+                    pick_no,
+                    pool,
+                    roster_counts,
+                    targets,
+                    max_tv,
+                    source="between_bookends",
+                )
+                if row:
+                    between_projected.append(row)
+
+            next_planned, pool = _plan_user_bookend_picks(
+                state,
+                next_bookend,
+                pool,
+                roster_counts,
+                targets,
+                max_tv,
+                prefer_recommendations=False,
             )
-        sim_start = consecutive[-1] + 1
-    elif state.next_pick_info().get("is_my_pick") and state.my_roster_id is not None:
-        sim_start = start_pick + 1
+        else:
+            sim_start = current_bookend[-1] + 1
+            for pick_no in range(sim_start, sim_start + num_picks):
+                row, pool = _simulate_pick(state, pick_no, pool, roster_counts, targets, max_tv)
+                if row is None:
+                    break
+                between_projected.append(row)
     else:
-        sim_start = start_pick
+        for pick_no in range(start_pick, start_pick + num_picks):
+            row, pool = _simulate_pick(state, pick_no, pool, roster_counts, targets, max_tv)
+            if row is None:
+                break
+            between_projected.append(row)
 
-    projected: list[dict[str, Any]] = []
-    for pick_no in range(sim_start, sim_start + num_picks):
-        row, pool = _simulate_pick(state, pick_no, pool, roster_counts, targets, max_tv)
-        if row is None:
-            break
-        projected.append(row)
-
-    next_user_pick = _next_user_pick_after(state, sim_start + len(projected))
-    gone_names = {row["name"] for row in projected}
-    likely_gone = [
+    gone_between = [
         {"name": row["name"], "pos": row["pos"], "trade_value": row["trade_value"]}
-        for row in projected
+        for row in between_projected
     ]
+    targets_next = _targets_snapshot(pool, limit=15)
 
     return {
-        "method": "trade_value_adp_plus_team_needs",
+        "method": "bookend_pairs_trade_value_adp_plus_team_needs",
         "adp_weight": _ADP_WEIGHT,
         "need_weight": _NEED_WEIGHT,
-        "picks_before_your_turn": picks_before_user,
-        "user_hypothetical_picks": user_hypothetical,
-        "simulated_from_pick": sim_start,
-        "simulated_through_pick": projected[-1]["pick_no"] if projected else sim_start - 1,
-        "your_next_pick_after_window": next_user_pick,
-        "projected_picks": projected,
-        "projected_off_board": likely_gone,
-        "still_available_top_after_window": [
-            {"name": p[1].name, "pos": p[1].pos, "trade_value": p[1].trade_value} for p in pool[:25]
-        ],
+        "current_bookend": {
+            "pick_numbers": current_bookend,
+            "picks_before": picks_before_current,
+            "planned_picks": current_planned,
+        },
+        "between_bookends": {
+            "from_pick": between_projected[0]["pick_no"] if between_projected else None,
+            "through_pick": between_projected[-1]["pick_no"] if between_projected else None,
+            "projected_picks": between_projected,
+            "likely_off_board": gone_between,
+        },
+        "next_bookend": {
+            "pick_numbers": next_bookend,
+            "planned_picks": next_planned,
+            "targets_at_bookend": targets_next,
+            "likely_gone_before": gone_between,
+        },
+        # Legacy fields consumed by UI / older prompt text
+        "picks_before_your_turn": picks_before_current,
+        "user_hypothetical_picks": current_planned,
+        "simulated_from_pick": (
+            between_projected[0]["pick_no"] if between_projected else (current_bookend[-1] + 1 if current_bookend else start_pick)
+        ),
+        "simulated_through_pick": (
+            between_projected[-1]["pick_no"] if between_projected else start_pick - 1
+        ),
+        "your_next_pick_after_window": next_bookend[0] if next_bookend else None,
+        "projected_picks": between_projected,
+        "projected_off_board": gone_between,
+        "still_available_top_after_window": _targets_snapshot(pool, limit=25),
     }

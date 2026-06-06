@@ -238,16 +238,21 @@ def _default_llm_question(state: DraftState) -> str:
         f"{(p.get('metadata') or {}).get('first_name', '')} {(p.get('metadata') or {}).get('last_name', '')}".strip()
         for p in sorted(state.picks, key=lambda row: row.get("pick_no", 0))
     )
+    proj = project_next_picks(state)
+    nxt = proj.get("next_bookend") or {}
+    next_picks = nxt.get("pick_numbers") or []
+    next_label = f"{next_picks[0]} & {next_picks[1]}" if len(next_picks) >= 2 else "?"
     if len(picks) >= 2:
         return (
             f"I have picks {picks[0]} and {picks[1]} back-to-back. Already drafted: {gone}. "
             f"Reserving Jeremiyah Love in rookie draft. "
-            f"Use the pick_projection data — who is gone before my next turn after pick {picks[-1]}? "
-            "Best two-pick plan for trade value (65%) and winning (35%) in superflex."
+            f"Use pick_projection — assume I take the planned pair at this bookend, then tell me "
+            f"who to target at my NEXT bookend (picks {next_label}). "
+            "Best two-pick plan now plus bridge to the next bookend. Trade value 65%, winning 35%, superflex."
         )
     return (
-        f"Already drafted: {gone}. Use pick_projection to see who's gone in the next 18 picks. "
-        "What should I target at my next bookend?"
+        f"Already drafted: {gone}. Use pick_projection bookend pairs — who should I target at my "
+        f"next bookend (picks {next_label}) and the one after?"
     )
 
 
@@ -301,16 +306,24 @@ def _render_stats(state: DraftState) -> None:
 
 def _render_projection_preview(state: DraftState) -> None:
     proj = project_next_picks(state)
-    window = f"{proj['simulated_from_pick']}–{proj['simulated_through_pick']}"
-    next_pick = proj.get("your_next_pick_after_window")
-    st.caption(f"Projected picks {window} (ADP + team needs) · your next pick after: #{next_pick or '?'}")
-    if proj.get("user_hypothetical_picks"):
-        yours = ", ".join(f"{p['name']} ({p['pos']})" for p in proj["user_hypothetical_picks"])
+    current = proj.get("current_bookend") or {}
+    nxt = proj.get("next_bookend") or {}
+    cur_nums = current.get("pick_numbers") or []
+    nxt_nums = nxt.get("pick_numbers") or []
+    if cur_nums:
+        st.caption(f"Current bookend: #{cur_nums[0]}" + (f" & #{cur_nums[1]}" if len(cur_nums) > 1 else ""))
+    if current.get("planned_picks"):
+        yours = ", ".join(f"{p['name']} ({p['pos']})" for p in current["planned_picks"])
         st.caption(f"Assuming you take: {yours}")
-    gone = proj.get("projected_off_board") or []
+    if nxt_nums:
+        st.caption(f"Next bookend: #{nxt_nums[0]}" + (f" & #{nxt_nums[1]}" if len(nxt_nums) > 1 else ""))
+    if nxt.get("planned_picks"):
+        nxt_yours = ", ".join(f"{p['name']} ({p['pos']})" for p in nxt["planned_picks"])
+        st.caption(f"Projected next pair: {nxt_yours}")
+    gone = (proj.get("between_bookends") or {}).get("likely_off_board") or []
     if gone:
         top_gone = ", ".join(f"{g['name']}" for g in gone[:8])
-        st.caption(f"Likely gone: {top_gone}")
+        st.caption(f"Likely gone before next bookend: {top_gone}")
 
 
 def _render_llm_tab(state: DraftState, config: dict[str, Any]) -> None:
@@ -349,10 +362,23 @@ def _render_llm_tab(state: DraftState, config: dict[str, Any]) -> None:
     elif st.session_state.llm_result:
         st.markdown(st.session_state.llm_result)
 
-    with st.expander("18-pick projection detail"):
+    with st.expander("Bookend projection detail"):
         proj = project_next_picks(state)
-        for row in proj.get("projected_picks") or []:
-            st.markdown(f"#{row['pick_no']} **{row['team']}** → {row['name']} ({row['pos']})")
+        current = proj.get("current_bookend") or {}
+        if current.get("planned_picks"):
+            st.markdown("**Current bookend (you)**")
+            for row in current["planned_picks"]:
+                st.markdown(f"#{row['pick_no']} **{row['name']}** ({row['pos']})")
+        between = (proj.get("between_bookends") or {}).get("projected_picks") or []
+        if between:
+            st.markdown("**Between bookends**")
+            for row in between:
+                st.markdown(f"#{row['pick_no']} **{row['team']}** → {row['name']} ({row['pos']})")
+        nxt = proj.get("next_bookend") or {}
+        if nxt.get("planned_picks"):
+            st.markdown("**Next bookend (you)**")
+            for row in nxt["planned_picks"]:
+                st.markdown(f"#{row['pick_no']} **{row['name']}** ({row['pos']})")
 
 
 def _fmt_tv(value: float | int | None) -> str:

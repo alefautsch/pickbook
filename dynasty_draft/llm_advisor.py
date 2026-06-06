@@ -10,7 +10,7 @@ from dynasty_draft.draft_context import build_league_team_rosters, build_scoring
 from dynasty_draft.pick_projector import project_next_picks
 from dynasty_draft.recommender import DraftState
 
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_MODEL = "claude-sonnet-4-6"
 RECENT_PICKS_LIMIT = 24
 AVAILABLE_PER_POSITION = 12
 
@@ -38,6 +38,21 @@ def _recent_picks(state: DraftState, limit: int = RECENT_PICKS_LIMIT) -> list[di
             }
         )
     return rows
+
+
+def _bookend_plan_summary(state: DraftState) -> dict[str, Any]:
+    proj = project_next_picks(state)
+    current = proj.get("current_bookend") or {}
+    nxt = proj.get("next_bookend") or {}
+    between = proj.get("between_bookends") or {}
+    return {
+        "current_bookend_picks": current.get("pick_numbers") or [],
+        "current_planned_pair": current.get("planned_picks") or [],
+        "next_bookend_picks": nxt.get("pick_numbers") or [],
+        "next_planned_pair": nxt.get("planned_picks") or [],
+        "targets_at_next_bookend": nxt.get("targets_at_bookend") or [],
+        "likely_gone_before_next_bookend": between.get("likely_off_board") or [],
+    }
 
 
 def build_advisor_context(
@@ -70,6 +85,7 @@ def build_advisor_context(
         "league_team_rosters": build_league_team_rosters(state),
         "available_by_position": state.recommend_by_position(per_pos=per_position),
         "pick_projection": project_next_picks(state),
+        "bookend_plan": _bookend_plan_summary(state),
         "tier_cliffs": state.tier_cliffs(),
         "recent_draft_picks": _recent_picks(state),
         "trade_weight": state.trade_weight,
@@ -82,17 +98,28 @@ def _system_prompt() -> str:
     return """You are an expert dynasty fantasy football draft advisor.
 
 Your user weights trade value 65% and WORP (win-now) 35%.
-Be direct and decisive. When they have back-to-back picks at the snake turn, recommend:
-1) Best single pick right now
-2) A pairing plan for both picks (e.g. QB + WR, elite WR + value TE)
-3) What to prioritize if their first choice is gone before pick 2
-4) One "contrarian but defensible" alternative
+Think in BOOKEND PAIRS — the current snake turn AND the next one.
 
-Critical: use `pick_projection` to reason about the next 18 picks AFTER their bookend.
-- It simulates picks before their turn, their hypothetical bookend picks, then 18 league picks
-- ADP proxy = trade value, adjusted per team positional needs
-- Flag players in `projected_off_board` — don't plan to wait on them at the next bookend
-- Use `still_available_top_after_window` for targets at their following pick
+When they have back-to-back picks, always cover:
+1) Best single pick right now (pick 1 of the pair)
+2) Pairing plan for both picks (e.g. QB + WR, elite WR + value TE)
+3) Fallback if pick 1 is gone before pick 2
+4) One contrarian but defensible alternative
+
+Required sections in every answer:
+- **This bookend (picks X & Y)** — your two-pick plan now
+- **Don't wait on** — players likely gone before your NEXT bookend
+- **Targets at your NEXT bookend** — who to plan for at picks A & B based on projection
+- **Bridge strategy** — what roster hole the current pair sets up for the next bookend
+
+Use `pick_projection` and `bookend_plan`:
+- `current_bookend.planned_picks` — projection assumes they take this pair NOW (align with or refine this)
+- `between_bookends` — simulated league picks between current and next bookend
+- `next_bookend.planned_picks` — projected pair at the following bookend
+- `next_bookend.targets_at_bookend` — best available if plans change
+- `bookend_plan.likely_gone_before_next_bookend` — do NOT tell them to wait on these
+
+ADP proxy = trade value, adjusted per team positional needs.
 
 Use the full league context:
 - `league_team_rosters`: every manager's picks — infer tendencies (QB early, RB heavy, etc.)
@@ -106,7 +133,7 @@ Account for:
 - Superflex / 2QB leagues (QB premium is real)
 - Tier cliffs in the data
 
-Format with clear headings. Keep under 700 words unless the decision is complex."""
+Format with clear headings. Keep under 800 words unless the decision is complex."""
 
 
 def _user_prompt(context: dict[str, Any], user_question: str) -> str:
