@@ -66,16 +66,17 @@ def _team_display_name(user: dict[str, Any] | None, roster_id: int) -> str:
 
 def _pick_row(state: DraftState, pick: dict[str, Any]) -> dict[str, Any]:
     player_id = pick.get("player_id")
-    war_player = state._match_war(player_id) if player_id else None
+    pid = str(player_id) if player_id else None
+    war_player = state._match_war(pid) if pid else None
     meta = pick.get("metadata") or {}
-    name = war_player.name if war_player else state._sleeper_name(player_id or "") or "Unknown"
+    name = war_player.name if war_player else state._sleeper_name(pid or "") or "Unknown"
     return {
         "pick_no": pick.get("pick_no"),
         "round": pick.get("round"),
         "name": name,
         "pos": meta.get("position") or (war_player.pos if war_player else ""),
         "team": (war_player.team if war_player else "") or "",
-        "age": _player_age(state, player_id),
+        "age": _player_age(state, pid),
         "trade_value": _blended_tv(state, war_player),
         "worp": war_player.worp if war_player else None,
         "porp": war_player.porp if war_player else None,
@@ -105,16 +106,20 @@ def _team_name_for_roster(state: DraftState, roster_id: int) -> str:
 def build_draft_timeline(
     state: DraftState,
     *,
-    past: int = 8,
-    upcoming: int = 10,
+    past: int | None = 8,
+    upcoming: int | None = 10,
 ) -> list[dict[str, Any]]:
-    """Recent picks plus upcoming slots centered on the current pick."""
+    """Recent picks plus upcoming slots; pass past=upcoming=None for the full board."""
     teams = state._teams()
     rounds = state._rounds()
     total_picks = teams * rounds
     current_pick = len(state.picks) + 1
-    start = max(1, current_pick - past)
-    end = min(total_picks, current_pick + upcoming - 1)
+    if past is None and upcoming is None:
+        start = 1
+        end = total_picks
+    else:
+        start = max(1, current_pick - (past if past is not None else 0))
+        end = min(total_picks, current_pick + (upcoming if upcoming is not None else 0) - 1)
 
     picks_by_no = {int(p["pick_no"]): p for p in state.picks if p.get("pick_no")}
     rows: list[dict[str, Any]] = []
@@ -161,7 +166,18 @@ def build_draft_timeline(
         )
 
     pool: list[tuple[str, Any]] = []
+    seen_pool: set[str] = set()
     enrich_by_pick: dict[int, tuple[str, Any]] = {}
+    for pick in state.picks:
+        player_id = pick.get("player_id")
+        if not player_id:
+            continue
+        pid = str(player_id)
+        war_player = state._match_war(pid)
+        if war_player and pid not in seen_pool:
+            pool.append((pid, war_player))
+            seen_pool.add(pid)
+
     for row in rows:
         if row.get("status") != "done":
             continue
@@ -169,10 +185,12 @@ def build_draft_timeline(
         if not pick:
             continue
         player_id = pick.get("player_id")
-        war_player = state._match_war(player_id) if player_id else None
-        if player_id and war_player:
-            pool.append((player_id, war_player))
-            enrich_by_pick[int(row["pick_no"])] = (player_id, war_player)
+        if not player_id:
+            continue
+        pid = str(player_id)
+        war_player = state._match_war(pid)
+        if war_player:
+            enrich_by_pick[int(row["pick_no"])] = (pid, war_player)
 
     dynasty_by_id = state.dynasty_scores(pool) if pool else {}
     for pick_no, (player_id, war_player) in enrich_by_pick.items():
@@ -233,7 +251,7 @@ def _war_player_for_roster_player(
 def _player_age(state: DraftState, player_id: str | None) -> int | None:
     if not player_id:
         return None
-    sleeper = state.sleeper_players.get(player_id) or {}
+    sleeper = state.sleeper_players.get(str(player_id)) or {}
     age = sleeper.get("age")
     if age is not None:
         return int(age)

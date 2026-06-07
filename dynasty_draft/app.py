@@ -375,6 +375,11 @@ MOBILE_CSS = """
         margin-bottom: 0.75rem;
         background: #fff;
     }
+    .table-scroll-y {
+        max-height: min(70vh, 560px);
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
     .pick-table {
         width: 100%;
         border-collapse: collapse;
@@ -1134,6 +1139,7 @@ def _html_table(
     row_classes: list[str] | None = None,
     *,
     table_class: str = "pick-table",
+    wrap_class: str = "table-wrap",
 ) -> str:
     head = "".join(f"<th>{html.escape(h)}</th>" for h in headers)
     rows_html: list[str] = []
@@ -1143,7 +1149,7 @@ def _html_table(
         tds = "".join(f"<td>{cell}</td>" for cell in cells)
         rows_html.append(f"<tr{class_attr}>{tds}</tr>")
     return (
-        f'<div class="table-wrap"><table class="{table_class}">'
+        f'<div class="{wrap_class}"><table class="{table_class}">'
         f"<thead><tr>{head}</tr></thead>"
         f"<tbody>{''.join(rows_html)}</tbody></table></div>"
     )
@@ -1314,10 +1320,12 @@ def _render_quick_picks(state: DraftState) -> None:
 
 
 def _render_draft_timeline(state: DraftState) -> None:
-    timeline = build_draft_timeline(state, past=8, upcoming=10)
+    timeline = build_draft_timeline(state, past=None, upcoming=None)
     if not timeline:
         return
-    st.markdown('<div class="section-title">Draft timeline</div>', unsafe_allow_html=True)
+    picked = sum(1 for row in timeline if row.get("status") == "done")
+    st.markdown('<div class="section-title">Draft board</div>', unsafe_allow_html=True)
+    st.caption(f"{picked} picks made · scroll for full board · OVR matches Team tab")
     body: list[list[str]] = []
     row_classes: list[str] = []
     for row in timeline:
@@ -1385,6 +1393,7 @@ def _render_draft_timeline(state: DraftState) -> None:
             ["Pick", "Rd", "Team", "Player", "Age", "OVR", "HPPG", "W/g", "Actv", "WORP", "Flex", "PORP", "TV"],
             body,
             row_classes,
+            wrap_class="table-wrap table-scroll-y",
         ),
         unsafe_allow_html=True,
     )

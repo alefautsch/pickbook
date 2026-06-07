@@ -154,19 +154,25 @@ def _per_game_production_norm(
 
 def _pool_per_game_norms(
     per_game_by_id: dict[str, dict[str, float]],
+    *,
+    max_worp_ppg: float | None = None,
+    max_hppg: float | None = None,
 ) -> dict[str, float]:
-    max_worp_ppg = 0.0
-    max_hppg = 0.0
-    for metrics in per_game_by_id.values():
-        if metrics.get("worp_ppg"):
-            max_worp_ppg = max(max_worp_ppg, float(metrics["worp_ppg"]))
-        if metrics.get("healthy_ppg"):
-            max_hppg = max(max_hppg, float(metrics["healthy_ppg"]))
+    if max_worp_ppg is None or max_hppg is None:
+        max_worp_ppg = 0.0
+        max_hppg = 0.0
+        for metrics in per_game_by_id.values():
+            if metrics.get("worp_ppg"):
+                max_worp_ppg = max(max_worp_ppg, float(metrics["worp_ppg"]))
+            if metrics.get("healthy_ppg"):
+                max_hppg = max(max_hppg, float(metrics["healthy_ppg"]))
+        max_worp_ppg = max_worp_ppg or 1.0
+        max_hppg = max_hppg or 1.0
     return {
         player_id: _per_game_production_norm(
             metrics,
-            max_worp_ppg=max_worp_ppg or 1.0,
-            max_hppg=max_hppg or 1.0,
+            max_worp_ppg=max_worp_ppg,
+            max_hppg=max_hppg,
         )
         for player_id, metrics in per_game_by_id.items()
     }
@@ -202,6 +208,7 @@ class DynastyScorer:
         reference: DynastyReferenceAnchors | None = None,
         rating_bounds: tuple[float, float] | None = None,
         per_game_by_id: dict[str, dict[str, float]] | None = None,
+        per_game_max: tuple[float, float] | None = None,
     ) -> dict[str, dict[str, Any]]:
         if not players:
             return {}
@@ -226,7 +233,13 @@ class DynastyScorer:
                 effective[player_id] = max(eff, 0.0)
 
         per_game_norms = (
-            _pool_per_game_norms(per_game_by_id) if per_game_by_id else {}
+            _pool_per_game_norms(
+                per_game_by_id,
+                max_worp_ppg=per_game_max[0] if per_game_max else None,
+                max_hppg=per_game_max[1] if per_game_max else None,
+            )
+            if per_game_by_id
+            else {}
         )
         tilt = max(0.0, min(1.0, self.rating_curve.per_game_tilt))
         w = self.weights

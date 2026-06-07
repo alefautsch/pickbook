@@ -66,12 +66,32 @@ class DraftState:
     league_users: list[dict[str, Any]] = field(default_factory=list)
 
     drafted_ids: set[str] = field(init=False)
+    drafted_names: set[str] = field(init=False)
     my_roster_id: int | None = field(init=False)
     my_slot: int | None = field(init=False)
     roster_positions: list[str] = field(init=False)
 
     def __post_init__(self) -> None:
-        self.drafted_ids = {p["player_id"] for p in self.picks if p.get("player_id")}
+        drafted_ids: set[str] = set()
+        drafted_names: set[str] = set()
+        for pick in self.picks:
+            player_id = pick.get("player_id")
+            if player_id:
+                pid = str(player_id)
+                drafted_ids.add(pid)
+                war_player = self._match_war(pid)
+                if war_player:
+                    drafted_names.add(normalize_name(war_player.name))
+            meta = pick.get("metadata") or {}
+            meta_name = " ".join(
+                part
+                for part in (meta.get("first_name"), meta.get("last_name"))
+                if part
+            ).strip()
+            if meta_name:
+                drafted_names.add(normalize_name(meta_name))
+        self.drafted_ids = drafted_ids
+        self.drafted_names = drafted_names
         self.my_roster_id, self.my_slot = self._resolve_my_team()
         self.roster_positions = self._resolve_roster_positions()
 
@@ -182,13 +202,13 @@ class DraftState:
         }
 
     def _sleeper_name(self, player_id: str) -> str | None:
-        player = self.sleeper_players.get(player_id)
+        player = self.sleeper_players.get(str(player_id))
         if not player:
             return None
         return player.get("full_name") or f"{player.get('first_name', '')} {player.get('last_name', '')}".strip()
 
     def _is_rookie(self, player_id: str) -> bool:
-        player = self.sleeper_players.get(player_id) or {}
+        player = self.sleeper_players.get(str(player_id)) or {}
         years_exp = player.get("years_exp")
         if years_exp is not None:
             return int(years_exp) == 0
@@ -245,12 +265,31 @@ class DraftState:
         """Pre-draft eligible board — OVR anchors stay fixed as picks are made."""
         return self._eligible_players()
 
+    def _dynasty_per_game_reference(self) -> tuple[float, float]:
+        """Fixed board maxes for per-game OVR normalization (stable across views)."""
+        if getattr(self, "_dynasty_per_game_ref_ready", False):
+            return self._dynasty_per_game_max_worp, self._dynasty_per_game_max_hppg
+        ref_pool = self._dynasty_reference_pool()
+        per_game = self._per_game_by_id_for_pool(ref_pool) or {}
+        max_worp = 0.0
+        max_hppg = 0.0
+        for metrics in per_game.values():
+            if metrics.get("worp_ppg"):
+                max_worp = max(max_worp, float(metrics["worp_ppg"]))
+            if metrics.get("healthy_ppg"):
+                max_hppg = max(max_hppg, float(metrics["healthy_ppg"]))
+        self._dynasty_per_game_max_worp = max_worp or 1.0
+        self._dynasty_per_game_max_hppg = max_hppg or 1.0
+        self._dynasty_per_game_ref_ready = True
+        return self._dynasty_per_game_max_worp, self._dynasty_per_game_max_hppg
+
     def _dynasty_curve_context(self) -> tuple[DynastyReferenceAnchors, tuple[float, float]]:
         if getattr(self, "_dynasty_curve_ready", False):
             return self._dynasty_ref_anchors, self._dynasty_rating_bounds
         ref_pool = self.blend_pool(self._dynasty_reference_pool())
         anchors = compute_reference_anchors(ref_pool, self._effective_worp)
         ids = [player_id for player_id, _ in ref_pool]
+        per_game_max = self._dynasty_per_game_reference()
         raw_scores = self._dynasty_scorer().score_pool(
             ref_pool,
             age_by_id={pid: self._player_age(pid) for pid in ids},
@@ -259,6 +298,7 @@ class DraftState:
             reference=anchors,
             rating_bounds=None,
             per_game_by_id=self._per_game_by_id_for_pool(ref_pool),
+            per_game_max=per_game_max,
         )
         composites = [row["dynasty_score"] for row in raw_scores.values()]
         bounds = (min(composites), max(composites)) if composites else (0.0, 1.0)
@@ -275,7 +315,8 @@ class DraftState:
         return [
             (player_id, player)
             for player_id, player in self._eligible_players()
-            if player_id not in self.drafted_ids
+            if str(player_id) not in self.drafted_ids
+            and normalize_name(player.name) not in self.drafted_names
         ]
 
     def roster_counts(self) -> dict[str, int]:
@@ -482,6 +523,7 @@ class DraftState:
             reference=anchors,
             rating_bounds=bounds,
             per_game_by_id=self._per_game_by_id_for_pool(score_pool),
+            per_game_max=self._dynasty_per_game_reference(),
         )
 
     def _normalize_scores(self, available: list[tuple[str, PlayerValue]]) -> dict[str, float]:
