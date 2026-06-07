@@ -1052,6 +1052,10 @@ def _fmt_player_brief(row: dict[str, Any]) -> str:
         bits.append(str(row["age"]))
     if row.get("dynasty_rating") is not None:
         bits.append(f"Dyn {row['dynasty_rating']}")
+    if row.get("healthy_ppg") is not None:
+        bits.append(f"HPPG {_fmt_hppg(row.get('healthy_ppg'))}")
+    if row.get("worp_ppg") is not None:
+        bits.append(f"W/g {_fmt_worp_ppg(row.get('worp_ppg'))}")
     return f"{row['name']} ({', '.join(bits)})"
 
 
@@ -1101,6 +1105,18 @@ def _fmt_worp_ppg_cell(row: dict[str, Any]) -> str:
     return f'<span class="num worp">{_fmt_worp_ppg(value)}</span>'
 
 
+def _fmt_active_cell(row: dict[str, Any]) -> str:
+    healthy = row.get("healthy_games")
+    total = row.get("total_games")
+    if healthy is None or total is None or not total:
+        return '<span class="num muted">—</span>'
+    avail = row.get("availability")
+    pct = f"{float(avail) * 100:.0f}% active" if avail is not None else "snap-filtered weeks"
+    return (
+        f'<span class="num" title="{pct}">{int(healthy)}/{int(total)}</span>'
+    )
+
+
 def _html_table(
     headers: list[str],
     body_rows: list[list[str]],
@@ -1141,6 +1157,7 @@ def _recommendation_table_rows(
             _fmt_dynasty_cell(row),
             _fmt_hppg_cell(row),
             _fmt_worp_ppg_cell(row),
+            _fmt_active_cell(row),
             f'<span class="num">{_fmt_tv(row.get("trade_value"))}</span>',
             _fmt_worp_cell(row),
             _fmt_flex_cell(row),
@@ -1169,7 +1186,8 @@ def _render_bpa_comparison(state: DraftState, *, compact: bool = False) -> None:
     st.caption(
         f"Pick #{ref}. ADP source: {html.escape(state._adp_index().source_label)}. "
         "BPA = cross-position value with ADP bonus/penalty (reach = negative delta). "
-        "Need-adjusted = starter-need nudges."
+        "Need-adjusted = starter-need nudges. "
+        "HPPG/W/g = snap-filtered per-game rates (nflverse 2024–25)."
     )
     if wait:
         wait_text = ", ".join(
@@ -1183,9 +1201,12 @@ def _render_bpa_comparison(state: DraftState, *, compact: bool = False) -> None:
         )
         st.info(f"Value override: {override_text}")
 
-    headers = ["Player", "Pos", "Tm", "Age", "ADP", "Dyn", "HPPG", "W/g", "TV", "WORP", "Flex", "PORP", "Note"]
+    headers = [
+        "Player", "Pos", "Tm", "Age", "ADP", "Dyn", "HPPG", "W/g", "Actv",
+        "TV", "WORP", "Flex", "PORP", "Note",
+    ]
     if compact:
-        headers = ["Player", "Pos", "ADP", "Dyn", "HPPG", "W/g", "Flex", "PORP", "Note"]
+        headers = ["Player", "Pos", "ADP", "Dyn", "HPPG", "W/g", "Actv", "Flex", "PORP", "Note"]
 
     def _compact_rows(rows: list[dict[str, Any]]) -> list[list[str]]:
         if not compact:
@@ -1201,6 +1222,7 @@ def _render_bpa_comparison(state: DraftState, *, compact: bool = False) -> None:
                     _fmt_dynasty_cell(row),
                     _fmt_hppg_cell(row),
                     _fmt_worp_ppg_cell(row),
+                    _fmt_active_cell(row),
                     _fmt_flex_cell(row),
                     _fmt_porp_cell(row),
                     f'<span class="note">{note}</span>' if note else "",
@@ -1259,7 +1281,10 @@ def _render_quick_picks(state: DraftState) -> None:
             continue
         with st.expander(f"{pos} — BPA vs need", expanded=pos in ("QB", "WR")):
             col_bpa, col_need = st.columns(2)
-            headers = ["Player", "Tm", "Age", "ADP", "Dyn", "HPPG", "W/g", "TV", "WORP", "Flex", "PORP", "Note"]
+            headers = [
+                "Player", "Tm", "Age", "ADP", "Dyn", "HPPG", "W/g", "Actv",
+                "TV", "WORP", "Flex", "PORP", "Note",
+            ]
             with col_bpa:
                 st.markdown("**BPA**")
                 if bpa_rows:
@@ -1308,6 +1333,7 @@ def _render_draft_timeline(state: DraftState) -> None:
             ovr = _fmt_dynasty_cell(row)
             hppg = _fmt_hppg_cell(row)
             worp_pg = _fmt_worp_ppg_cell(row)
+            actv = _fmt_active_cell(row)
             worp = _fmt_worp_cell(row)
             flex = _fmt_flex_cell(row)
             porp = f'<span class="num">{_fmt_porp(row.get("porp"))}</span>'
@@ -1319,6 +1345,7 @@ def _render_draft_timeline(state: DraftState) -> None:
             age = '<span class="num muted">—</span>'
             hppg = '<span class="num muted">—</span>'
             worp_pg = '<span class="num muted">—</span>'
+            actv = '<span class="num muted">—</span>'
             worp = '<span class="num muted">—</span>'
             flex = '<span class="num muted">—</span>'
             porp = '<span class="num muted">—</span>'
@@ -1334,6 +1361,7 @@ def _render_draft_timeline(state: DraftState) -> None:
                 ovr,
                 hppg,
                 worp_pg,
+                actv,
                 worp,
                 flex,
                 porp,
@@ -1342,7 +1370,7 @@ def _render_draft_timeline(state: DraftState) -> None:
         )
     st.markdown(
         _html_table(
-            ["Pick", "Rd", "Team", "Player", "Age", "OVR", "HPPG", "W/g", "WORP", "Flex", "PORP", "TV"],
+            ["Pick", "Rd", "Team", "Player", "Age", "OVR", "HPPG", "W/g", "Actv", "WORP", "Flex", "PORP", "TV"],
             body,
             row_classes,
         ),
@@ -1359,6 +1387,8 @@ def _render_draft_tab(state: DraftState, config: dict[str, Any]) -> None:
         live_state = _load_state(config) or state
         _render_hero(live_state)
         _render_stats(live_state)
+        if getattr(live_state, "healthy_ppg_store", None) is None:
+            st.caption("Per-game WORP loading… sync again in a few seconds.")
         for note in live_state.strategy.strategy_notes(
             live_state.war, tv_fn=live_state.blended_trade_value
         ):
@@ -1377,6 +1407,7 @@ def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]
         return (
             [
                 '<span class="muted">Empty</span>',
+                "",
                 "",
                 "",
                 "",
@@ -1407,6 +1438,7 @@ def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]
             f'<span class="num tv">{_fmt_tv(player.get("trade_value"))}</span>',
             _fmt_hppg_cell(player),
             _fmt_worp_ppg_cell(player),
+            _fmt_active_cell(player),
             _fmt_worp_cell(player),
             _fmt_flex_cell(player),
             _fmt_porp_cell(player),
@@ -1453,7 +1485,7 @@ def _render_lineup_table(lineup: dict[str, Any]) -> None:
         body.append([f'<span class="slot-label">{html.escape(row["slot"])}</span>', *cells])
         row_classes.append(row_class)
 
-    body.append(['<span class="slot-label">BENCH</span>', "", "", "", "", "", "", "", "", "", ""])
+    body.append(['<span class="slot-label">BENCH</span>', "", "", "", "", "", "", "", "", "", "", ""])
     row_classes.append("lineup-divider")
 
     if lineup["bench"]:
@@ -1462,12 +1494,12 @@ def _render_lineup_table(lineup: dict[str, Any]) -> None:
             body.append(["", *cells])
             row_classes.append(row_class)
     else:
-        body.append(["", '<span class="muted">No bench players yet</span>', "", "", "", "", "", "", "", "", ""])
+        body.append(["", '<span class="muted">No bench players yet</span>', "", "", "", "", "", "", "", "", "", ""])
         row_classes.append("row-empty")
 
     st.markdown(
         _html_table(
-            ["", "Player", "Pos", "Tm", "Age", "OVR", "HPPG", "W/g", "TV", "WORP", "Flex", "PORP"],
+            ["", "Player", "Pos", "Tm", "Age", "OVR", "HPPG", "W/g", "Actv", "TV", "WORP", "Flex", "PORP"],
             body,
             row_classes,
             table_class="pick-table lineup-table",
@@ -1571,14 +1603,25 @@ def _render_board_tab(state: DraftState, config: dict[str, Any]) -> None:
                     "flex_rating": "Flex",
                     "healthy_ppg": "HPPG",
                     "worp_ppg": "W/g",
+                    "healthy_games": "H",
+                    "total_games": "G",
                     "pos": "Pos",
                     "team": "Tm",
                     "dynasty_rating": "OVR",
                     "trade_value": "TV",
                     "porp": "PORP",
                 }
-            )[
-                ["Flex #", "Player", "Pos", "Tm", "HPPG", "W/g", "Flex", "OVR", "PORP", "TV"]
+            )
+            flex_table["Actv"] = flex_table.apply(
+                lambda row: (
+                    f"{int(row['H'])}/{int(row['G'])}"
+                    if pd.notna(row.get("H")) and pd.notna(row.get("G")) and row.get("G")
+                    else "—"
+                ),
+                axis=1,
+            )
+            flex_table = flex_table[
+                ["Flex #", "Player", "Pos", "Tm", "HPPG", "W/g", "Actv", "Flex", "OVR", "PORP", "TV"]
             ]
             st.dataframe(
                 flex_table,
@@ -1601,6 +1644,10 @@ def _render_board_tab(state: DraftState, config: dict[str, Any]) -> None:
                         "W/g",
                         help="Per-game WORP vs replacement (snap-filtered)",
                         format="%.3f",
+                    ),
+                    "Actv": st.column_config.TextColumn(
+                        "Actv",
+                        help="Healthy weeks / total weeks",
                     ),
                     "OVR": st.column_config.NumberColumn("OVR", format="%d"),
                     "PORP": st.column_config.NumberColumn("PORP", format="%d"),
@@ -1666,7 +1713,17 @@ def _render_board_tab(state: DraftState, config: dict[str, Any]) -> None:
                 "flex_rank": "Flex #",
                 "healthy_ppg": "HPPG",
                 "worp_ppg": "W/g",
+                "healthy_games": "H",
+                "total_games": "G",
             }
+        )
+        display["Actv"] = display.apply(
+            lambda row: (
+                f"{int(row['H'])}/{int(row['G'])}"
+                if pd.notna(row.get("H")) and pd.notna(row.get("G")) and row.get("G")
+                else None
+            ),
+            axis=1,
         )
 
         if pos_filter:
@@ -1715,6 +1772,7 @@ def _render_board_tab(state: DraftState, config: dict[str, Any]) -> None:
                 "Age",
                 "HPPG",
                 "W/g",
+                "Actv",
                 "Flex #",
                 "Flex",
                 "ADP",
@@ -1738,6 +1796,10 @@ def _render_board_tab(state: DraftState, config: dict[str, Any]) -> None:
                 "Age": st.column_config.NumberColumn("Age", format="%d"),
                 "HPPG": st.column_config.NumberColumn("HPPG", format="%.1f"),
                 "W/g": st.column_config.NumberColumn("W/g", format="%.3f"),
+                "Actv": st.column_config.TextColumn(
+                    "Actv",
+                    help="Healthy weeks / total weeks (snap-filtered)",
+                ),
                 "Flex #": st.column_config.NumberColumn("Flex #", format="%d"),
                 "Flex": st.column_config.NumberColumn(
                     "Flex",

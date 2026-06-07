@@ -803,6 +803,7 @@ class DraftState:
                 }
             )
         self.attach_flex_ratings(rows, self._available_flex_by_id())
+        self.attach_healthy_metrics(rows)
         rows.sort(key=lambda row: row["dynasty_rank_score"], reverse=True)
         return rows[:limit]
 
