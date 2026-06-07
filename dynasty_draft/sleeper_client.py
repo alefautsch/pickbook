@@ -38,6 +38,10 @@ class SleeperClient:
     def get_rosters(self, league_id: str) -> list[dict[str, Any]]:
         return self._get(f"/league/{league_id}/rosters")
 
+    def get_league_drafts(self, league_id: str) -> list[dict[str, Any]]:
+        """All drafts for a league (startup + rookie, etc.)."""
+        return self._get(f"/league/{league_id}/drafts")
+
     def get_draft(self, draft_id: str) -> dict[str, Any]:
         return self._get(f"/draft/{draft_id}")
 

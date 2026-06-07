@@ -550,3 +550,103 @@ export function putSettings(payload: Partial<UserSettings>): Promise<UserSetting
     body: JSON.stringify(payload),
   });
 }
+
+export type RookieDraftOnClock = {
+  roster_id: string | null;
+  team_name: string | null;
+  draft_slot: number | null;
+  is_me: boolean;
+};
+
+export type RookieDraftNextPickInfo = {
+  pick_no: number | null;
+  round: number | null;
+  slot: number | null;
+  is_my_pick: boolean;
+  picks_until_mine: number | null;
+  total_picks: number | null;
+  back_to_back: boolean;
+  consecutive_picks: number[];
+};
+
+export type StarterNeeds = {
+  QB: number;
+  RB: number;
+  WR: number;
+  TE: number;
+  FLEX: number;
+};
+
+export type RookieBoardRow = {
+  bpa_rank: number;
+  player_id: string;
+  player_name: string | null;
+  position: string | null;
+  nfl_team: string | null;
+  age: number | null;
+  ovr: number | null;
+  tier: string | null;
+  dynasty_rookie: boolean;
+  trade_value: number | null;
+  projected_ppg: number | null;
+  hppg: number | null;
+  worp_ppg: number | null;
+  hppg_expected: boolean;
+  flex_rating: number | null;
+  adp_pick: number | null;
+  adp_delta: number | null;
+  adp_class: string | null;
+  bpa_score: number | null;
+  vor: number | null;
+  headshot_url: string;
+};
+
+export type RookieDraftTimelineRow = {
+  pick_no: number;
+  round: number | null;
+  team_name: string | null;
+  player_id: string | null;
+  player_name: string | null;
+  position: string | null;
+  ovr: number | null;
+  dynasty_rookie: boolean;
+  status: string;
+  is_me: boolean;
+};
+
+export type RookieDraftView = {
+  league_id: string;
+  league_name: string;
+  draft_id: string;
+  draft_status: string | null;
+  picks_made: number;
+  total_picks: number;
+  next_pick_no: number | null;
+  on_clock: RookieDraftOnClock;
+  my_roster_id: string | null;
+  drafting_roster_id: string | null;
+  drafting_team_name: string | null;
+  is_my_pick: boolean;
+  next_pick_info: RookieDraftNextPickInfo;
+  starter_needs: StarterNeeds;
+  board: RookieBoardRow[];
+  bpa_top: RookieBoardRow[];
+  timeline: RookieDraftTimelineRow[];
+  strategy_notes: string[];
+  adp_source: string | null;
+  fetched_at: string;
+  poll_seconds: number;
+};
+
+export function getRookieDraft(
+  leagueId: string,
+  opts?: { draftId?: string; rosterId?: string },
+): Promise<RookieDraftView> {
+  const params = new URLSearchParams();
+  if (opts?.draftId) params.set("draft_id", opts.draftId);
+  if (opts?.rosterId) params.set("roster_id", opts.rosterId);
+  const qs = params.toString();
+  return apiFetch<RookieDraftView>(
+    `/leagues/${leagueId}/rookie-draft${qs ? `?${qs}` : ""}`,
+  );
+}

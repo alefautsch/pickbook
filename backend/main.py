@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.admin import router as admin_router
 from backend.api.leagues import router as leagues_router
+from backend.api.rookie_draft import router as rookie_draft_router
 from backend.api.players import router as players_router
 from backend.api.portfolio import router as portfolio_router
 from backend.api.settings import router as settings_router
@@ -28,6 +29,7 @@ app.include_router(settings_router)
 app.include_router(sync_router)
 app.include_router(admin_router)
 app.include_router(leagues_router)
+app.include_router(rookie_draft_router)
 app.include_router(players_router)
 app.include_router(portfolio_router)
 app.include_router(teams_router)

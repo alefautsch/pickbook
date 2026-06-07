@@ -59,8 +59,8 @@ function StatRow({
 }) {
   return (
     <tr className="border-b border-bb-border/30 hover:bg-white/5">
-      <td className="px-3 py-2.5">
-        <PositionPill slot={slot} />
+      <td className="relative w-14 p-0 align-middle">
+        <PositionPill slot={slot} fill />
       </td>
       <td className="px-3 py-2.5">
         <PlayerCell player={player} />
@@ -148,7 +148,7 @@ export function RosterTable({
       <table className="w-full min-w-[960px] text-left text-sm">
         <thead>
           <tr className="border-b border-bb-border/60 text-xs uppercase tracking-wide text-bb-muted">
-            <th className="px-3 py-3 font-medium">Pos</th>
+            <th className="w-14 px-3 py-3 text-center font-medium">Pos</th>
             <th className="px-3 py-3 font-medium">Player</th>
             {full ? <th className="px-3 py-3 font-medium">Age</th> : null}
             <th className="px-3 py-3 font-medium">OVR</th>

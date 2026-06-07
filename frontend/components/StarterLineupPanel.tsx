@@ -44,7 +44,7 @@ export function StarterLineupPanel({ starters, leagueId }: StarterLineupPanelPro
         <table className="w-full min-w-[520px] text-sm">
           <thead>
             <tr className="border-b border-bb-border/30 text-[10px] uppercase tracking-wide text-bb-muted">
-              <th className="w-14 px-3 py-2 font-medium" />
+              <th className="w-14 px-3 py-2 text-center font-medium" />
               <th className="px-3 py-2 text-left font-medium">Player</th>
               <th className="hidden w-16 px-3 py-2 text-center font-medium sm:table-cell">
                 OVR
@@ -69,8 +69,8 @@ export function StarterLineupPanel({ starters, leagueId }: StarterLineupPanelPro
                   key={`${slot.slot}-${index}`}
                   className="border-b border-bb-border/20 last:border-0"
                 >
-                  <td className="px-3 py-2.5 align-middle">
-                    <PositionPill slot={slot.slot} />
+                  <td className="relative w-14 p-0 align-middle">
+                    <PositionPill slot={slot.slot} fill />
                   </td>
                   <td className="px-3 py-2.5 align-middle">
                     {player ? (

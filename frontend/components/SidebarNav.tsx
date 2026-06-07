@@ -19,6 +19,7 @@ type NavKey =
   | "rankings"
   | "players"
   | "portfolio"
+  | "rookie-draft"
   | "settings";
 
 function resolveActiveNav(
@@ -33,6 +34,9 @@ function resolveActiveNav(
 
   if (leagueId) {
     const leagueBase = `/leagues/${leagueId}`;
+    if (pathname.startsWith(`${leagueBase}/rookie-draft`)) {
+      return "rookie-draft";
+    }
     const leagueAnalysis = `${leagueBase}/league`;
 
     if (myRosterId && pathname.startsWith(`${leagueBase}/teams/${myRosterId}`)) {
@@ -82,6 +86,7 @@ export function SidebarNav({ leagues, activeLeagueId }: SidebarNavProps) {
     { key: "rankings", label: "Rankings", href: `${leagueBase}#rankings` },
     { key: "players", label: "Players", href: "/players" },
     { key: "portfolio", label: "Portfolio", href: "/portfolio" },
+    { key: "rookie-draft", label: "Rookie Draft", href: `${leagueBase}/rookie-draft` },
     { key: "settings", label: "Settings", href: "/settings" },
   ];
 

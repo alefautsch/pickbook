@@ -27,7 +27,7 @@ The Pickbook Streamlit app already proved the **scoring engine** (dynasty OVR, s
 
 **Primary mode:** in-season, asynchronous research — evaluating my teams, scouting opponents, planning trades, prepping for rookie drafts.
 
-**Explicitly not the primary mode:** live startup drafts. I will rarely do startup drafts. Pickbook (Streamlit) remains the draft-night tool. Blackbook will eventually gain a **rookie draft** mode because rookie drafts happen every year and matter.
+**Explicitly not the primary mode:** live startup drafts. I will rarely do startup drafts. Pickbook (Streamlit) remains the draft-night tool for **startup** drafts. Blackbook ships **rookie draft** mode (Phase 7) because rookie drafts happen every year and matter.
 
 **Cadence:** I open it a few times a week, sometimes daily during trade season or before rookie drafts. Data freshness of minutes-to-hours is fine. Real-time is only relevant for the future rookie-draft feature.
 
@@ -278,7 +278,7 @@ PostgreSQL  ·  Sleeper API  ·  war.csv + nflverse cache
 
 **Why Railway-only (no Vercel):** one project, one bill, internal networking between API and DB, shared env vars. Next.js runs as a second Railway service with standalone output. A second platform would add deploy, env-sync, and CORS complexity for no benefit at personal scale.
 
-**Why keep Pickbook (Streamlit) alive:** it's the working draft tool. Blackbook imports the same engine as a library and does not modify scoring in breaking ways, so both can coexist until rookie-draft mode makes Streamlit redundant.
+**Why keep Pickbook (Streamlit) alive:** it's the working **startup** draft tool. Blackbook imports the same engine as a library and does not modify scoring in breaking ways. **Pickbook retirement (2026-06-07):** once rookie-draft parity is validated in production, Streamlit can be retired for annual rookie drafts — Blackbook's `/rookie-draft` page replaces that workflow. Keep Pickbook for startup drafts until Blackbook explicitly adds startup mode (non-goal §13). The sidebar Pickbook link stays as fallback until rookie mode is battle-tested on draft night.
 
 ### 9.1 Sync scheduler
 

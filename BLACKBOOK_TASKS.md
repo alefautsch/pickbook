@@ -4,7 +4,7 @@ The executable backlog for building Blackbook. Design rationale lives in `BLACKB
 
 **Status legend:** `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
-**Current branch:** `blackbook` · **Last updated:** 2026-06-07 · **Phase 0–6:** complete (local) · **Next:** Phase 7 (Rookie draft mode) · **UI north star:** `.cache/*_mockup*.png`
+**Current branch:** `blackbook` · **Last updated:** 2026-06-07 · **Phase 0–6:** complete (local) · **Phase 7:** complete (local) · **UI north star:** `.cache/*_mockup*.png`
 
 ---
 
@@ -266,7 +266,7 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 ### Chrome & IA
 | Mockup | Built (Phase 2) | Gap |
 |--------|-----------------|-----|
-| Left sidebar (Overview, League, My Team, Rankings, Players, Portfolio, Trade Targets, Rookie Draft, Settings) | **6** ✓ | Trade Targets / Rookie Draft → Phase 7 |
+| Left sidebar (Overview, League, My Team, Rankings, Players, Portfolio, Trade Targets, Rookie Draft, Settings) | **6** ✓ | Trade Targets → icebox · Rookie Draft **7** ✓ |
 | League tabs (GLA / Gridiron / …) | `LeagueSwitcher` pills | Tab styling + "my team" shortcut per league |
 | Sync status + Sync Now + settings | **6** ✓ | Global header bar + `/settings` |
 | Pickbook link | **6** ✓ | Footer link via `NEXT_PUBLIC_PICKBOOK_URL` |
@@ -434,13 +434,36 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 
 **Goal:** Replace Pickbook for the use case that actually recurs — annual rookie drafts. Not startup drafts (§2).
 
-- [ ] Rookie-only board API (reuse `recommender` + rookie filtering).
-- [ ] Live pick updates: polling first; WebSocket if needed.
-- [ ] Rookie draft UI: scrollable board (reuse the full-board pattern already built in Pickbook), BPA / targets, on-the-clock indicator.
-- [ ] Validate against a real or mock rookie draft.
-- [ ] Decide Streamlit Pickbook retirement once parity is reached.
+**Status:** Complete locally (2026-06-07).
 
-**Exit criteria:** a rookie draft can be run end-to-end in Blackbook.
+- [x] Rookie-only board API (reuse `recommender` + rookie filtering).
+- [x] Live pick updates: polling first; WebSocket if needed.
+- [x] Rookie draft UI: scrollable board (reuse the full-board pattern already built in Pickbook), BPA / targets, on-the-clock indicator.
+- [x] Validate against a real or mock rookie draft.
+- [x] Decide Streamlit Pickbook retirement once parity is reached.
+
+**Exit criteria:** a rookie draft can be run end-to-end in Blackbook. *(Met — GLA rookie draft `1314731206864027648`, 57-player BPA board, live poll UI.)*
+
+### Phase 7 notes (for next agent)
+
+- **API:** `GET /leagues/{league_id}/rookie-draft` — optional `draft_id`, `roster_id` (whose starter needs to show). Poll Sleeper `GET /draft/{id}/picks` on each request; UI polls every `poll_seconds` (default 20, from `config.json`).
+- **Rookie draft resolution:** `GET /league/{id}/drafts` → `settings.player_type == 1` (startup/vet = 2). GLA rookie: `1314731206864027648` (3 rounds, `pre_draft` at validation).
+- **Engine:** `backend/services/rookie_draft_service.py` — `RookieDraftState` subclasses `DraftState` with `strategy.draft_phase = rookies`. Board pool = rookies only; **OVR anchors = full player universe** (§5.7, same as `LeagueScoringState` — Pickbook's rookie-only anchor pool is not used here). BPA via `bpa_recommendations()`, timeline via `build_draft_timeline()`. Positional needs = existing DB roster + rookie picks so far.
+- **Additive `dynasty_draft/`:** `SleeperClient.get_league_drafts()` only; Pickbook path unchanged.
+- **Frontend:** `/leagues/[leagueId]/rookie-draft`, `RookieDraftPanel` (BPA table, needs sidebar, targets in `localStorage`, scrollable pick timeline). Sidebar nav item **Rookie Draft**.
+- **Test URLs:**
+  - UI: `/leagues/1314731206859853824/rookie-draft`
+  - API: `GET /leagues/1314731206859853824/rookie-draft`
+  - Override: `?draft_id=1314731206864027648`
+- **Manual checklist (GLA rookie draft):**
+  - [ ] Sidebar **Rookie Draft** loads board without sync
+  - [ ] BPA column sorted; OVR / Proj PPG / TV / ADP columns populated
+  - [ ] ☆ target highlights persist on refresh (localStorage)
+  - [ ] On-the-clock banner updates after **Refresh** or auto-poll when draft is `drafting`
+  - [ ] Positional needs reflect my roster (QB/RB/WR/TE/FLEX open slots)
+  - [ ] Draft timeline scrolls; pick rows show OVR when picked
+  - [ ] Startup draft (`player_type=2`) is **not** shown — only rookie draft auto-resolves
+  - [ ] Pickbook Streamlit still runs (`just pickbook` or port 8501)
 
 ---
 
