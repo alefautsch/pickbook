@@ -5,6 +5,8 @@ from typing import Any, Callable
 
 from dynasty_draft.war_data import PlayerValue
 
+FLEX_PPG_POSITIONS = frozenset({"RB", "WR", "TE"})
+
 # Ideal peak ages for dynasty value (years before decline).
 _PEAK_AGE = {"QB": 29, "RB": 25, "WR": 27, "TE": 26}
 
@@ -112,6 +114,41 @@ class DynastyReferenceAnchors:
     max_worp: float
 
 
+@dataclass(frozen=True)
+class PerGameAnchorMaxes:
+    """Per-game HPPG / W·g ceilings split by lineup role (§5.4)."""
+
+    qb: tuple[float, float]  # (max_worp_ppg, max_hppg)
+    flex: tuple[float, float]  # RB/WR/TE shared flex pool
+
+
+def _ppg_anchor_group(pos: str) -> str:
+    return "qb" if pos == "QB" else "flex"
+
+
+def compute_per_game_anchor_maxes(
+    per_game_by_id: dict[str, dict[str, float]],
+    pos_by_id: dict[str, str],
+) -> PerGameAnchorMaxes:
+    """Fixed per-game ceilings: QBs vs flex-eligible skill positions."""
+    maxes = {
+        "qb": [0.0, 0.0],
+        "flex": [0.0, 0.0],
+    }
+    for player_id, metrics in per_game_by_id.items():
+        group = _ppg_anchor_group((pos_by_id.get(player_id) or "").upper())
+        if metrics.get("worp_ppg"):
+            maxes[group][0] = max(maxes[group][0], float(metrics["worp_ppg"]))
+        if metrics.get("healthy_ppg"):
+            maxes[group][1] = max(maxes[group][1], float(metrics["healthy_ppg"]))
+
+    def _pair(group: str) -> tuple[float, float]:
+        worp, hppg = maxes[group]
+        return (worp or 1.0, hppg or 1.0)
+
+    return PerGameAnchorMaxes(qb=_pair("qb"), flex=_pair("flex"))
+
+
 def compute_reference_anchors(
     players: list[tuple[str, PlayerValue]],
     effective_worp: Callable[[str, PlayerValue], tuple[float | None, bool]],
@@ -155,10 +192,12 @@ def _per_game_production_norm(
 def _pool_per_game_norms(
     per_game_by_id: dict[str, dict[str, float]],
     *,
+    pos_by_id: dict[str, str] | None = None,
+    anchor_maxes: PerGameAnchorMaxes | None = None,
     max_worp_ppg: float | None = None,
     max_hppg: float | None = None,
 ) -> dict[str, float]:
-    if max_worp_ppg is None or max_hppg is None:
+    if anchor_maxes is None and (max_worp_ppg is None or max_hppg is None):
         max_worp_ppg = 0.0
         max_hppg = 0.0
         for metrics in per_game_by_id.values():
@@ -168,14 +207,18 @@ def _pool_per_game_norms(
                 max_hppg = max(max_hppg, float(metrics["healthy_ppg"]))
         max_worp_ppg = max_worp_ppg or 1.0
         max_hppg = max_hppg or 1.0
-    return {
-        player_id: _per_game_production_norm(
+
+    norms: dict[str, float] = {}
+    for player_id, metrics in per_game_by_id.items():
+        if anchor_maxes is not None:
+            group = _ppg_anchor_group((pos_by_id or {}).get(player_id, "").upper())
+            max_worp_ppg, max_hppg = anchor_maxes.qb if group == "qb" else anchor_maxes.flex
+        norms[player_id] = _per_game_production_norm(
             metrics,
-            max_worp_ppg=max_worp_ppg,
-            max_hppg=max_hppg,
+            max_worp_ppg=max_worp_ppg or 1.0,
+            max_hppg=max_hppg or 1.0,
         )
-        for player_id, metrics in per_game_by_id.items()
-    }
+    return norms
 
 
 def _trajectory_signal(tv_norm: float, worp_norm: float, years_exp: int | None) -> float:
@@ -208,7 +251,8 @@ class DynastyScorer:
         reference: DynastyReferenceAnchors | None = None,
         rating_bounds: tuple[float, float] | None = None,
         per_game_by_id: dict[str, dict[str, float]] | None = None,
-        per_game_max: tuple[float, float] | None = None,
+        per_game_max: PerGameAnchorMaxes | tuple[float, float] | None = None,
+        pos_by_id: dict[str, str] | None = None,
     ) -> dict[str, dict[str, Any]]:
         if not players:
             return {}
@@ -232,15 +276,20 @@ class DynastyScorer:
             if eff is not None:
                 effective[player_id] = max(eff, 0.0)
 
-        per_game_norms = (
-            _pool_per_game_norms(
-                per_game_by_id,
-                max_worp_ppg=per_game_max[0] if per_game_max else None,
-                max_hppg=per_game_max[1] if per_game_max else None,
-            )
-            if per_game_by_id
-            else {}
-        )
+        per_game_norms: dict[str, float] = {}
+        if per_game_by_id:
+            if isinstance(per_game_max, PerGameAnchorMaxes):
+                per_game_norms = _pool_per_game_norms(
+                    per_game_by_id,
+                    pos_by_id=pos_by_id,
+                    anchor_maxes=per_game_max,
+                )
+            else:
+                per_game_norms = _pool_per_game_norms(
+                    per_game_by_id,
+                    max_worp_ppg=per_game_max[0] if per_game_max else None,
+                    max_hppg=per_game_max[1] if per_game_max else None,
+                )
         tilt = max(0.0, min(1.0, self.rating_curve.per_game_tilt))
         w = self.weights
         results: dict[str, dict[str, Any]] = {}

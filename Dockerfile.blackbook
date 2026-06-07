@@ -1,0 +1,20 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir uv
+
+COPY pyproject.toml uv.lock ./
+COPY dynasty_draft ./dynasty_draft
+COPY backend ./backend
+COPY alembic ./alembic
+COPY alembic.ini ./
+COPY war.csv ./
+COPY leagues.seed.json ./
+COPY config.example.json ./
+
+RUN uv sync --frozen
+
+EXPOSE 8000
+
+CMD ["uv", "run", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

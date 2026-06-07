@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: blackbook
+      POSTGRES_PASSWORD: blackbook
+      POSTGRES_DB: blackbook
+    ports:
+      - "5444:5432"
+    volumes:
+      - blackbook_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blackbook -d blackbook"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.blackbook
+    environment:
+      DATABASE_URL: postgresql+psycopg://blackbook:blackbook@postgres:5432/blackbook
+      CORS_ORIGINS: http://localhost:3000
+      SLEEPER_USERNAME: alefautsch
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    command: >
+      sh -c "uv run alembic upgrade head &&
+             uv run python -m backend.seed &&
+             uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload"
+
+volumes:
+  blackbook_pgdata:

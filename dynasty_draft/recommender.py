@@ -10,6 +10,8 @@ from dynasty_draft.dynasty_score import (
     DynastyReferenceAnchors,
     DynastyScorer,
     DynastyWeights,
+    PerGameAnchorMaxes,
+    compute_per_game_anchor_maxes,
     compute_reference_anchors,
     curved_composite_to_rating,
 )
@@ -265,23 +267,19 @@ class DraftState:
         """Pre-draft eligible board — OVR anchors stay fixed as picks are made."""
         return self._eligible_players()
 
-    def _dynasty_per_game_reference(self) -> tuple[float, float]:
-        """Fixed board maxes for per-game OVR normalization (stable across views)."""
+    def _dynasty_per_game_reference(self) -> PerGameAnchorMaxes:
+        """Fixed board maxes for per-game OVR normalization (QB vs flex pool)."""
         if getattr(self, "_dynasty_per_game_ref_ready", False):
-            return self._dynasty_per_game_max_worp, self._dynasty_per_game_max_hppg
+            return self._dynasty_per_game_anchors
         ref_pool = self._dynasty_reference_pool()
         per_game = self._per_game_by_id_for_pool(ref_pool) or {}
-        max_worp = 0.0
-        max_hppg = 0.0
-        for metrics in per_game.values():
-            if metrics.get("worp_ppg"):
-                max_worp = max(max_worp, float(metrics["worp_ppg"]))
-            if metrics.get("healthy_ppg"):
-                max_hppg = max(max_hppg, float(metrics["healthy_ppg"]))
-        self._dynasty_per_game_max_worp = max_worp or 1.0
-        self._dynasty_per_game_max_hppg = max_hppg or 1.0
+        pos_by_id = {player_id: player.pos for player_id, player in ref_pool}
+        self._dynasty_per_game_anchors = compute_per_game_anchor_maxes(per_game, pos_by_id)
         self._dynasty_per_game_ref_ready = True
-        return self._dynasty_per_game_max_worp, self._dynasty_per_game_max_hppg
+        return self._dynasty_per_game_anchors
+
+    def _pos_by_id_for_pool(self, pool: list[tuple[str, PlayerValue]]) -> dict[str, str]:
+        return {player_id: player.pos for player_id, player in pool}
 
     def _dynasty_curve_context(self) -> tuple[DynastyReferenceAnchors, tuple[float, float]]:
         if getattr(self, "_dynasty_curve_ready", False):
@@ -299,6 +297,7 @@ class DraftState:
             rating_bounds=None,
             per_game_by_id=self._per_game_by_id_for_pool(ref_pool),
             per_game_max=per_game_max,
+            pos_by_id=self._pos_by_id_for_pool(ref_pool),
         )
         composites = [row["dynasty_score"] for row in raw_scores.values()]
         bounds = (min(composites), max(composites)) if composites else (0.0, 1.0)
@@ -524,6 +523,7 @@ class DraftState:
             rating_bounds=bounds,
             per_game_by_id=self._per_game_by_id_for_pool(score_pool),
             per_game_max=self._dynasty_per_game_reference(),
+            pos_by_id=self._pos_by_id_for_pool(score_pool),
         )
 
     def _normalize_scores(self, available: list[tuple[str, PlayerValue]]) -> dict[str, float]:

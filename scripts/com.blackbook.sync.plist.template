@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.blackbook.sync</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__REPO_ROOT__/scripts/bb-sync-cron.sh</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>__SYNC_HOUR__</integer>
+        <key>Minute</key>
+        <integer>__SYNC_MINUTE__</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>__REPO_ROOT__/.cache/bb-sync-launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>__REPO_ROOT__/.cache/bb-sync-launchd.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
