@@ -197,7 +197,7 @@ def _metric_definitions() -> dict[str, str]:
         "value_pivot": "Players where BPA rank beats need-adjusted rank — take value, trade surplus later.",
         "wait_for_later": "Elite players whose ADP matches a future pick — do not reach early; wait for that bookend.",
         "effective_worp": "Blended historical + Sleeper projection (WORP* in UI). Key dynasty_rating input.",
-        "adp_pick": "Consensus draft slot from external ADP when loaded (DynastyProcess 2QB / BeatADP Sleeper / DLF / CSV), else trade-value rank. Lower = goes earlier.",
+        "adp_pick": "Consensus draft slot from external ADP when loaded (Sleeper / BeatADP / DLF / CSV), else trade-value rank. Lower = goes earlier.",
         "adp_delta": "your_pick - adp_pick. Positive = value (player fell to you). Negative = reach (you draft them early).",
         "falls_to_you": "TV-heavy sim of who might be on the board at each bookend pick. Use top_by_dynasty_rating inside it for WHO TO DRAFT — not top_available_sim.",
         "bookend_dynasty_targets": "Best projected-at-bookend players ranked by dynasty_rating (age + proj WORP + TV + ceiling). Primary bookend pick list; if_they_fall_from_current_board is contingency only.",

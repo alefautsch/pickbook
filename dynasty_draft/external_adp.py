@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import io
 import json
 import re
 import time
@@ -17,11 +16,15 @@ from dynasty_draft.war_data import normalize_name
 ADP_TTL_SECONDS = 12 * 60 * 60
 USER_AGENT = "pickbook/0.3 (personal dynasty draft tool)"
 
-DP_PLAYERS_URL = (
-    "https://raw.githubusercontent.com/dynastyprocess/data/master/files/values-players.csv"
-)
 BEATADP_SLEEPER_URL = "https://www.beatadp.com/platform-adp/sleeper"
 DLF_SUPERFLEX_URL = "https://dynastyleaguefootball.com/adp/index.php?type=superflex"
+SLEEPER_PROJECTIONS_URL = (
+    "https://api.sleeper.com/projections/nfl/{season}"
+    "?season_type=regular&position[]=QB&position[]=RB&position[]=TE&position[]=WR"
+    "&order_by={order_by}"
+)
+# Sleeper uses 999 as a sentinel when a player has no ADP for a format.
+_ADP_MISSING = 900.0
 
 _BEATADP_ROW_RE = re.compile(
     r'\{"player":\{"id":\d+,"fullName":"([^"]+)","position":"([^"]*)"'
@@ -95,7 +98,9 @@ class AdpStore:
             return None
 
         resolved = _resolve_source(source, superflex=superflex)
-        cache_path = CACHE_DIR / f"adp_{resolved}.json"
+        season = str(adp_cfg.get("season") or config.get("season") or "2026")
+        cache_suffix = f"_{season}" if resolved.startswith("sleeper_") else ""
+        cache_path = CACHE_DIR / f"adp_{resolved}{cache_suffix}.json"
         now = time.time()
         if not force_refresh and cache_path.exists():
             try:
@@ -111,7 +116,12 @@ class AdpStore:
             except (json.JSONDecodeError, OSError, TypeError, ValueError):
                 pass
 
-        rows, label = _fetch(resolved, adp_cfg=adp_cfg, superflex=superflex)
+        rows, label = _fetch(
+            resolved,
+            adp_cfg=adp_cfg,
+            config=config,
+            superflex=superflex,
+        )
         if not rows:
             return None
 
@@ -133,15 +143,18 @@ class AdpStore:
 
 
 def _resolve_source(source: str, *, superflex: bool) -> str:
+    if source in {"dynastyprocess_2qb", "dynastyprocess_1qb"}:
+        return "sleeper_dynasty_2qb" if superflex else "sleeper_dynasty_1qb"
     if source != "auto":
         return source
-    return "dynastyprocess_2qb" if superflex else "beatadp_sleeper"
+    return "sleeper_dynasty_2qb" if superflex else "sleeper_redraft_half_ppr"
 
 
 def _fetch(
     source: str,
     *,
     adp_cfg: dict[str, Any],
+    config: dict[str, Any],
     superflex: bool,
 ) -> tuple[list[dict[str, Any]], str]:
     if source == "csv":
@@ -150,9 +163,26 @@ def _fetch(
             raise FileNotFoundError(f"ADP csv not found: {path}")
         return _load_csv(path), f"CSV ({path.name})"
 
+    season = str(adp_cfg.get("season") or config.get("season") or "2026")
     fetchers = {
-        "dynastyprocess_2qb": lambda: _fetch_dynastyprocess(field="ecr_2qb"),
-        "dynastyprocess_1qb": lambda: _fetch_dynastyprocess(field="ecr_1qb"),
+        "sleeper_dynasty_2qb": lambda: _fetch_sleeper_adp(
+            season=season,
+            stat_key="adp_dynasty_2qb",
+            order_by="adp_dynasty_2qb",
+            label=f"Sleeper dynasty 2QB ADP ({season})",
+        ),
+        "sleeper_dynasty_1qb": lambda: _fetch_sleeper_adp(
+            season=season,
+            stat_key="adp_dynasty_half_ppr",
+            order_by="adp_dynasty_half_ppr",
+            label=f"Sleeper dynasty 1QB ADP ({season})",
+        ),
+        "sleeper_redraft_half_ppr": lambda: _fetch_sleeper_adp(
+            season=season,
+            stat_key="adp_half_ppr",
+            order_by="adp_half_ppr",
+            label=f"Sleeper redraft half-PPR ADP ({season})",
+        ),
         "beatadp_sleeper": _fetch_beatadp_sleeper,
         "dlf_superflex": _fetch_dlf_superflex,
     }
@@ -169,24 +199,37 @@ def _session() -> requests.Session:
     return session
 
 
-def _fetch_dynastyprocess(*, field: str) -> tuple[list[dict[str, Any]], str]:
-    response = _session().get(DP_PLAYERS_URL, timeout=45)
+def _fetch_sleeper_adp(
+    *,
+    season: str,
+    stat_key: str,
+    order_by: str,
+    label: str,
+) -> tuple[list[dict[str, Any]], str]:
+    url = SLEEPER_PROJECTIONS_URL.format(season=season, order_by=order_by)
+    response = _session().get(url, timeout=60)
     response.raise_for_status()
     rows: list[dict[str, Any]] = []
-    for row in csv.DictReader(io.StringIO(response.text)):
-        raw = (row.get(field) or "").strip()
-        if not raw:
+    for row in response.json():
+        stats = row.get("stats") or {}
+        adp = stats.get(stat_key)
+        if adp is None or float(adp) >= _ADP_MISSING:
             continue
-        adp = float(raw)
+        player = row.get("player") or {}
+        name = f"{player.get('first_name', '')} {player.get('last_name', '')}".strip()
+        if not name:
+            continue
+        adp_f = float(adp)
         rows.append(
             {
-                "name": row["player"],
-                "pos": row.get("pos") or "",
-                "adp": adp,
-                "pick": max(1, round(adp)),
+                "name": name,
+                "pos": player.get("position") or "",
+                "adp": adp_f,
+                "pick": max(1, round(adp_f)),
             }
         )
-    label = "DynastyProcess 2QB consensus" if field == "ecr_2qb" else "DynastyProcess 1QB consensus"
+    if not rows:
+        raise RuntimeError(f"Sleeper ADP fetch returned no rows for {stat_key}")
     return rows, label
 
 

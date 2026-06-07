@@ -417,6 +417,8 @@ class DraftState:
                 player["age"] = age
         if war_player is None:
             return
+        if player.get("porp") is None and war_player.porp is not None:
+            player["porp"] = war_player.porp
         blended = self.with_blended_tv(war_player)
         eff, uses_projection = self._effective_worp(
             str(player_id) if player_id else None,
@@ -562,6 +564,7 @@ class DraftState:
                     "age": dynasty.get("age") or self._player_age(player_id),
                     "trade_value": blended_tv,
                     "worp": player.worp,
+                    "porp": player.porp,
                     "effective_worp": eff_worp,
                     "worp_uses_projection": worp_projected,
                     "projected_worp": eff_worp if worp_projected else None,
@@ -622,6 +625,7 @@ class DraftState:
                     "age": dynasty.get("age") or self._player_age(player_id),
                     "trade_value": self.blended_trade_value(player),
                     "worp": player.worp,
+                    "porp": player.porp,
                     "effective_worp": eff_worp,
                     "worp_uses_projection": worp_projected,
                     "projected_worp": eff_worp if worp_projected else None,
@@ -766,6 +770,7 @@ class DraftState:
                     "team": player.team,
                     "age": dynasty.get("age") or self._player_age(player_id),
                     "trade_value": blended_tv,
+                    "porp": player.porp,
                     "effective_worp": eff_worp,
                     "worp_uses_projection": worp_projected,
                     "dynasty_score": dynasty.get("dynasty_score"),
@@ -800,6 +805,7 @@ class DraftState:
                     "pos": meta.get("position") or (war_player.pos if war_player else ""),
                     "trade_value": self.blended_trade_value(war_player) if war_player else None,
                     "worp": war_player.worp if war_player else None,
+                    "porp": war_player.porp if war_player else None,
                     "status": "drafted",
                 }
             )

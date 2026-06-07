@@ -1058,6 +1058,10 @@ def _fmt_porp(value: float | None) -> str:
     return f"{value:.0f}" if value is not None else "—"
 
 
+def _fmt_porp_cell(row: dict[str, Any]) -> str:
+    return f'<span class="num">{_fmt_porp(row.get("porp"))}</span>'
+
+
 def _html_table(
     headers: list[str],
     body_rows: list[list[str]],
@@ -1098,6 +1102,7 @@ def _recommendation_table_rows(
             _fmt_dynasty_cell(row),
             f'<span class="num">{_fmt_tv(row.get("trade_value"))}</span>',
             _fmt_worp_cell(row),
+            _fmt_porp_cell(row),
             f'<span class="note">{note}</span>' if note else "",
         ]
         body.append(cells)
@@ -1136,9 +1141,9 @@ def _render_bpa_comparison(state: DraftState, *, compact: bool = False) -> None:
         )
         st.info(f"Value override: {override_text}")
 
-    headers = ["Player", "Pos", "Tm", "Age", "ADP", "Dyn", "TV", "WORP", "Note"]
+    headers = ["Player", "Pos", "Tm", "Age", "ADP", "Dyn", "TV", "WORP", "PORP", "Note"]
     if compact:
-        headers = ["Player", "Pos", "ADP", "Dyn", "Note"]
+        headers = ["Player", "Pos", "ADP", "Dyn", "PORP", "Note"]
 
     def _compact_rows(rows: list[dict[str, Any]]) -> list[list[str]]:
         if not compact:
@@ -1152,6 +1157,7 @@ def _render_bpa_comparison(state: DraftState, *, compact: bool = False) -> None:
                     f'<span class="pos">{html.escape(row.get("pos") or "")}</span>',
                     _fmt_adp_cell(row),
                     _fmt_dynasty_cell(row),
+                    _fmt_porp_cell(row),
                     f'<span class="note">{note}</span>' if note else "",
                 ]
             )
@@ -1208,7 +1214,7 @@ def _render_quick_picks(state: DraftState) -> None:
             continue
         with st.expander(f"{pos} — BPA vs need", expanded=pos in ("QB", "WR")):
             col_bpa, col_need = st.columns(2)
-            headers = ["Player", "Tm", "Age", "ADP", "Dyn", "TV", "WORP", "Note"]
+            headers = ["Player", "Tm", "Age", "ADP", "Dyn", "TV", "WORP", "PORP", "Note"]
             with col_bpa:
                 st.markdown("**BPA**")
                 if bpa_rows:
@@ -1319,6 +1325,7 @@ def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]
                 "",
                 "",
                 "",
+                "",
             ],
             "row-empty",
         )
@@ -1339,6 +1346,7 @@ def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]
             dynasty_cell,
             f'<span class="num tv">{_fmt_tv(player.get("trade_value"))}</span>',
             _fmt_worp_cell(player),
+            _fmt_porp_cell(player),
         ],
         row_class,
     )
@@ -1382,7 +1390,7 @@ def _render_lineup_table(lineup: dict[str, Any]) -> None:
         body.append([f'<span class="slot-label">{html.escape(row["slot"])}</span>', *cells])
         row_classes.append(row_class)
 
-    body.append(['<span class="slot-label">BENCH</span>', "", "", "", "", "", "", ""])
+    body.append(['<span class="slot-label">BENCH</span>', "", "", "", "", "", "", "", ""])
     row_classes.append("lineup-divider")
 
     if lineup["bench"]:
@@ -1391,12 +1399,12 @@ def _render_lineup_table(lineup: dict[str, Any]) -> None:
             body.append(["", *cells])
             row_classes.append(row_class)
     else:
-        body.append(["", '<span class="muted">No bench players yet</span>', "", "", "", "", "", ""])
+        body.append(["", '<span class="muted">No bench players yet</span>', "", "", "", "", "", "", ""])
         row_classes.append("row-empty")
 
     st.markdown(
         _html_table(
-            ["", "Player", "Pos", "Tm", "Age", "OVR", "TV", "WORP"],
+            ["", "Player", "Pos", "Tm", "Age", "OVR", "TV", "WORP", "PORP"],
             body,
             row_classes,
             table_class="pick-table lineup-table",
@@ -1552,13 +1560,17 @@ def _render_settings_tab(config: dict[str, Any]) -> None:
     )
     adp_cfg = config.setdefault("adp", {})
     adp_options = {
-        "auto": "Auto (2QB consensus for superflex, Sleeper for 1QB)",
-        "dynastyprocess_2qb": "DynastyProcess 2QB consensus",
+        "auto": "Auto (Sleeper dynasty 2QB for superflex, Sleeper redraft for 1QB)",
+        "sleeper_dynasty_2qb": "Sleeper dynasty 2QB ADP",
+        "sleeper_dynasty_1qb": "Sleeper dynasty 1QB ADP",
+        "sleeper_redraft_half_ppr": "Sleeper redraft half-PPR ADP",
         "beatadp_sleeper": "BeatADP Sleeper redraft ADP",
         "dlf_superflex": "DLF superflex mock ADP",
         "trade_value": "Trade value rank (legacy)",
     }
     current = str(adp_cfg.get("source", "auto"))
+    if current.startswith("dynastyprocess_"):
+        current = "auto"
     adp_cfg["source"] = st.selectbox(
         "ADP source",
         options=list(adp_options.keys()),
