@@ -8,6 +8,7 @@ from dynasty_draft.builder import build_state
 from dynasty_draft.config import load_config, save_config
 from dynasty_draft.sleeper_client import SleeperClient
 from dynasty_draft.ktc_values import KtcStore
+from dynasty_draft.external_adp import AdpStore
 from dynasty_draft.war_data import WarData
 from pathlib import Path
 
@@ -240,6 +241,16 @@ def cmd_ktc_refresh(args: argparse.Namespace) -> None:
     print(f"KTC {fmt} dynasty cache refreshed: {len(store.by_name)} players")
 
 
+def cmd_adp_refresh(args: argparse.Namespace) -> None:
+    config = load_config()
+    superflex = not args.one_qb
+    store = AdpStore.load(config, superflex=superflex, force_refresh=True)
+    if store is None:
+        print("ADP source disabled (trade_value mode)")
+        return
+    print(f"ADP cache refreshed: {store.label} ({len(store.by_name)} players)")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Dynasty startup draft assistant for Sleeper")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -267,6 +278,10 @@ def main() -> None:
     ktc_parser = sub.add_parser("ktc-refresh", help="Refresh KeepTradeCut dynasty values cache")
     ktc_parser.add_argument("--1qb", dest="one_qb", action="store_true", help="Fetch 1QB rankings instead of superflex")
     ktc_parser.set_defaults(func=cmd_ktc_refresh)
+
+    adp_parser = sub.add_parser("adp-refresh", help="Refresh external ADP cache")
+    adp_parser.add_argument("--1qb", dest="one_qb", action="store_true", help="Use 1QB/redraft ADP source instead of superflex")
+    adp_parser.set_defaults(func=cmd_adp_refresh)
 
     args = parser.parse_args()
     args.func(args)

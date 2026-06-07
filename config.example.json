@@ -15,6 +15,10 @@
   "dynasty_rating_curve": {
     "exponent": 0.54
   },
+  "adp": {
+    "source": "auto",
+    "csv_path": null
+  },
   "poll_seconds": 20,
   "ktc_enabled": true,
   "trade_value_blend": {

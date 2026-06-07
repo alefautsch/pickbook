@@ -25,6 +25,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "dynasty_rating_curve": {
         "exponent": 0.54,
     },
+    "adp": {
+        "source": "auto",
+        "csv_path": None,
+    },
     "poll_seconds": 20,
     "ktc_enabled": True,
     "trade_value_blend": {

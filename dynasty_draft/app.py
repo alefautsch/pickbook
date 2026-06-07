@@ -1120,7 +1120,8 @@ def _render_bpa_comparison(state: DraftState, *, compact: bool = False) -> None:
     if not compact:
         st.markdown('<div class="section-title">Best available</div>', unsafe_allow_html=True)
     st.caption(
-        f"Pick #{ref}. BPA = cross-position value with ADP bonus/penalty (reach = negative delta). "
+        f"Pick #{ref}. ADP source: {html.escape(state._adp_index().source_label)}. "
+        "BPA = cross-position value with ADP bonus/penalty (reach = negative delta). "
         "Need-adjusted = starter-need nudges."
     )
     if wait:
@@ -1540,6 +1541,31 @@ def _render_settings_tab(config: dict[str, Any]) -> None:
     config["draft_id"] = st.text_input("Draft ID", value=config.get("draft_id", ""))
     config["trade_weight"] = st.slider("Trade value", 0.0, 1.0, float(config.get("trade_weight", 0.65)), 0.05)
     config["worp_weight"] = st.slider("WORP", 0.0, 1.0, float(config.get("worp_weight", 0.35)), 0.05)
+    rating_curve = config.setdefault("dynasty_rating_curve", {})
+    rating_curve["exponent"] = st.slider(
+        "Dynasty rating curve",
+        0.20,
+        1.00,
+        float(rating_curve.get("exponent", 0.54)),
+        0.02,
+        help="Lower compresses the top end (fewer 90s); higher spreads elites upward.",
+    )
+    adp_cfg = config.setdefault("adp", {})
+    adp_options = {
+        "auto": "Auto (2QB consensus for superflex, Sleeper for 1QB)",
+        "dynastyprocess_2qb": "DynastyProcess 2QB consensus",
+        "beatadp_sleeper": "BeatADP Sleeper redraft ADP",
+        "dlf_superflex": "DLF superflex mock ADP",
+        "trade_value": "Trade value rank (legacy)",
+    }
+    current = str(adp_cfg.get("source", "auto"))
+    adp_cfg["source"] = st.selectbox(
+        "ADP source",
+        options=list(adp_options.keys()),
+        index=list(adp_options.keys()).index(current) if current in adp_options else 0,
+        format_func=lambda key: adp_options[key],
+        help="Used for reach/value badges and league pick simulation. Auto picks the best available fetch.",
+    )
     config["poll_seconds"] = st.number_input("Auto-refresh (sec)", 5, 120, int(config.get("poll_seconds", 20)))
     st.session_state.auto_refresh = st.checkbox("Auto-refresh", value=st.session_state.auto_refresh)
     strategy["startup_slot"] = st.number_input("Startup slot", 1, 16, int(strategy.get("startup_slot", 10)))

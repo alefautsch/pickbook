@@ -83,6 +83,7 @@ def _available_pool(state: DraftState) -> list[tuple[str, PlayerValue]]:
 
 
 def _pick_for_team(
+    state: DraftState,
     pool: list[tuple[str, PlayerValue]],
     roster_counts: Counter[str],
     targets: dict[str, int],
@@ -91,10 +92,15 @@ def _pick_for_team(
 ) -> tuple[str, PlayerValue] | None:
     if not pool:
         return None
+    adp_index = state._adp_index()
     best: tuple[str, PlayerValue] | None = None
     best_score = -1.0
     for player_id, player in pool:
-        adp_norm = player.trade_value / max_tv if max_tv else 0.0
+        adp_norm = adp_index.adp_norm(
+            player.name,
+            fallback_tv=player.trade_value,
+            max_tv=max_tv,
+        )
         need = _need_boost(player.pos, roster_counts, targets, round_no)
         score = _ADP_WEIGHT * adp_norm + _NEED_WEIGHT * need
         if score > best_score:
@@ -117,7 +123,7 @@ def _simulate_pick(
     if roster_id is None:
         return None, pool
     round_no = (pick_no - 1) // state._teams() + 1
-    chosen = _pick_for_team(pool, roster_counts[roster_id], targets, round_no, max_tv)
+    chosen = _pick_for_team(state, pool, roster_counts[roster_id], targets, round_no, max_tv)
     if chosen is None:
         return None, pool
     player_id, player = chosen
@@ -370,6 +376,7 @@ def project_next_picks(
         "method": "bookend_pairs_league_tv_sim_user_dynasty_planned",
         "adp_weight": _ADP_WEIGHT,
         "need_weight": _NEED_WEIGHT,
+        "adp_source": state._adp_index().source_label,
         "current_bookend": {
             "pick_numbers": current_bookend,
             "picks_before": picks_before_current,

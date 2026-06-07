@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from dynasty_draft.draft_context import build_scoring_context
+from dynasty_draft.external_adp import AdpStore
 from dynasty_draft.dynasty_score import DynastyRatingCurve, DynastyWeights
 from dynasty_draft.ktc_values import KtcStore
 from dynasty_draft.trade_value_blend import TradeValueBlend
@@ -105,6 +106,10 @@ def build_state(config: dict[str, Any], *, exit_on_error: bool = True) -> DraftS
             state.ktc = None
     state.trade_blend = TradeValueBlend.from_config(config, ktc_available=state.ktc is not None)
     state.worp_blend = WorpBlend.from_config(config)
+    try:
+        state.adp_store = AdpStore.load(config, superflex=state.is_superflex())
+    except Exception:
+        state.adp_store = None
 
     try:
         scoring = build_scoring_context(state)

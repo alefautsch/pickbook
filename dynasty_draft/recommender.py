@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from dynasty_draft.adp import AdpIndex
+from dynasty_draft.external_adp import AdpStore
 from dynasty_draft.dynasty_score import (
     DynastyRatingCurve,
     DynastyReferenceAnchors,
@@ -54,6 +55,7 @@ class DraftState:
     dynasty_rating_curve: DynastyRatingCurve | None = None
     projection_store: SleeperProjectionStore | None = None
     ktc: KtcStore | None = None
+    adp_store: AdpStore | None = None
     trade_blend: TradeValueBlend = field(default_factory=TradeValueBlend)
     worp_blend: WorpBlend = field(default_factory=WorpBlend)
     strategy: DraftStrategy = field(default_factory=DraftStrategy)
@@ -309,7 +311,11 @@ class DraftState:
     def _adp_index(self) -> AdpIndex:
         cached = getattr(self, "_cached_adp_index", None)
         if cached is None:
-            cached = AdpIndex(self.war, self.blended_trade_value)
+            cached = AdpIndex(
+                self.war,
+                self.blended_trade_value,
+                external=self.adp_store,
+            )
             self._cached_adp_index = cached
         return cached
 
