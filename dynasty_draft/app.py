@@ -1072,6 +1072,35 @@ def _fmt_flex_cell(row: dict[str, Any]) -> str:
     return f'<span class="num"{title}>{rating}</span>'
 
 
+def _fmt_hppg(value: float | None) -> str:
+    return f"{value:.1f}" if value is not None else "—"
+
+
+def _fmt_worp_ppg(value: float | None) -> str:
+    return f"{value:.3f}" if value is not None else "—"
+
+
+def _fmt_hppg_cell(row: dict[str, Any]) -> str:
+    value = row.get("healthy_ppg")
+    if value is None:
+        return '<span class="num muted">—</span>'
+    games = row.get("healthy_games")
+    total = row.get("total_games")
+    title = ""
+    if games is not None and total:
+        avail = row.get("availability")
+        pct = f"{float(avail) * 100:.0f}%" if avail is not None else ""
+        title = f' title="Healthy in {games}/{total} weeks ({pct})"'
+    return f'<span class="num"{title}>{_fmt_hppg(value)}</span>'
+
+
+def _fmt_worp_ppg_cell(row: dict[str, Any]) -> str:
+    value = row.get("worp_ppg")
+    if value is None:
+        return '<span class="num muted">—</span>'
+    return f'<span class="num worp">{_fmt_worp_ppg(value)}</span>'
+
+
 def _html_table(
     headers: list[str],
     body_rows: list[list[str]],
@@ -1110,6 +1139,8 @@ def _recommendation_table_rows(
             _fmt_age_cell(row),
             *([_fmt_adp_cell(row)] if include_adp else []),
             _fmt_dynasty_cell(row),
+            _fmt_hppg_cell(row),
+            _fmt_worp_ppg_cell(row),
             f'<span class="num">{_fmt_tv(row.get("trade_value"))}</span>',
             _fmt_worp_cell(row),
             _fmt_flex_cell(row),
@@ -1152,9 +1183,9 @@ def _render_bpa_comparison(state: DraftState, *, compact: bool = False) -> None:
         )
         st.info(f"Value override: {override_text}")
 
-    headers = ["Player", "Pos", "Tm", "Age", "ADP", "Dyn", "TV", "WORP", "Flex", "PORP", "Note"]
+    headers = ["Player", "Pos", "Tm", "Age", "ADP", "Dyn", "HPPG", "W/g", "TV", "WORP", "Flex", "PORP", "Note"]
     if compact:
-        headers = ["Player", "Pos", "ADP", "Dyn", "Flex", "PORP", "Note"]
+        headers = ["Player", "Pos", "ADP", "Dyn", "HPPG", "W/g", "Flex", "PORP", "Note"]
 
     def _compact_rows(rows: list[dict[str, Any]]) -> list[list[str]]:
         if not compact:
@@ -1168,6 +1199,8 @@ def _render_bpa_comparison(state: DraftState, *, compact: bool = False) -> None:
                     f'<span class="pos">{html.escape(row.get("pos") or "")}</span>',
                     _fmt_adp_cell(row),
                     _fmt_dynasty_cell(row),
+                    _fmt_hppg_cell(row),
+                    _fmt_worp_ppg_cell(row),
                     _fmt_flex_cell(row),
                     _fmt_porp_cell(row),
                     f'<span class="note">{note}</span>' if note else "",
@@ -1226,7 +1259,7 @@ def _render_quick_picks(state: DraftState) -> None:
             continue
         with st.expander(f"{pos} — BPA vs need", expanded=pos in ("QB", "WR")):
             col_bpa, col_need = st.columns(2)
-            headers = ["Player", "Tm", "Age", "ADP", "Dyn", "TV", "WORP", "Flex", "PORP", "Note"]
+            headers = ["Player", "Tm", "Age", "ADP", "Dyn", "HPPG", "W/g", "TV", "WORP", "Flex", "PORP", "Note"]
             with col_bpa:
                 st.markdown("**BPA**")
                 if bpa_rows:
@@ -1273,6 +1306,8 @@ def _render_draft_timeline(state: DraftState) -> None:
                 f'<span class="pos">{html.escape(row.get("pos") or "")}</span>'
             )
             ovr = _fmt_dynasty_cell(row)
+            hppg = _fmt_hppg_cell(row)
+            worp_pg = _fmt_worp_ppg_cell(row)
             worp = _fmt_worp_cell(row)
             flex = _fmt_flex_cell(row)
             porp = f'<span class="num">{_fmt_porp(row.get("porp"))}</span>'
@@ -1282,6 +1317,8 @@ def _render_draft_timeline(state: DraftState) -> None:
             player = '<span class="muted">On the clock</span>' if status == "on_clock" else '<span class="muted">—</span>'
             ovr = '<span class="num muted">—</span>'
             age = '<span class="num muted">—</span>'
+            hppg = '<span class="num muted">—</span>'
+            worp_pg = '<span class="num muted">—</span>'
             worp = '<span class="num muted">—</span>'
             flex = '<span class="num muted">—</span>'
             porp = '<span class="num muted">—</span>'
@@ -1295,6 +1332,8 @@ def _render_draft_timeline(state: DraftState) -> None:
                 player,
                 age,
                 ovr,
+                hppg,
+                worp_pg,
                 worp,
                 flex,
                 porp,
@@ -1302,7 +1341,11 @@ def _render_draft_timeline(state: DraftState) -> None:
             ]
         )
     st.markdown(
-        _html_table(["Pick", "Rd", "Team", "Player", "Age", "OVR", "WORP", "Flex", "PORP", "TV"], body, row_classes),
+        _html_table(
+            ["Pick", "Rd", "Team", "Player", "Age", "OVR", "HPPG", "W/g", "WORP", "Flex", "PORP", "TV"],
+            body,
+            row_classes,
+        ),
         unsafe_allow_html=True,
     )
 
@@ -1342,6 +1385,7 @@ def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]
                 "",
                 "",
                 "",
+                "",
             ],
             "row-empty",
         )
@@ -1361,6 +1405,8 @@ def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]
             _fmt_age_cell(player),
             dynasty_cell,
             f'<span class="num tv">{_fmt_tv(player.get("trade_value"))}</span>',
+            _fmt_hppg_cell(player),
+            _fmt_worp_ppg_cell(player),
             _fmt_worp_cell(player),
             _fmt_flex_cell(player),
             _fmt_porp_cell(player),
@@ -1407,7 +1453,7 @@ def _render_lineup_table(lineup: dict[str, Any]) -> None:
         body.append([f'<span class="slot-label">{html.escape(row["slot"])}</span>', *cells])
         row_classes.append(row_class)
 
-    body.append(['<span class="slot-label">BENCH</span>', "", "", "", "", "", "", "", "", ""])
+    body.append(['<span class="slot-label">BENCH</span>', "", "", "", "", "", "", "", "", "", ""])
     row_classes.append("lineup-divider")
 
     if lineup["bench"]:
@@ -1416,12 +1462,12 @@ def _render_lineup_table(lineup: dict[str, Any]) -> None:
             body.append(["", *cells])
             row_classes.append(row_class)
     else:
-        body.append(["", '<span class="muted">No bench players yet</span>', "", "", "", "", "", "", "", ""])
+        body.append(["", '<span class="muted">No bench players yet</span>', "", "", "", "", "", "", "", "", ""])
         row_classes.append("row-empty")
 
     st.markdown(
         _html_table(
-            ["", "Player", "Pos", "Tm", "Age", "OVR", "TV", "WORP", "Flex", "PORP"],
+            ["", "Player", "Pos", "Tm", "Age", "OVR", "HPPG", "W/g", "TV", "WORP", "Flex", "PORP"],
             body,
             row_classes,
             table_class="pick-table lineup-table",
@@ -1507,7 +1553,7 @@ def _render_board_tab(state: DraftState, config: dict[str, Any]) -> None:
         st.caption(
             f"RB/WR/TE ranked together for flex decisions ({flex_slots} flex slot"
             f"{'s' if flex_slots != 1 else ''} in league). "
-            "Flex rating = WORP* + PORP on a shared 50–99 scale among undrafted skill players."
+            "Flex uses per-game WORP (snap-filtered HPPG). Hover HPPG for healthy-week rate."
         )
         if flex_rows:
             flex_df = pd.DataFrame(flex_rows[:40])
@@ -1523,15 +1569,16 @@ def _render_board_tab(state: DraftState, config: dict[str, Any]) -> None:
                 columns={
                     "flex_rank": "Flex #",
                     "flex_rating": "Flex",
+                    "healthy_ppg": "HPPG",
+                    "worp_ppg": "W/g",
                     "pos": "Pos",
                     "team": "Tm",
-                    "age": "Age",
                     "dynasty_rating": "OVR",
                     "trade_value": "TV",
                     "porp": "PORP",
                 }
             )[
-                ["Flex #", "Player", "Pos", "Tm", "Flex", "OVR", "WORP", "PORP", "TV"]
+                ["Flex #", "Player", "Pos", "Tm", "HPPG", "W/g", "Flex", "OVR", "PORP", "TV"]
             ]
             st.dataframe(
                 flex_table,
@@ -1545,8 +1592,17 @@ def _render_board_tab(state: DraftState, config: dict[str, Any]) -> None:
                         help="Cross-position flex rating (RB/WR/TE pool)",
                         format="%d",
                     ),
+                    "HPPG": st.column_config.NumberColumn(
+                        "HPPG",
+                        help="Half-PPR points per game when active (≥15% snaps)",
+                        format="%.1f",
+                    ),
+                    "W/g": st.column_config.NumberColumn(
+                        "W/g",
+                        help="Per-game WORP vs replacement (snap-filtered)",
+                        format="%.3f",
+                    ),
                     "OVR": st.column_config.NumberColumn("OVR", format="%d"),
-                    "WORP": st.column_config.NumberColumn("WORP", format="%.2f"),
                     "PORP": st.column_config.NumberColumn("PORP", format="%d"),
                     "TV": st.column_config.NumberColumn("TV", format="%d"),
                 },
@@ -1574,7 +1630,7 @@ def _render_board_tab(state: DraftState, config: dict[str, Any]) -> None:
         with filter_row[2]:
             sort_by = st.selectbox(
                 "Sort by",
-                options=["Flex", "OVR", "TV", "WORP", "PORP", "ADP", "Name"],
+                options=["HPPG", "W/g", "Flex", "OVR", "TV", "WORP", "PORP", "ADP", "Name"],
                 index=0,
             )
 
@@ -1608,6 +1664,8 @@ def _render_board_tab(state: DraftState, config: dict[str, Any]) -> None:
                 "porp": "PORP",
                 "flex_rating": "Flex",
                 "flex_rank": "Flex #",
+                "healthy_ppg": "HPPG",
+                "worp_ppg": "W/g",
             }
         )
 
@@ -1632,6 +1690,8 @@ def _render_board_tab(state: DraftState, config: dict[str, Any]) -> None:
             display = display[display["dynasty_rookie"]]
 
         sort_cols = {
+            "HPPG": ("HPPG", False),
+            "W/g": ("W/g", False),
             "Flex": ("Flex", False),
             "OVR": ("OVR", False),
             "TV": ("TV", False),
@@ -1648,7 +1708,22 @@ def _render_board_tab(state: DraftState, config: dict[str, Any]) -> None:
         )
 
         table = display[
-            ["Player", "Pos", "Tm", "Age", "Flex #", "Flex", "ADP", "Δ", "OVR", "TV", "WORP", "PORP"]
+            [
+                "Player",
+                "Pos",
+                "Tm",
+                "Age",
+                "HPPG",
+                "W/g",
+                "Flex #",
+                "Flex",
+                "ADP",
+                "Δ",
+                "OVR",
+                "TV",
+                "WORP",
+                "PORP",
+            ]
         ].reset_index(drop=True)
 
         st.dataframe(
@@ -1661,6 +1736,8 @@ def _render_board_tab(state: DraftState, config: dict[str, Any]) -> None:
                 "Pos": st.column_config.TextColumn("Pos", width="small"),
                 "Tm": st.column_config.TextColumn("Tm", width="small"),
                 "Age": st.column_config.NumberColumn("Age", format="%d"),
+                "HPPG": st.column_config.NumberColumn("HPPG", format="%.1f"),
+                "W/g": st.column_config.NumberColumn("W/g", format="%.3f"),
                 "Flex #": st.column_config.NumberColumn("Flex #", format="%d"),
                 "Flex": st.column_config.NumberColumn(
                     "Flex",

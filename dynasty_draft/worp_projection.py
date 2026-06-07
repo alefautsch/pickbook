@@ -7,6 +7,7 @@ from dynasty_draft.war_data import PlayerValue, WarData
 from dynasty_draft.worp_blend import WorpBlend
 
 if TYPE_CHECKING:
+    from dynasty_draft.healthy_ppg import HealthyPpgStore
     from dynasty_draft.projections import SleeperProjectionStore
 
 # Calibrated from dynasty-daddy export: WORP per trade-value point for established producers.
@@ -80,10 +81,12 @@ class WorpProjector:
         war: WarData,
         projections: SleeperProjectionStore | None = None,
         worp_blend: WorpBlend | None = None,
+        healthy_ppg_store: HealthyPpgStore | None = None,
     ) -> None:
         self._slopes = _tv_to_worp_slopes(war)
         self._projections = projections
         self._blend = worp_blend or WorpBlend()
+        self._healthy_ppg = healthy_ppg_store
 
     def _projected_worp(
         self,
@@ -92,6 +95,10 @@ class WorpProjector:
         years_exp: int,
         player_id: str | None,
     ) -> float | None:
+        if self._healthy_ppg is not None:
+            healthy = self._healthy_ppg.lookup(player_id, name=player.name)
+            if healthy is not None and healthy.worp_ppg > 0:
+                return healthy.worp_ppg * 17.0
         if self._projections is not None and player_id:
             sleeper_worp = self._projections.projected_worp(player_id, player.pos)
             if sleeper_worp is not None:

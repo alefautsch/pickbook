@@ -57,6 +57,7 @@ class DraftState:
     dynasty_weights: DynastyWeights | None = None
     dynasty_rating_curve: DynastyRatingCurve | None = None
     projection_store: SleeperProjectionStore | None = None
+    healthy_ppg_store: Any | None = None
     ktc: KtcStore | None = None
     adp_store: AdpStore | None = None
     trade_blend: TradeValueBlend = field(default_factory=TradeValueBlend)
@@ -307,7 +308,12 @@ class DraftState:
     def _worp_projector(self) -> WorpProjector:
         cached = getattr(self, "_cached_worp_projector", None)
         if cached is None:
-            cached = WorpProjector(self.war, self.projection_store, self.worp_blend)
+            cached = WorpProjector(
+                self.war,
+                self.projection_store,
+                self.worp_blend,
+                getattr(self, "healthy_ppg_store", None),
+            )
             self._cached_worp_projector = cached
         return cached
 
@@ -422,6 +428,13 @@ class DraftState:
             return
         if player.get("porp") is None and war_player.porp is not None:
             player["porp"] = war_player.porp
+        healthy = self._healthy_ppg_metrics(
+            str(player_id) if player_id else None,
+            war_player,
+            name=player.get("name"),
+        )
+        if healthy:
+            player.update(healthy)
         blended = self.with_blended_tv(war_player)
         eff, uses_projection = self._effective_worp(
             str(player_id) if player_id else None,
@@ -586,6 +599,7 @@ class DraftState:
                 }
             )
         self.attach_flex_ratings(recommendations, self._available_flex_by_id())
+        self.attach_healthy_metrics(recommendations)
         recommendations.sort(key=lambda row: row["score"], reverse=True)
         return recommendations
 
@@ -650,6 +664,7 @@ class DraftState:
                 }
             )
         self.attach_flex_ratings(rows, self._available_flex_by_id())
+        self.attach_healthy_metrics(rows)
         rows.sort(key=lambda row: row["bpa_score"], reverse=True)
         return rows[:limit]
 
@@ -797,14 +812,39 @@ class DraftState:
             by_pos[row["pos"]].append(row)
         return {pos: rows[:per_pos] for pos, rows in by_pos.items()}
 
+    def _healthy_ppg_metrics(
+        self,
+        player_id: str | None,
+        player: PlayerValue | None = None,
+        *,
+        name: str | None = None,
+    ) -> dict[str, float | int] | None:
+        store = getattr(self, "healthy_ppg_store", None)
+        if store is None:
+            return None
+        lookup_name = name or (player.name if player else None)
+        row = store.lookup(str(player_id) if player_id else None, name=lookup_name)
+        if row is None:
+            return None
+        return {
+            "healthy_ppg": row.healthy_ppg,
+            "worp_ppg": row.worp_ppg,
+            "availability": row.availability,
+            "healthy_games": row.healthy_games,
+            "total_games": row.total_games,
+        }
+
     def _flex_raw_score(self, player_id: str, player: PlayerValue) -> float:
-        """Cross-position flex comparability: blended WORP + PORP bump."""
+        """Cross-position flex comparability: per-game WORP when available."""
+        healthy = self._healthy_ppg_metrics(player_id, player)
+        porp_bump = (player.porp or 0.0) / 250.0 / 17.0
+        if healthy and healthy.get("worp_ppg"):
+            return float(healthy["worp_ppg"]) + porp_bump
         blended = self.with_blended_tv(player)
         eff, _ = self._effective_worp(player_id, blended)
-        porp_bump = (player.porp or 0.0) / 250.0
         if eff is not None:
-            return eff + porp_bump
-        return self.blended_trade_value(player) * 0.00005 + porp_bump
+            return eff / 17.0 + porp_bump
+        return self.blended_trade_value(player) * 0.00005 / 17.0 + porp_bump
 
     def drafted_skill_pool(self) -> list[tuple[str, PlayerValue]]:
         pool: list[tuple[str, PlayerValue]] = []
@@ -841,6 +881,15 @@ class DraftState:
             flex = flex_by_id.get(str(player_id)) or {}
             row["flex_rating"] = flex.get("flex_rating")
             row["flex_rank"] = flex.get("flex_rank")
+
+    def attach_healthy_metrics(self, rows: list[dict[str, Any]]) -> None:
+        for row in rows:
+            healthy = self._healthy_ppg_metrics(
+                str(row["player_id"]) if row.get("player_id") else None,
+                name=row.get("name"),
+            )
+            if healthy:
+                row.update(healthy)
 
     def flex_relative_ratings(
         self,
@@ -906,26 +955,28 @@ class DraftState:
             eff_worp, worp_projected = self._effective_worp(player_id, blended_player)
             adp_pick = adp.pick_no(player.name)
             adp_delta = adp.delta(player.name, ref_pick) if ref_pick and adp_pick else None
-            rows.append(
-                {
-                    "player_id": player_id,
-                    "name": player.name,
-                    "pos": player.pos,
-                    "team": player.team,
-                    "age": dynasty.get("age") or self._player_age(player_id),
-                    "trade_value": round(self.blended_trade_value(player)),
-                    "worp": player.worp,
-                    "effective_worp": eff_worp,
-                    "worp_projected": worp_projected,
-                    "porp": player.porp,
-                    "dynasty_rating": dynasty.get("dynasty_rating"),
-                    "dynasty_rookie": bool(dynasty.get("dynasty_rookie")),
-                    "flex_rating": flex.get("flex_rating"),
-                    "flex_rank": flex.get("flex_rank"),
-                    "adp_pick": adp_pick,
-                    "adp_delta": adp_delta,
-                }
-            )
+            healthy = self._healthy_ppg_metrics(player_id, player)
+            row_data: dict[str, Any] = {
+                "player_id": player_id,
+                "name": player.name,
+                "pos": player.pos,
+                "team": player.team,
+                "age": dynasty.get("age") or self._player_age(player_id),
+                "trade_value": round(self.blended_trade_value(player)),
+                "worp": player.worp,
+                "effective_worp": eff_worp,
+                "worp_projected": worp_projected,
+                "porp": player.porp,
+                "dynasty_rating": dynasty.get("dynasty_rating"),
+                "dynasty_rookie": bool(dynasty.get("dynasty_rookie")),
+                "flex_rating": flex.get("flex_rating"),
+                "flex_rank": flex.get("flex_rank"),
+                "adp_pick": adp_pick,
+                "adp_delta": adp_delta,
+            }
+            if healthy:
+                row_data.update(healthy)
+            rows.append(row_data)
         return rows
 
     def roster_summary(self) -> list[dict[str, Any]]:

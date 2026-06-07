@@ -10,6 +10,7 @@ from dynasty_draft.dynasty_score import DynastyRatingCurve, DynastyWeights
 from dynasty_draft.ktc_values import KtcStore
 from dynasty_draft.trade_value_blend import TradeValueBlend
 from dynasty_draft.worp_blend import WorpBlend
+from dynasty_draft.healthy_ppg import HealthyPpgStore
 from dynasty_draft.projections import SleeperProjectionStore
 from dynasty_draft.recommender import DraftState
 from dynasty_draft.sleeper_client import SleeperClient
@@ -125,5 +126,18 @@ def build_state(config: dict[str, Any], *, exit_on_error: bool = True) -> DraftS
         )
     except Exception:
         state.projection_store = None
+
+    try:
+        scoring = build_scoring_context(state)
+        state.healthy_ppg_store = HealthyPpgStore.load(
+            sleeper_players=players,
+            war=war,
+            teams=state._teams(),
+            roster_positions=state.roster_positions,
+            superflex=state.is_superflex(),
+            ppr=float(scoring.get("ppr", 0.5)),
+        )
+    except Exception:
+        state.healthy_ppg_store = None
 
     return state
