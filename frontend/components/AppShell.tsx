@@ -3,6 +3,7 @@ import type { LeagueTile as LeagueTileData } from "@/lib/api";
 import { LeagueSwitcher } from "./LeagueSwitcher";
 import { PlayerSearch } from "./PlayerSearch";
 import { SidebarNav } from "./SidebarNav";
+import { AdvisorLauncher } from "./AdvisorLauncher";
 import { SyncButton } from "./SyncButton";
 import { SyncStatusBar } from "./SyncStatusBar";
 
@@ -26,6 +27,7 @@ export function AppShell({ leagues, activeLeagueId, children }: AppShellProps) {
             <LeagueSwitcher leagues={leagues} activeLeagueId={resolvedLeagueId} />
             <div className="flex flex-wrap items-center gap-3 lg:justify-end">
               <PlayerSearch />
+              <AdvisorLauncher leagueId={resolvedLeagueId} />
               <div className="flex items-center gap-2 rounded-lg border border-bb-border/50 bg-black/20 px-3 py-1.5">
                 <SyncStatusBar />
                 <SyncButton />

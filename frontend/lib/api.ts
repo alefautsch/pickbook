@@ -650,3 +650,93 @@ export function getRookieDraft(
     `/leagues/${leagueId}/rookie-draft${qs ? `?${qs}` : ""}`,
   );
 }
+
+export type AdvisorModel = {
+  id: string;
+  label: string;
+  provider: string;
+};
+
+export type AdvisorPrompt = {
+  id: string;
+  label: string;
+  question: string;
+};
+
+export type AdvisorStatus = {
+  configured: boolean;
+  default_model: string;
+  models: AdvisorModel[];
+  prompts: AdvisorPrompt[];
+};
+
+export type AdvisorMessage = {
+  role: string;
+  content: string;
+};
+
+export type AdvisorChatRequest = {
+  league_id: string;
+  question?: string;
+  prompt_id?: string | null;
+  model_id?: string;
+  messages?: AdvisorMessage[];
+};
+
+export function getAdvisorStatus(): Promise<AdvisorStatus> {
+  return apiFetch<AdvisorStatus>("/advisor/status");
+}
+
+export async function streamAdvisorChat(
+  body: AdvisorChatRequest,
+  onChunk: (text: string) => void,
+): Promise<void> {
+  const response = await fetch(`${API_URL}/advisor/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      league_id: body.league_id,
+      question: body.question ?? "",
+      prompt_id: body.prompt_id ?? null,
+      model_id: body.model_id ?? "claude-sonnet-4-6",
+      messages: body.messages ?? [],
+    }),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Advisor chat failed: ${response.status} ${text}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error("Advisor chat failed: no response body");
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const data = line.slice(6).trim();
+      if (data === "[DONE]") return;
+      try {
+        const parsed = JSON.parse(data) as { text?: string; error?: string };
+        if (parsed.error) throw new Error(parsed.error);
+        if (parsed.text) onChunk(parsed.text);
+      } catch (err) {
+        if (err instanceof SyntaxError) continue;
+        throw err;
+      }
+    }
+  }
+}

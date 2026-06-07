@@ -446,12 +446,13 @@ def _stream_anthropic(
     model: str,
     messages: list[dict[str, str]],
     max_tokens: int = 2500,
+    system: str | None = None,
 ) -> Iterator[str]:
     client = anthropic.Anthropic(api_key=api_key.strip())
     with client.messages.stream(
         model=model,
         max_tokens=max_tokens,
-        system=_system_prompt(),
+        system=system or _system_prompt(),
         messages=messages,
     ) as stream:
         yield from stream.text_stream
@@ -463,10 +464,11 @@ def _stream_moonshot(
     model: str,
     messages: list[dict[str, str]],
     max_tokens: int = 2500,
+    system: str | None = None,
 ) -> Iterator[str]:
     payload = {
         "model": model,
-        "messages": [{"role": "system", "content": _system_prompt()}, *messages],
+        "messages": [{"role": "system", "content": system or _system_prompt()}, *messages],
         "max_tokens": max_tokens,
         "stream": True,
         "temperature": 0.6,
@@ -508,6 +510,7 @@ def stream_advisor_reply(
     provider: Provider,
     model: str,
     messages: list[dict[str, str]],
+    system: str | None = None,
 ) -> Iterator[str]:
     if not api_key.strip():
         raise ValueError("API key is required for the selected advisor.")
@@ -516,12 +519,163 @@ def stream_advisor_reply(
         raise ValueError("Last message must be from the user.")
 
     if provider == "anthropic":
-        yield from _stream_anthropic(api_key=api_key, model=model, messages=messages)
+        yield from _stream_anthropic(
+            api_key=api_key, model=model, messages=messages, system=system
+        )
         return
     if provider == "moonshot":
-        yield from _stream_moonshot(api_key=api_key, model=model, messages=messages)
+        yield from _stream_moonshot(
+            api_key=api_key, model=model, messages=messages, system=system
+        )
         return
     raise ValueError(f"Unsupported provider: {provider}")
+
+
+INSEASON_ADVISOR_PROMPTS: list[dict[str, str]] = [
+    {
+        "id": "trade_targets",
+        "label": "Trade Targets",
+        "question": (
+            "Who should I target in trades this week? Use trade_surplus, league_rankings, "
+            "and league_team_rosters to find realistic buy-low and sell-high paths. "
+            "Name specific managers and players with OVR context. Flag portfolio overlap risks."
+        ),
+    },
+    {
+        "id": "drop_candidates",
+        "label": "Drop Candidates",
+        "question": (
+            "Which players on my bench are the best drop candidates right now? "
+            "Compare my roster depth vs league needs, injuries, and top free_agents. "
+            "Prioritize dynasty OVR and roster construction — not just this week's points."
+        ),
+    },
+    {
+        "id": "rookie_pick_prep",
+        "label": "Rookie Pick Prep",
+        "question": (
+            "Help me prep for the upcoming rookie draft in this league. "
+            "Use my starter_needs, positional depth, league competitive window, and "
+            "rookie_draft board (if present). Recommend positional priorities and "
+            "archetypes to target with my picks."
+        ),
+    },
+]
+
+
+def inseason_prompt_by_id(prompt_id: str) -> dict[str, str] | None:
+    for row in INSEASON_ADVISOR_PROMPTS:
+        if row["id"] == prompt_id:
+            return row
+    return None
+
+
+def _inseason_metric_definitions() -> dict[str, str]:
+    return {
+        "dynasty_rating": "50–99 OVR — league-relative dynasty value headline grade.",
+        "dynasty_score": "Raw 0–1 composite before the display curve.",
+        "trade_value": "Blended dynasty market capital (dynasty-daddy + KTC).",
+        "hppg": "Healthy points per game (snap-filtered).",
+        "worp_ppg": "WORP per game — weekly production over replacement.",
+        "avg_dynasty_rating": "Team roster average OVR.",
+        "starter_total_ppg": "Sum of optimal-starter HPPG/expected PPG.",
+        "contender_tier": "elite / contender / fringe / rebuild from contender_index.",
+        "trade_surplus": "Positions where my depth ranks top/bottom of league — trade leverage.",
+        "exposure_flag": "Portfolio tag: conviction, concentrated, risk across my leagues.",
+        "hppg_expected": "True when HPPG is projected (rookie/no nflverse) — shown as e in UI.",
+    }
+
+
+def _inseason_system_prompt() -> str:
+    return """You are an expert dynasty fantasy football in-season advisor for Dynasty Blackbook.
+
+Read `metric_definitions` in the context JSON. Grades are **league-relative** OVR snapshots — same player can grade differently across leagues.
+
+IN-SEASON PRIORITY (follow this order):
+1. **`dynasty_rating` (OVR 50–99)** — primary lens for roster value and trade fairness.
+2. **`trade_surplus` + `league_rankings`** — where I have depth to sell vs holes to fill; name counterparties.
+3. **`my_roster` + `starter_needs`** — optimal lineup gaps and bench clutter.
+4. **`portfolio`** — cross-league exposure; avoid over-concentration unless conviction is intentional.
+5. **`free_agents`** — waiver adds that move dynasty needle, not just streamer points.
+6. **`rookie_draft`** (when present) — upcoming rookie draft prep with positional priorities.
+
+Use the full league context:
+- `league_rankings`: by_dynasty, by_starter_ppg, by_trade_value, by_win_now
+- `league_team_rosters`: every manager's top players — infer rebuild vs contend
+- `trade_surplus.surplus` / `.needs` / `.counterparties`: trade partner map
+- `age_profile`: my competitive window vs league average
+- `contender_index`: where I sit in the title race
+
+Account for:
+- Superflex / TE premium scoring in `scoring`
+- Injuries on my roster
+- Win-now vs rebuild stance (contender_tier + age window)
+- Portfolio overlap when recommending adds/trades
+
+Required sections (adapt to the question):
+- **Bottom line** — 2–3 sentence verdict
+- **Top moves** — ranked actionable recommendations
+- **Trade paths** — specific managers/players when relevant
+- **Risks / watch-outs** — exposure, injury, aging cliffs
+
+On follow-ups, stay concise and reference prior advice. Format with clear headings. Keep under 700 words unless the decision is complex."""
+
+
+def build_inseason_advisor_context(raw: dict[str, Any]) -> dict[str, Any]:
+    """Wrap backend-assembled snapshot data with advisor metadata."""
+    return {
+        **raw,
+        "mode": "in_season",
+        "metric_definitions": _inseason_metric_definitions(),
+        "prompt_templates": INSEASON_ADVISOR_PROMPTS,
+    }
+
+
+def build_inseason_user_message(context: dict[str, Any], user_question: str) -> str:
+    payload = json.dumps(context, indent=2, default=str)
+    question = user_question.strip() or INSEASON_ADVISOR_PROMPTS[0]["question"]
+    return f"""League context (JSON):
+{payload}
+
+Question:
+{question}"""
+
+
+def stream_inseason_advisor(
+    context: dict[str, Any],
+    api_key: str,
+    *,
+    user_question: str = "",
+    model: str = DEFAULT_MODEL,
+    messages: list[dict[str, str]] | None = None,
+) -> Iterator[str]:
+    """Stream in-season advisor reply — first turn embeds full context JSON."""
+    row = advisor_model_by_id(model)
+    advisor_context = build_inseason_advisor_context(context)
+    system = _inseason_system_prompt()
+
+    if messages:
+        yield from stream_advisor_reply(
+            api_key,
+            provider=row["provider"],  # type: ignore[arg-type]
+            model=row["model"],
+            messages=messages,
+            system=system,
+        )
+        return
+
+    yield from stream_advisor_reply(
+        api_key,
+        provider=row["provider"],  # type: ignore[arg-type]
+        model=row["model"],
+        messages=[
+            {
+                "role": "user",
+                "content": build_inseason_user_message(advisor_context, user_question),
+            }
+        ],
+        system=system,
+    )
 
 
 def stream_evaluate_picks(

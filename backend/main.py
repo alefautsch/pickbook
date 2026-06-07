@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.api.advisor import router as advisor_router
 from backend.api.admin import router as admin_router
 from backend.api.leagues import router as leagues_router
 from backend.api.rookie_draft import router as rookie_draft_router
@@ -26,6 +27,7 @@ app.add_middleware(
 )
 
 app.include_router(settings_router)
+app.include_router(advisor_router)
 app.include_router(sync_router)
 app.include_router(admin_router)
 app.include_router(leagues_router)
