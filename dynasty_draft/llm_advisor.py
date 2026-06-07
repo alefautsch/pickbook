@@ -189,7 +189,7 @@ def _metric_definitions() -> dict[str, str]:
         "dynasty_rating": "50–99 display rating from dynasty_score (raw 0–1 composite) via a fixed-board curve — elites land mid/high 90s. Raw formula: 45% TV + 25% proj WORP + 15% ceiling + 10% age + 5% trajectory.",
         "dynasty_score": "Raw 0–1 dynasty composite before the display curve; use for precise comparisons.",
         "dynasty_rookie": "True when rating is a rookie projection (no historical WORP in war.csv). Shown as N* in UI.",
-        "dynasty_components": "Normalized 0–1 breakdown: tv, worp, upside, age, trajectory for each player.",
+        "dynasty_components": "Normalized 0–1 breakdown: tv, worp (blended with per-game W/g+HPPG when available), upside, age, trajectory.",
         "avg_dynasty_rating": "Team roster average dynasty_rating (50–99). Primary sort for league_rankings.by_dynasty.",
         "starter_avg_dynasty_rating": "Average dynasty_rating of optimal starters only.",
         "score": "UI need-adjusted pick-fit rank (TV + WORP + roster needs). Use bpa_recommendations for true BPA/VBD.",

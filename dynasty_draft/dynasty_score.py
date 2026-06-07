@@ -23,12 +23,17 @@ class DynastyRatingCurve:
     """Stretch raw composite scores so elites land in the mid/high 90s."""
 
     exponent: float = 0.54
+    # Share of the WORP component replaced by snap-filtered per-game production (W/g + HPPG).
+    per_game_tilt: float = 0.65
 
     @classmethod
     def from_config(cls, raw: dict[str, float] | None) -> DynastyRatingCurve:
         if not raw:
             return cls()
-        return cls(exponent=float(raw.get("exponent", 0.54)))
+        return cls(
+            exponent=float(raw.get("exponent", 0.54)),
+            per_game_tilt=float(raw.get("per_game_tilt", 0.65)),
+        )
 
 
 def curved_composite_to_rating(
@@ -123,6 +128,50 @@ def compute_reference_anchors(
     )
 
 
+def _per_game_production_norm(
+    metrics: dict[str, float],
+    *,
+    max_worp_ppg: float,
+    max_hppg: float,
+) -> float:
+    """0–1: healthy-week W/g + HPPG vs pool, lightly discounted for low availability."""
+    worp_ppg = metrics.get("worp_ppg")
+    hppg = metrics.get("healthy_ppg")
+    if not worp_ppg and not hppg:
+        return 0.0
+    w_norm = (float(worp_ppg) / max_worp_ppg) if worp_ppg and max_worp_ppg > 0 else 0.0
+    h_norm = (float(hppg) / max_hppg) if hppg and max_hppg > 0 else 0.0
+    if worp_ppg and hppg:
+        raw = 0.55 * w_norm + 0.45 * h_norm
+    elif worp_ppg:
+        raw = w_norm
+    else:
+        raw = h_norm
+    avail = float(metrics.get("availability", 1.0))
+    durability = 0.82 + 0.18 * max(0.0, min(1.0, avail))
+    return min(1.0, raw * durability)
+
+
+def _pool_per_game_norms(
+    per_game_by_id: dict[str, dict[str, float]],
+) -> dict[str, float]:
+    max_worp_ppg = 0.0
+    max_hppg = 0.0
+    for metrics in per_game_by_id.values():
+        if metrics.get("worp_ppg"):
+            max_worp_ppg = max(max_worp_ppg, float(metrics["worp_ppg"]))
+        if metrics.get("healthy_ppg"):
+            max_hppg = max(max_hppg, float(metrics["healthy_ppg"]))
+    return {
+        player_id: _per_game_production_norm(
+            metrics,
+            max_worp_ppg=max_worp_ppg or 1.0,
+            max_hppg=max_hppg or 1.0,
+        )
+        for player_id, metrics in per_game_by_id.items()
+    }
+
+
 def _trajectory_signal(tv_norm: float, worp_norm: float, years_exp: int | None) -> float:
     """
     Market (TV) ahead of production (WORP) on young players — development bet.
@@ -152,6 +201,7 @@ class DynastyScorer:
         effective_worp: Callable[[str, PlayerValue], tuple[float | None, bool]],
         reference: DynastyReferenceAnchors | None = None,
         rating_bounds: tuple[float, float] | None = None,
+        per_game_by_id: dict[str, dict[str, float]] | None = None,
     ) -> dict[str, dict[str, Any]]:
         if not players:
             return {}
@@ -175,6 +225,10 @@ class DynastyScorer:
             if eff is not None:
                 effective[player_id] = max(eff, 0.0)
 
+        per_game_norms = (
+            _pool_per_game_norms(per_game_by_id) if per_game_by_id else {}
+        )
+        tilt = max(0.0, min(1.0, self.rating_curve.per_game_tilt))
         w = self.weights
         results: dict[str, dict[str, Any]] = {}
         for player_id, player in players:
@@ -184,6 +238,9 @@ class DynastyScorer:
                 worp_norm = eff / max_worp
             else:
                 worp_norm = tv_norm * 0.85
+            pg_norm = per_game_norms.get(player_id)
+            if pg_norm is not None and pg_norm > 0:
+                worp_norm = (1.0 - tilt) * worp_norm + tilt * pg_norm
             upside_norm = min(player.upside, 1.0)
             age = age_by_id.get(player_id)
             years_exp = years_exp_by_id.get(player_id)
@@ -214,6 +271,7 @@ class DynastyScorer:
                 "dynasty_components": {
                     "tv": round(tv_norm, 3),
                     "worp": round(worp_norm, 3),
+                    "per_game": round(pg_norm, 3) if pg_norm is not None else None,
                     "upside": round(upside_norm, 3),
                     "age": round(age_norm, 3),
                     "trajectory": round(traj_norm, 3),

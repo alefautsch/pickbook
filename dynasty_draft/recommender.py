@@ -258,6 +258,7 @@ class DraftState:
             effective_worp=self._effective_worp,
             reference=anchors,
             rating_bounds=None,
+            per_game_by_id=self._per_game_by_id_for_pool(ref_pool),
         )
         composites = [row["dynasty_score"] for row in raw_scores.values()]
         bounds = (min(composites), max(composites)) if composites else (0.0, 1.0)
@@ -456,6 +457,19 @@ class DraftState:
             self._cached_dynasty_scorer = cached
         return cached
 
+    def _per_game_by_id_for_pool(
+        self,
+        pool: list[tuple[str, PlayerValue]],
+    ) -> dict[str, dict[str, float]] | None:
+        if getattr(self, "healthy_ppg_store", None) is None:
+            return None
+        result: dict[str, dict[str, float]] = {}
+        for player_id, player in pool:
+            metrics = self._healthy_ppg_metrics(player_id, player)
+            if metrics:
+                result[player_id] = metrics
+        return result or None
+
     def dynasty_scores(
         self, players: list[tuple[str, PlayerValue]] | None = None
     ) -> dict[str, dict[str, Any]]:
@@ -469,6 +483,7 @@ class DraftState:
             effective_worp=self._effective_worp,
             reference=anchors,
             rating_bounds=bounds,
+            per_game_by_id=self._per_game_by_id_for_pool(score_pool),
         )
 
     def _normalize_scores(self, available: list[tuple[str, PlayerValue]]) -> dict[str, float]:

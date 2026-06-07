@@ -24,6 +24,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "dynasty_rating_curve": {
         "exponent": 0.54,
+        "per_game_tilt": 0.65,
     },
     "adp": {
         "source": "auto",

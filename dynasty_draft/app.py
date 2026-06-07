@@ -1002,6 +1002,8 @@ def _fmt_dynasty_rating(
         f"upside {comp.get('upside', '—')} · age {comp.get('age', '—')} · "
         f"trajectory {comp.get('trajectory', '—')}"
     )
+    if comp.get("per_game") is not None:
+        title += f" · per-game {comp.get('per_game')}"
     if raw_score is not None:
         title += f" · raw {raw_score:.2f}"
     if age is not None:
@@ -1908,6 +1910,14 @@ def _render_settings_tab(config: dict[str, Any]) -> None:
         float(rating_curve.get("exponent", 0.54)),
         0.02,
         help="Lower compresses the top end (fewer 90s); higher spreads elites upward.",
+    )
+    rating_curve["per_game_tilt"] = st.slider(
+        "OVR per-game tilt",
+        0.0,
+        1.0,
+        float(rating_curve.get("per_game_tilt", 0.65)),
+        0.05,
+        help="How much healthy W/g + HPPG replace season WORP in dynasty OVR (0 = season only).",
     )
     adp_cfg = config.setdefault("adp", {})
     adp_options = {
