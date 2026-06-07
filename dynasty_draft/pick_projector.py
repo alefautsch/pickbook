@@ -103,22 +103,6 @@ def _pick_for_team(
     return best
 
 
-def _rank_pool_candidates(
-    pool: list[tuple[str, PlayerValue]],
-    roster_counts: Counter[str],
-    targets: dict[str, int],
-    round_no: int,
-    max_tv: float,
-) -> list[tuple[float, str, PlayerValue]]:
-    ranked: list[tuple[float, str, PlayerValue]] = []
-    for player_id, player in pool:
-        adp_norm = player.trade_value / max_tv if max_tv else 0.0
-        need = _need_boost(player.pos, roster_counts, targets, round_no)
-        ranked.append((_ADP_WEIGHT * adp_norm + _NEED_WEIGHT * need, player_id, player))
-    ranked.sort(key=lambda row: row[0], reverse=True)
-    return ranked
-
-
 def _simulate_pick(
     state: DraftState,
     pick_no: int,
@@ -168,49 +152,74 @@ def _plan_user_bookend_picks(
         return [], pool
 
     planned: list[dict[str, Any]] = []
-    recs = state.recommend(limit=15) if prefer_recommendations else []
     used_positions: set[str] = set()
     my_counts = roster_counts[state.my_roster_id]
+    dynasty_by_id = state.dynasty_scores(pool)
 
     for pick_no in pick_numbers:
-        round_no = (pick_no - 1) // state._teams() + 1
-        chosen: tuple[str, PlayerValue] | None = None
+        recs = (
+            state.dynasty_recommendations(pool, pick_no=pick_no, limit=20)
+            if prefer_recommendations
+            else []
+        )
+        chosen: tuple[str, PlayerValue, dict[str, Any]] | None = None
 
-        if prefer_recommendations:
+        for candidate in recs:
+            match = next((p for p in pool if p[0] == candidate["player_id"]), None)
+            if not match:
+                continue
+            if len(pick_numbers) > 1 and candidate["pos"] in used_positions:
+                continue
+            chosen = (match[0], match[1], candidate)
+            used_positions.add(candidate["pos"])
+            break
+        if chosen is None and len(pick_numbers) > 1 and used_positions:
             for candidate in recs:
                 match = next((p for p in pool if p[0] == candidate["player_id"]), None)
-                if not match:
-                    continue
-                if len(pick_numbers) > 1 and candidate["pos"] in used_positions:
-                    continue
-                chosen = match
-                used_positions.add(candidate["pos"])
-                break
-            if chosen is None and len(pick_numbers) > 1 and used_positions:
-                for candidate in recs:
-                    match = next((p for p in pool if p[0] == candidate["player_id"]), None)
-                    if match:
-                        chosen = match
-                        break
+                if match:
+                    chosen = (match[0], match[1], candidate)
+                    break
 
         if chosen is None:
-            ranked = _rank_pool_candidates(pool, my_counts, targets, round_no, max_tv)
-            for _, player_id, player in ranked:
+            ranked = sorted(
+                pool,
+                key=lambda row: (dynasty_by_id.get(row[0]) or {}).get("dynasty_rating") or 0,
+                reverse=True,
+            )
+            for player_id, player in ranked:
                 if len(pick_numbers) > 1 and player.pos in used_positions:
                     continue
-                chosen = (player_id, player)
+                dynasty = dynasty_by_id.get(player_id) or {}
+                chosen = (
+                    player_id,
+                    player,
+                    {
+                        "dynasty_rating": dynasty.get("dynasty_rating"),
+                        "adp_pick": state._adp_index().pick_no(player.name),
+                    },
+                )
                 used_positions.add(player.pos)
                 break
             if chosen is None and ranked:
-                chosen = (ranked[0][1], ranked[0][2])
-                used_positions.add(chosen[1].pos)
+                player_id, player = ranked[0]
+                dynasty = dynasty_by_id.get(player_id) or {}
+                chosen = (
+                    player_id,
+                    player,
+                    {
+                        "dynasty_rating": dynasty.get("dynasty_rating"),
+                        "adp_pick": state._adp_index().pick_no(player.name),
+                    },
+                )
+                used_positions.add(player.pos)
 
         if chosen is None:
             break
 
-        player_id, player = chosen
+        player_id, player, meta = chosen
         pool = [p for p in pool if p[0] != player_id]
         my_counts[player.pos] += 1
+        dynasty = dynasty_by_id.get(player_id) or {}
         planned.append(
             {
                 "pick_no": pick_no,
@@ -219,7 +228,9 @@ def _plan_user_bookend_picks(
                 "pos": player.pos,
                 "age": state._player_age(player_id),
                 "trade_value": player.trade_value,
-                "source": "projected_you",
+                "dynasty_rating": meta.get("dynasty_rating") or dynasty.get("dynasty_rating"),
+                "adp_pick": meta.get("adp_pick") or state._adp_index().pick_no(player.name),
+                "source": "projected_you_dynasty",
             }
         )
 
@@ -230,11 +241,32 @@ def _bookend_from(state: DraftState, from_pick: int) -> list[int]:
     return state.consecutive_pick_numbers(from_pick=from_pick)
 
 
-def _targets_snapshot(pool: list[tuple[str, PlayerValue]], limit: int = 12) -> list[dict[str, Any]]:
-    return [
-        {"name": player.name, "pos": player.pos, "trade_value": player.trade_value}
-        for _, player in pool[:limit]
-    ]
+def _targets_snapshot(
+    state: DraftState,
+    pool: list[tuple[str, PlayerValue]],
+    limit: int = 12,
+) -> list[dict[str, Any]]:
+    dynasty_by_id = state.dynasty_scores(pool)
+    ranked = sorted(
+        pool,
+        key=lambda row: (dynasty_by_id.get(row[0]) or {}).get("dynasty_rating") or 0,
+        reverse=True,
+    )
+    adp = state._adp_index()
+    rows: list[dict[str, Any]] = []
+    for player_id, player in ranked[:limit]:
+        dynasty = dynasty_by_id.get(player_id) or {}
+        rows.append(
+            {
+                "name": player.name,
+                "pos": player.pos,
+                "age": state._player_age(player_id),
+                "trade_value": player.trade_value,
+                "dynasty_rating": dynasty.get("dynasty_rating"),
+                "adp_pick": adp.pick_no(player.name),
+            }
+        )
+    return rows
 
 
 def project_next_picks(
@@ -332,10 +364,10 @@ def project_next_picks(
         {"name": row["name"], "pos": row["pos"], "trade_value": row["trade_value"]}
         for row in between_projected
     ]
-    targets_next = _targets_snapshot(pool, limit=15)
+    targets_next = _targets_snapshot(state, pool, limit=15)
 
     return {
-        "method": "bookend_pairs_trade_value_adp_plus_team_needs",
+        "method": "bookend_pairs_league_tv_sim_user_dynasty_planned",
         "adp_weight": _ADP_WEIGHT,
         "need_weight": _NEED_WEIGHT,
         "current_bookend": {
@@ -367,5 +399,5 @@ def project_next_picks(
         "your_next_pick_after_window": next_bookend[0] if next_bookend else None,
         "projected_picks": between_projected,
         "projected_off_board": gone_between,
-        "still_available_top_after_window": _targets_snapshot(pool, limit=25),
+        "still_available_top_after_window": _targets_snapshot(state, pool, limit=25),
     }

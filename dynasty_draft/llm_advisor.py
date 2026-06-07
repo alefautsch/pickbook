@@ -14,7 +14,7 @@ from dynasty_draft.draft_context import (
 )
 from dynasty_draft.fall_analysis import build_fall_analysis
 from dynasty_draft.pick_projector import project_next_picks
-from dynasty_draft.pick_values import build_pick_trade_context
+from dynasty_draft.pick_values import _simulate_through, build_pick_trade_context
 from dynasty_draft.recommender import DraftState
 
 Provider = Literal["anthropic", "moonshot"]
@@ -74,46 +74,55 @@ def _recent_picks(state: DraftState, limit: int = RECENT_PICKS_LIMIT) -> list[di
 
 
 def _bookend_dynasty_targets(state: DraftState, *, per_pos: int = 6) -> dict[str, Any]:
-    """Best available by dynasty OVR — primary lens for startup bookend advice."""
+    """Best projected-at-bookend options by dynasty OVR."""
     info = state.next_pick_info()
     bookend = info.get("consecutive_picks") or []
-    pool = state.available_players()
+    target_pick = bookend[0] if bookend else info.get("pick_no")
+    pool = _simulate_through(state, int(target_pick)) if target_pick else state.available_players()
+    current_pool = state.available_players()
     if not pool:
         return {"pick_numbers": bookend, "top_by_dynasty_rating": [], "by_position": {}}
 
     dynasty = state.dynasty_scores(pool)
-    rows: list[dict[str, Any]] = []
-    for player_id, player in pool:
-        scored = dynasty.get(player_id) or {}
-        blended = state.with_blended_tv(player)
-        eff_worp, worp_proj = state._effective_worp(player_id, blended)
-        rows.append(
-            {
-                "name": player.name,
-                "pos": player.pos,
-                "age": scored.get("age"),
-                "dynasty_rating": scored.get("dynasty_rating"),
-                "dynasty_score": scored.get("dynasty_score"),
-                "dynasty_components": scored.get("dynasty_components"),
-                "trade_value": state.blended_trade_value(player),
-                "effective_worp": eff_worp,
-                "worp_uses_projection": worp_proj,
-                "adp_pick": state._adp_index().pick_no(player.name),
-            }
-        )
+    current_dynasty = state.dynasty_scores(current_pool)
 
-    by_dynasty = sorted(rows, key=lambda row: row.get("dynasty_rating") or 0, reverse=True)
+    def _rows(source_pool: list[tuple[str, Any]], scores: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for player_id, player in source_pool:
+            scored = scores.get(player_id) or {}
+            blended = state.with_blended_tv(player)
+            eff_worp, worp_proj = state._effective_worp(player_id, blended)
+            rows.append(
+                {
+                    "name": player.name,
+                    "pos": player.pos,
+                    "age": scored.get("age"),
+                    "dynasty_rating": scored.get("dynasty_rating"),
+                    "dynasty_score": scored.get("dynasty_score"),
+                    "dynasty_components": scored.get("dynasty_components"),
+                    "trade_value": state.blended_trade_value(player),
+                    "effective_worp": eff_worp,
+                    "worp_uses_projection": worp_proj,
+                    "adp_pick": state._adp_index().pick_no(player.name),
+                }
+            )
+        return sorted(rows, key=lambda row: row.get("dynasty_rating") or 0, reverse=True)
+
+    by_dynasty = _rows(pool, dynasty)
+    current_by_dynasty = _rows(current_pool, current_dynasty)
     by_pos: dict[str, list[dict[str, Any]]] = {}
     for pos in ("QB", "RB", "WR", "TE"):
         by_pos[pos] = [row for row in by_dynasty if row["pos"] == pos][:per_pos]
 
     return {
         "pick_numbers": bookend,
+        "projected_at_pick": target_pick,
         "top_by_dynasty_rating": by_dynasty[:18],
         "by_position": by_pos,
+        "if_they_fall_from_current_board": current_by_dynasty[:12],
         "note": (
-            "Primary startup bookend targets. Prefer high dynasty_rating + youth at QB in superflex. "
-            "Override pick_projection / falls_to_you sim when they disagree."
+            "Primary startup bookend targets are projected at the first bookend pick. "
+            "Use if_they_fall_from_current_board only as live-board contingency if the sim was too aggressive."
         ),
     }
 
@@ -176,8 +185,8 @@ def _metric_definitions() -> dict[str, str]:
         "adp_pick": "Consensus draft slot from trade-value rank. Lower = goes earlier (ADP 12 ≈ pick 12).",
         "adp_delta": "your_pick - adp_pick. Positive = value (player fell to you). Negative = reach (you draft them early).",
         "falls_to_you": "TV-heavy sim of who might be on the board at each bookend pick. Use top_by_dynasty_rating inside it for WHO TO DRAFT — not top_available_sim.",
-        "bookend_dynasty_targets": "Best available ranked by dynasty_rating (age + proj WORP + TV + ceiling). Primary bookend pick list.",
-        "pick_projection": "Bookend-centric draft sim: picks_before on current_bookend (now→your bookend), your planned pair, between bookends, next bookend.",
+        "bookend_dynasty_targets": "Best projected-at-bookend players ranked by dynasty_rating (age + proj WORP + TV + ceiling). Primary bookend pick list; if_they_fall_from_current_board is contingency only.",
+        "pick_projection": "Bookend-centric draft sim: league picks are TV/needs-based; your planned pairs and next-bookend targets are dynasty_rating-first.",
     }
 
 
@@ -262,7 +271,7 @@ def _system_prompt() -> str:
 Read `metric_definitions` and `decision_framework` in the context JSON.
 
 STARTUP DYNASTY PRIORITY (follow this order):
-1. **`bookend_dynasty_targets`** + **`dynasty_rating` (50–99)** — PRIMARY. Includes age, blended WORP, TV, ceiling, trajectory.
+1. **`bookend_dynasty_targets.top_by_dynasty_rating`** + **`dynasty_rating` (50–99)** — PRIMARY. This is projected at their actual bookend, not merely the current board.
 2. **`top_recommendations`** / **`available_by_position`** — curated lists with dynasty_rating, WORP*, TV, ADP.
 3. **`starter_needs`** + **`effective_worp`** — roster holes and projection-aware production.
 4. **`adp_delta`** — reach vs value (your_pick - adp; positive = fell to you, negative = reach).
@@ -287,16 +296,17 @@ Required sections in every answer:
 
 Use `bookend_dynasty_targets` first, then `pick_projection` / `bookend_plan` / `falls_to_you`:
 - `bookend_dynasty_targets.by_position` — who you should actually consider at this bookend (dynasty-ranked)
+- `bookend_dynasty_targets.if_they_fall_from_current_board` — conditional only; mention elite fall-throughs, but do not lead with them as the base plan if projected gone before their pick
 - `falls_to_you.at_each_pick.top_by_dynasty_rating` — dynasty-ranked board at each pick (prefer over `top_available_sim`)
 - `falls_to_you.at_each_pick.top_available_sim` — who the TV sim thinks is left (informational only)
 - `falls_to_you.next_bookend` — same split for your NEXT bookend turn
 - Reject sim-default pairs like Dak + Loveland when dynasty targets favor younger QBs or better long-term pairings
 - `effective_worp` / WORP* blends historical + Sleeper projection — key dynasty_rating input
 - `bookend_plan.picks_before_current_bookend` — sim of every pick BEFORE their current bookend (the gap while they wait)
-- `current_bookend.planned_picks` — projection assumes they take this pair NOW (align with or refine this)
+- `current_bookend.planned_picks` — dynasty-first pair projection for their picks NOW (align with or refine this)
 - `bookend_plan.between_bookends` — simulated league picks after current bookend until next bookend
-- `next_bookend.planned_picks` — projected pair at the following bookend
-- `next_bookend.targets_at_bookend` — best available if plans change
+- `next_bookend.planned_picks` — dynasty-first projected pair at the following bookend
+- `next_bookend.targets_at_bookend` — dynasty-ranked best available if plans change
 - `bookend_plan.likely_gone_before_next_bookend` — do NOT tell them to wait on these
 
 ADP (lower pick # = goes earlier):
@@ -365,7 +375,8 @@ def build_followup_context_snippet(state: DraftState) -> str:
     if next_blocks:
         nb = next_blocks[0]
         top = ", ".join(
-            f"{row['name']}" for row in (nb.get("top_available_sim") or [])[:4]
+            f"{row['name']} (Dyn {row.get('dynasty_rating', '?')})"
+            for row in (nb.get("top_by_dynasty_rating") or [])[:4]
         )
         lines.append(f"Next bookend #{nb.get('pick_no')}: {top or '—'}")
     return "\n".join(lines)

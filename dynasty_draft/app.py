@@ -792,7 +792,7 @@ def _render_projection_preview(state: DraftState) -> None:
 
 def _llm_thread_key(state: DraftState) -> str:
     info = state.next_pick_info()
-    return f"{len(state.picks)}_{info.get('pick_no')}"
+    return f"advisor_v2_{len(state.picks)}_{info.get('pick_no')}"
 
 
 def _sync_llm_thread(state: DraftState) -> None:
@@ -1039,6 +1039,8 @@ def _fmt_player_brief(row: dict[str, Any]) -> str:
     bits = [row.get("pos") or ""]
     if row.get("age") is not None:
         bits.append(str(row["age"]))
+    if row.get("dynasty_rating") is not None:
+        bits.append(f"Dyn {row['dynasty_rating']}")
     return f"{row['name']} ({', '.join(bits)})"
 
 

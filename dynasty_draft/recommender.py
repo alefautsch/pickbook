@@ -525,6 +525,65 @@ class DraftState:
     def recommend(self, limit: int = 15) -> list[dict[str, Any]]:
         return self._scored_recommendations()[:limit]
 
+    def dynasty_recommendations(
+        self,
+        pool: list[tuple[str, PlayerValue]] | None = None,
+        *,
+        pick_no: int | None = None,
+        limit: int = 15,
+    ) -> list[dict[str, Any]]:
+        """Rank a pool by dynasty_rating with starter-need nudges."""
+        available = pool if pool is not None else self.available_players()
+        if not available:
+            return []
+
+        blended = self.blend_pool(available)
+        ref_pick = pick_no or self.next_pick_info().get("pick_no") or 1
+        round_no = (int(ref_pick) - 1) // self._teams() + 1
+        needs = self.starter_needs()
+        adjustments = self._position_adjustments(round_no)
+        need_weights: dict[str, float] = adjustments["need_weights"]
+        penalties: dict[str, float] = adjustments["penalties"]
+        adp = self._adp_index()
+        dynasty_by_id = self.dynasty_scores(blended)
+
+        rows: list[dict[str, Any]] = []
+        for player_id, player in blended:
+            dynasty = dynasty_by_id.get(player_id) or {}
+            rating = dynasty.get("dynasty_rating") or 0
+            dynasty_norm = (rating - 50) / 49.0 if rating else 0.0
+            pos = player.pos
+            need_boost = needs.get(pos, 0) * need_weights.get(pos, 0.05)
+            if pos in ("RB", "WR", "TE") and needs.get("FLEX", 0) > 0:
+                need_boost += 0.03
+            penalty = penalties.get(pos, 0.0)
+            final = dynasty_norm + need_boost - penalty
+            blended_tv = self.blended_trade_value(player)
+            eff_worp, worp_projected = self._effective_worp(player_id, self.with_blended_tv(player))
+            adp_pick = adp.pick_no(player.name)
+            adp_delta = adp.delta(player.name, int(ref_pick)) if adp_pick else None
+            rows.append(
+                {
+                    "player_id": player_id,
+                    "name": player.name,
+                    "pos": pos,
+                    "team": player.team,
+                    "age": dynasty.get("age") or self._player_age(player_id),
+                    "trade_value": blended_tv,
+                    "effective_worp": eff_worp,
+                    "worp_uses_projection": worp_projected,
+                    "dynasty_score": dynasty.get("dynasty_score"),
+                    "dynasty_rating": rating,
+                    "dynasty_rookie": dynasty.get("dynasty_rookie"),
+                    "adp_pick": adp_pick,
+                    "adp_delta": adp_delta,
+                    "adp_class": adp.adp_class(adp_delta),
+                    "dynasty_rank_score": final,
+                }
+            )
+        rows.sort(key=lambda row: row["dynasty_rank_score"], reverse=True)
+        return rows[:limit]
+
     def recommend_by_position(self, per_pos: int = 12) -> dict[str, list[dict[str, Any]]]:
         by_pos: dict[str, list[dict[str, Any]]] = {pos: [] for pos in POSITIONS}
         for row in self._scored_recommendations():

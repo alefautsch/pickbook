@@ -13,7 +13,7 @@ def _score_pool_at_pick(
     pick_no: int,
     *,
     worp_projector: WorpProjector,
-    limit: int = 20,
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """Rank simulated remaining pool the way the user would at a future pick."""
     adp = state._adp_index()
@@ -67,7 +67,7 @@ def _score_pool_at_pick(
             }
         )
     scored.sort(key=lambda row: row["score"], reverse=True)
-    return scored[:limit]
+    return scored[:limit] if limit is not None else scored
 
 
 def build_fall_analysis(state: DraftState) -> dict[str, Any]:

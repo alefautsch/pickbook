@@ -73,10 +73,19 @@ def audit_context(state: DraftState, context: dict[str, Any]) -> dict[str, Any]:
 
     targets = context.get("bookend_dynasty_targets") or {}
     dynasty_qbs = (targets.get("by_position") or {}).get("QB") or []
+    contingency_qbs = [
+        row
+        for row in (targets.get("if_they_fall_from_current_board") or [])
+        if row.get("pos") == "QB"
+    ][:6]
     top_dyn_qb = dynasty_qbs[0] if dynasty_qbs else None
 
     dak_dyn = _player_row(targets.get("top_by_dynasty_rating") or [], "Dak Prescott")
-    law_dyn = _player_row(targets.get("top_by_dynasty_rating") or [], "Trevor Lawrence")
+    law_dyn = _player_row(
+        (targets.get("top_by_dynasty_rating") or [])
+        + (targets.get("if_they_fall_from_current_board") or []),
+        "Trevor Lawrence",
+    )
 
     for pick_no in bookend:
         fall_block = next(
@@ -139,6 +148,8 @@ def audit_context(state: DraftState, context: dict[str, Any]) -> dict[str, Any]:
         "picks_until_mine": info.get("picks_until_mine"),
         "top_dynasty_qb": top_dyn_qb,
         "dynasty_qbs_top6": dynasty_qbs[:6],
+        "fall_contingency_qbs_top6": contingency_qbs,
+        "current_planned_pair": planned,
         "findings": findings,
         "warnings": warnings,
         "decision_primary_lens": framework.get("primary_lens"),
@@ -189,7 +200,8 @@ def evaluate_response(response: str, state: DraftState, context: dict[str, Any])
             issues.append(f"Mentions Dak without reach/age caveat (delta={dak_delta})")
 
     law_available = _player_row(
-        (context.get("bookend_dynasty_targets") or {}).get("top_by_dynasty_rating") or [],
+        ((context.get("bookend_dynasty_targets") or {}).get("top_by_dynasty_rating") or [])
+        + ((context.get("bookend_dynasty_targets") or {}).get("if_they_fall_from_current_board") or []),
         "Trevor Lawrence",
     )
     if law_available and "lawrence" in text:
@@ -220,10 +232,22 @@ def _print_audit(audit: dict[str, Any]) -> None:
     print(f"Primary lens: {audit.get('decision_primary_lens')}")
     tq = audit.get("top_dynasty_qb")
     if tq:
-        print(f"Top dynasty QB: {tq['name']} (Dyn {tq.get('dynasty_rating')}, age {tq.get('age')})")
+        print(f"Top projected dynasty QB: {tq['name']} (Dyn {tq.get('dynasty_rating')}, age {tq.get('age')})")
+    planned = audit.get("current_planned_pair") or []
+    if planned:
+        pair = ", ".join(
+            f"{p['name']} ({p.get('pos')}, Dyn {p.get('dynasty_rating')}, ADP {p.get('adp_pick')})"
+            for p in planned
+        )
+        print(f"Projected current pair: {pair}")
     print("\nDynasty QBs (top 6):")
     for q in audit.get("dynasty_qbs_top6") or []:
         print(f"  {q['name']:<22} Dyn={q.get('dynasty_rating')} age={q.get('age')} ADP={q.get('adp_pick')}")
+    contingency = audit.get("fall_contingency_qbs_top6") or []
+    if contingency:
+        print("\nIf current-board QBs fall:")
+        for q in contingency:
+            print(f"  {q['name']:<22} Dyn={q.get('dynasty_rating')} age={q.get('age')} ADP={q.get('adp_pick')}")
     for w in audit.get("warnings") or []:
         print(f"\n⚠ {w}")
     for f in audit.get("findings") or []:
