@@ -585,6 +585,7 @@ class DraftState:
                     "note": note,
                 }
             )
+        self.attach_flex_ratings(recommendations, self._available_flex_by_id())
         recommendations.sort(key=lambda row: row["score"], reverse=True)
         return recommendations
 
@@ -648,6 +649,7 @@ class DraftState:
                     "note": note,
                 }
             )
+        self.attach_flex_ratings(rows, self._available_flex_by_id())
         rows.sort(key=lambda row: row["bpa_score"], reverse=True)
         return rows[:limit]
 
@@ -785,6 +787,7 @@ class DraftState:
                     "dynasty_rank_score": final,
                 }
             )
+        self.attach_flex_ratings(rows, self._available_flex_by_id())
         rows.sort(key=lambda row: row["dynasty_rank_score"], reverse=True)
         return rows[:limit]
 
@@ -802,6 +805,42 @@ class DraftState:
         if eff is not None:
             return eff + porp_bump
         return self.blended_trade_value(player) * 0.00005 + porp_bump
+
+    def drafted_skill_pool(self) -> list[tuple[str, PlayerValue]]:
+        pool: list[tuple[str, PlayerValue]] = []
+        seen: set[str] = set()
+        for pick in self.picks:
+            player_id = pick.get("player_id")
+            if not player_id:
+                continue
+            key = str(player_id)
+            if key in seen:
+                continue
+            war_player = self._match_war(key)
+            if war_player and war_player.pos in FLEX_ELIGIBLE:
+                pool.append((key, war_player))
+                seen.add(key)
+        return pool
+
+    def _available_flex_by_id(self) -> dict[str, dict[str, Any]]:
+        cached = getattr(self, "_cached_available_flex_by_id", None)
+        if cached is None:
+            cached = self.flex_relative_ratings()
+            self._cached_available_flex_by_id = cached
+        return cached
+
+    @staticmethod
+    def attach_flex_ratings(
+        rows: list[dict[str, Any]],
+        flex_by_id: dict[str, dict[str, Any]],
+    ) -> None:
+        for row in rows:
+            player_id = row.get("player_id")
+            if not player_id:
+                continue
+            flex = flex_by_id.get(str(player_id)) or {}
+            row["flex_rating"] = flex.get("flex_rating")
+            row["flex_rank"] = flex.get("flex_rank")
 
     def flex_relative_ratings(
         self,

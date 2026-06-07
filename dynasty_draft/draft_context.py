@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any
 
-from dynasty_draft.recommender import DraftState
+from dynasty_draft.recommender import FLEX_ELIGIBLE, DraftState
 from dynasty_draft.war_data import PlayerValue, normalize_name
 
 
@@ -184,6 +184,16 @@ def build_draft_timeline(
         row["dynasty_score"] = dynasty.get("dynasty_score")
         row["dynasty_components"] = dynasty.get("dynasty_components")
         row["dynasty_rookie"] = dynasty.get("dynasty_rookie")
+
+    drafted_skill = state.drafted_skill_pool()
+    drafted_flex = state.flex_relative_ratings(drafted_skill) if drafted_skill else {}
+    for row in rows:
+        player_id = row.get("player_id")
+        if not player_id:
+            continue
+        flex = drafted_flex.get(str(player_id)) or {}
+        row["flex_rating"] = flex.get("flex_rating")
+        row["flex_rank"] = flex.get("flex_rank")
 
     return rows
 
@@ -489,10 +499,16 @@ def _apply_dynasty_to_lineup(state: DraftState, team: dict[str, Any]) -> dict[st
         }
 
     scores = state.dynasty_scores(pool)
+    flex_pool = [(score_id, war_player) for score_id, war_player in pool if war_player.pos in FLEX_ELIGIBLE]
+    flex_by_id = state.flex_relative_ratings(flex_pool) if flex_pool else {}
     starter_ids = {player.get("_dynasty_score_id") for player in starters}
     for player in all_players:
         state.enrich_player_row(player)
         score_id = player.get("_dynasty_score_id")
+        if score_id:
+            flex = flex_by_id.get(str(score_id)) or {}
+            player["flex_rating"] = flex.get("flex_rating")
+            player["flex_rank"] = flex.get("flex_rank")
         if not score_id or score_id not in scores:
             continue
         scored = scores[score_id]

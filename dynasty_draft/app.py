@@ -1063,6 +1063,15 @@ def _fmt_porp_cell(row: dict[str, Any]) -> str:
     return f'<span class="num">{_fmt_porp(row.get("porp"))}</span>'
 
 
+def _fmt_flex_cell(row: dict[str, Any]) -> str:
+    rating = row.get("flex_rating")
+    if rating is None:
+        return '<span class="num muted">—</span>'
+    rank = row.get("flex_rank")
+    title = f' title="Flex #{rank}"' if rank else ""
+    return f'<span class="num"{title}>{rating}</span>'
+
+
 def _html_table(
     headers: list[str],
     body_rows: list[list[str]],
@@ -1103,6 +1112,7 @@ def _recommendation_table_rows(
             _fmt_dynasty_cell(row),
             f'<span class="num">{_fmt_tv(row.get("trade_value"))}</span>',
             _fmt_worp_cell(row),
+            _fmt_flex_cell(row),
             _fmt_porp_cell(row),
             f'<span class="note">{note}</span>' if note else "",
         ]
@@ -1142,9 +1152,9 @@ def _render_bpa_comparison(state: DraftState, *, compact: bool = False) -> None:
         )
         st.info(f"Value override: {override_text}")
 
-    headers = ["Player", "Pos", "Tm", "Age", "ADP", "Dyn", "TV", "WORP", "PORP", "Note"]
+    headers = ["Player", "Pos", "Tm", "Age", "ADP", "Dyn", "TV", "WORP", "Flex", "PORP", "Note"]
     if compact:
-        headers = ["Player", "Pos", "ADP", "Dyn", "PORP", "Note"]
+        headers = ["Player", "Pos", "ADP", "Dyn", "Flex", "PORP", "Note"]
 
     def _compact_rows(rows: list[dict[str, Any]]) -> list[list[str]]:
         if not compact:
@@ -1158,6 +1168,7 @@ def _render_bpa_comparison(state: DraftState, *, compact: bool = False) -> None:
                     f'<span class="pos">{html.escape(row.get("pos") or "")}</span>',
                     _fmt_adp_cell(row),
                     _fmt_dynasty_cell(row),
+                    _fmt_flex_cell(row),
                     _fmt_porp_cell(row),
                     f'<span class="note">{note}</span>' if note else "",
                 ]
@@ -1215,7 +1226,7 @@ def _render_quick_picks(state: DraftState) -> None:
             continue
         with st.expander(f"{pos} — BPA vs need", expanded=pos in ("QB", "WR")):
             col_bpa, col_need = st.columns(2)
-            headers = ["Player", "Tm", "Age", "ADP", "Dyn", "TV", "WORP", "PORP", "Note"]
+            headers = ["Player", "Tm", "Age", "ADP", "Dyn", "TV", "WORP", "Flex", "PORP", "Note"]
             with col_bpa:
                 st.markdown("**BPA**")
                 if bpa_rows:
@@ -1263,6 +1274,7 @@ def _render_draft_timeline(state: DraftState) -> None:
             )
             ovr = _fmt_dynasty_cell(row)
             worp = _fmt_worp_cell(row)
+            flex = _fmt_flex_cell(row)
             porp = f'<span class="num">{_fmt_porp(row.get("porp"))}</span>'
             age = _fmt_age_cell(row)
             tv = f'<span class="num">{_fmt_tv(row.get("trade_value"))}</span>'
@@ -1271,6 +1283,7 @@ def _render_draft_timeline(state: DraftState) -> None:
             ovr = '<span class="num muted">—</span>'
             age = '<span class="num muted">—</span>'
             worp = '<span class="num muted">—</span>'
+            flex = '<span class="num muted">—</span>'
             porp = '<span class="num muted">—</span>'
             tv = '<span class="num muted">—</span>'
 
@@ -1283,12 +1296,13 @@ def _render_draft_timeline(state: DraftState) -> None:
                 age,
                 ovr,
                 worp,
+                flex,
                 porp,
                 tv,
             ]
         )
     st.markdown(
-        _html_table(["Pick", "Rd", "Team", "Player", "Age", "OVR", "WORP", "PORP", "TV"], body, row_classes),
+        _html_table(["Pick", "Rd", "Team", "Player", "Age", "OVR", "WORP", "Flex", "PORP", "TV"], body, row_classes),
         unsafe_allow_html=True,
     )
 
@@ -1327,6 +1341,7 @@ def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]
                 "",
                 "",
                 "",
+                "",
             ],
             "row-empty",
         )
@@ -1347,6 +1362,7 @@ def _lineup_player_cells(player: dict[str, Any] | None) -> tuple[list[str], str]
             dynasty_cell,
             f'<span class="num tv">{_fmt_tv(player.get("trade_value"))}</span>',
             _fmt_worp_cell(player),
+            _fmt_flex_cell(player),
             _fmt_porp_cell(player),
         ],
         row_class,
@@ -1391,7 +1407,7 @@ def _render_lineup_table(lineup: dict[str, Any]) -> None:
         body.append([f'<span class="slot-label">{html.escape(row["slot"])}</span>', *cells])
         row_classes.append(row_class)
 
-    body.append(['<span class="slot-label">BENCH</span>', "", "", "", "", "", "", "", ""])
+    body.append(['<span class="slot-label">BENCH</span>', "", "", "", "", "", "", "", "", ""])
     row_classes.append("lineup-divider")
 
     if lineup["bench"]:
@@ -1400,12 +1416,12 @@ def _render_lineup_table(lineup: dict[str, Any]) -> None:
             body.append(["", *cells])
             row_classes.append(row_class)
     else:
-        body.append(["", '<span class="muted">No bench players yet</span>', "", "", "", "", "", "", ""])
+        body.append(["", '<span class="muted">No bench players yet</span>', "", "", "", "", "", "", "", ""])
         row_classes.append("row-empty")
 
     st.markdown(
         _html_table(
-            ["", "Player", "Pos", "Tm", "Age", "OVR", "TV", "WORP", "PORP"],
+            ["", "Player", "Pos", "Tm", "Age", "OVR", "TV", "WORP", "Flex", "PORP"],
             body,
             row_classes,
             table_class="pick-table lineup-table",
