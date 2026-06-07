@@ -14,6 +14,24 @@ class DynastyComponents(BaseModel):
     trajectory: float | None = None
 
 
+class PeakWindow(BaseModel):
+    years_to_peak: int | None = None
+    peak_window_end: int | None = None
+
+
+class StatisticalPercentiles(BaseModel):
+    hppg_pct: float | None = None
+    worp_ppg_pct: float | None = None
+    tv_pct: float | None = None
+
+
+class PlayerOutlook(BaseModel):
+    archetype: str | None = None
+    peak_window: PeakWindow = Field(default_factory=PeakWindow)
+    opportunity_score: float | None = None
+    percentiles: StatisticalPercentiles = Field(default_factory=StatisticalPercentiles)
+
+
 class PlayerLenses(BaseModel):
     flex_rating: int | None = None
     win_now_rating: int | None = None
@@ -39,6 +57,9 @@ class PlayerCard(BaseModel):
     availability: float | None = None
     hppg_expected: bool = False
     trade_value: float | None = None
+    projected_ppg: float | None = None
+    projection_source: str | None = None
+    outlook: PlayerOutlook = Field(default_factory=PlayerOutlook)
 
     headshot_url: str
     league_id: str

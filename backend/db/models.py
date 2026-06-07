@@ -125,6 +125,10 @@ class PlayerSnapshot(Base):
     trade_value: Mapped[float | None] = mapped_column(Float)
     flex_rating: Mapped[int | None] = mapped_column(Integer)
     win_now_rating: Mapped[int | None] = mapped_column(Integer)
+    opportunity_score: Mapped[float | None] = mapped_column(Float)
+    projected_ppg: Mapped[float | None] = mapped_column(Float)
+    projection_source: Mapped[str | None] = mapped_column(String(32))
+    outlook_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
     context_hash: Mapped[str | None] = mapped_column(String(64))
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -232,6 +236,11 @@ class PlayerSnapshotHistory(Base):
     hppg_expected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     trade_value: Mapped[float | None] = mapped_column(Float)
     flex_rating: Mapped[int | None] = mapped_column(Integer)
+    win_now_rating: Mapped[int | None] = mapped_column(Integer)
+    opportunity_score: Mapped[float | None] = mapped_column(Float)
+    projected_ppg: Mapped[float | None] = mapped_column(Float)
+    projection_source: Mapped[str | None] = mapped_column(String(32))
+    outlook_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     season_worp: Mapped[float | None] = mapped_column(Float)
 
     dynasty_rating_recomputed: Mapped[int | None] = mapped_column(Integer)

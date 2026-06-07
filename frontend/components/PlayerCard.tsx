@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { PlayerCard as PlayerCardData } from "@/lib/api";
+import { projectionSourceLabel } from "@/lib/archetype";
 import { formatActv, formatDecimal, formatPpg, formatTv } from "@/lib/format";
 import { positionColor } from "@/lib/ovr";
 import { OvrBadge } from "./OvrBadge";
@@ -76,7 +77,7 @@ export function PlayerCard({
           ) : null}
 
           <dl
-            className={`mt-2 grid grid-cols-4 gap-2 text-xs ${
+            className={`mt-2 grid grid-cols-5 gap-2 text-xs ${
               isHero ? "text-sm" : ""
             }`}
           >
@@ -87,6 +88,12 @@ export function PlayerCard({
                 {player.hppg_expected ? (
                   <span className="ml-0.5 text-bb-gold">e</span>
                 ) : null}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-bb-muted">Proj</dt>
+              <dd className="font-medium text-white" title={projectionSourceLabel(player.projection_source)}>
+                {formatPpg(player.projected_ppg)}
               </dd>
             </div>
             <div>

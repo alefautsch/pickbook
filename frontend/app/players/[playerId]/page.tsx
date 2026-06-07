@@ -1,6 +1,9 @@
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
+import { AgeOutlookTimeline } from "@/components/AgeOutlookTimeline";
+import { LensPanel } from "@/components/LensPanel";
 import { PlayerCard } from "@/components/PlayerCard";
+import { StatisticalProfile } from "@/components/StatisticalProfile";
 import { OvrTrendSparkline } from "@/components/OvrTrendSparkline";
 import Link from "next/link";
 import { getLeagues, getPlayer, getPlayerHistory, getPlayerHoldings } from "@/lib/api";
@@ -62,6 +65,8 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
         <div className="grid gap-8 lg:grid-cols-[1.2fr_1fr]">
           <PlayerCard player={player} size="hero" showLeague link={false} />
 
+          <LensPanel player={player} />
+
           <section className="bb-card p-5">
             <h2 className="text-lg font-medium text-white">Component Breakdown</h2>
             <p className="mt-1 text-sm text-bb-muted">
@@ -85,29 +90,11 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
                 </li>
               ))}
             </ul>
-
-            {(player.lenses.flex_rating != null ||
-              player.lenses.win_now_rating != null) && (
-              <dl className="mt-6 grid grid-cols-2 gap-3 text-sm">
-                {player.lenses.flex_rating != null ? (
-                  <div>
-                    <dt className="text-bb-muted">Flex rating</dt>
-                    <dd className="font-medium text-white">
-                      {player.lenses.flex_rating}
-                    </dd>
-                  </div>
-                ) : null}
-                {player.lenses.win_now_rating != null ? (
-                  <div>
-                    <dt className="text-bb-muted">Win-now</dt>
-                    <dd className="font-medium text-white">
-                      {player.lenses.win_now_rating}
-                    </dd>
-                  </div>
-                ) : null}
-              </dl>
-            )}
           </section>
+
+          <AgeOutlookTimeline player={player} />
+
+          <StatisticalProfile player={player} />
 
           {holdings && holdings.leagues.length > 0 ? (
             <section className="bb-card p-5 lg:col-span-2">

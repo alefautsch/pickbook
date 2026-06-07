@@ -546,7 +546,7 @@ def compute_league_rankings(db: Session, league_id: str, *, war_csv: str = "war.
         teams_lineup[roster_id] = {
             "starters": [
                 {
-                    "slot": row.get("pos") or "BN",
+                    "slot": row.get("slot") or (row.get("player") or {}).get("pos") or "BN",
                     "player_id": (row.get("player") or {}).get("player_id"),
                 }
                 for row in team.get("starters", [])

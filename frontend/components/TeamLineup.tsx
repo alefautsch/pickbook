@@ -1,13 +1,31 @@
 import type { TeamDetail } from "@/lib/api";
 import { PlayerCard } from "./PlayerCard";
+import { RosterTable } from "./RosterTable";
 
 type TeamLineupProps = {
   team: TeamDetail;
 };
 
 export function TeamLineup({ team }: TeamLineupProps) {
+  const starterPlayers = team.starters
+    .map((slot) => slot.player)
+    .filter((p): p is NonNullable<typeof p> => p != null);
+  const slotLabels = Object.fromEntries(
+    team.starters
+      .filter((slot) => slot.player)
+      .map((slot) => [slot.player!.player_id, slot.slot])
+  );
+  const rosterPlayers = [...starterPlayers, ...team.bench];
+
   return (
     <div className="space-y-8">
+      <section>
+        <h2 className="mb-3 text-sm uppercase tracking-wider text-bb-muted">
+          Roster — projected PPG
+        </h2>
+        <RosterTable players={rosterPlayers} slotLabels={slotLabels} />
+      </section>
+
       <section>
         <h2 className="mb-3 text-sm uppercase tracking-wider text-bb-muted">
           Starters

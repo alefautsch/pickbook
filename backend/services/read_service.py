@@ -12,7 +12,14 @@ from backend.db.models import League, LeagueSnapshot, PlayerSnapshot, Roster, Sy
 from backend.services.history_service import team_ovr_delta
 from backend.schemas.analysis import LeagueAnalysis
 from backend.schemas.league import LeagueDetail, LeagueRankings, LeagueTeamSummary, LeagueTile
-from backend.schemas.player import DynastyComponents, PlayerCard, PlayerLenses
+from backend.schemas.player import (
+    DynastyComponents,
+    PeakWindow,
+    PlayerCard,
+    PlayerLenses,
+    PlayerOutlook,
+    StatisticalPercentiles,
+)
 from backend.schemas.team import LineupSlot, TeamDetail
 
 SLEEPER_HEADSHOT = "https://sleepercdn.com/content/nfl/players/thumb/{player_id}.jpg"
@@ -54,6 +61,25 @@ def _latest_league_snapshot(db: Session, league_id: str) -> LeagueSnapshot | Non
     )
 
 
+def _outlook_from_snapshot(snapshot: PlayerSnapshot) -> PlayerOutlook:
+    raw = snapshot.outlook_json or {}
+    peak_raw = raw.get("peak_window") or {}
+    pct_raw = raw.get("percentiles") or {}
+    return PlayerOutlook(
+        archetype=raw.get("archetype"),
+        peak_window=PeakWindow(
+            years_to_peak=peak_raw.get("years_to_peak"),
+            peak_window_end=peak_raw.get("peak_window_end"),
+        ),
+        opportunity_score=raw.get("opportunity_score") or snapshot.opportunity_score,
+        percentiles=StatisticalPercentiles(
+            hppg_pct=pct_raw.get("hppg_pct"),
+            worp_ppg_pct=pct_raw.get("worp_ppg_pct"),
+            tv_pct=pct_raw.get("tv_pct"),
+        ),
+    )
+
+
 def _player_card_from_snapshot(snapshot: PlayerSnapshot, league_name: str) -> PlayerCard:
     components_raw = snapshot.components_json or {}
     return PlayerCard(
@@ -82,6 +108,9 @@ def _player_card_from_snapshot(snapshot: PlayerSnapshot, league_name: str) -> Pl
         availability=snapshot.availability,
         hppg_expected=snapshot.hppg_expected,
         trade_value=snapshot.trade_value,
+        projected_ppg=snapshot.projected_ppg,
+        projection_source=snapshot.projection_source,
+        outlook=_outlook_from_snapshot(snapshot),
         headshot_url=headshot_url(snapshot.sleeper_player_id),
         league_id=snapshot.league_id,
         league_name=league_name,

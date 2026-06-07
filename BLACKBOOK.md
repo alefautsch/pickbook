@@ -508,9 +508,9 @@ Projected PPG = `(expected volume) × (efficiency per opportunity) × (league sc
 
 | Stage | Approach | Honesty |
 |-------|----------|---------|
-| **v0 (today)** | Sleeper season projection ÷ 17; TV imputation fallback | `hppg_expected` flag |
-| **v1** | nflverse trailing volume + team pace → opportunity score; blend with Sleeper | `projected_ppg` + `projection_source` |
-| **v2** | Archetype labels + age/peak window from positional curves (reuse `_PEAK_AGE`, trajectory) | "Peak window" UI |
+| **v0** ✓ | Sleeper season projection ÷ 17; TV imputation fallback | `hppg_expected` flag |
+| **v1** ✓ | nflverse trailing volume + team pace → opportunity score; blend with Sleeper | `projected_ppg` + `projection_source` |
+| **v2** ✓ (lightweight) | Rule-based archetype + peak window from `_PEAK_AGE`; percentile profile | `outlook_json` on player DTO |
 | **v3** | Proprietary model trained on historical volume→PPG; offense scheme features | Document weights in this book |
 
 **Data appetite:** v1 needs player-weekly + team-weekly nflverse (cached). v3 needs multi-season history — start retaining sync history and optionally nflverse snapshots now so the training set grows.
@@ -520,6 +520,29 @@ Projected PPG = `(expected volume) × (efficiency per opportunity) × (league sc
 ### 16.3 Archetype (lightweight, not ML-first)
 
 Start with **rule-based archetypes** from normalized stats (high TV / low WORP = developmental; high W/g + low TV = undervalued producer; etc.). Clusters can come later. Archetype informs outlook copy and projection priors, not a second competing OVR.
+
+### 16.4 Opportunity score & projected PPG (v1, shipped 2026-06-07)
+
+**Ingest:** `backend/services/opportunity_service.py` downloads nflverse player-weekly (2024–25 REG, healthy games only) + team-weekly pace; caches at `.cache/opportunity_{seasons}.json` (7-day TTL). Maps GSIS → Sleeper via `players.csv`.
+
+**Opportunity score (0–100):** primary volume share within the player's offense — target share (WR/TE), rush share (RB), or pass-attempt share (QB). Higher = larger expected role.
+
+**nflverse projected PPG:**
+
+```
+volume_per_game = position-specific touches (targets, carries, attempts)
+efficiency      = half-PPR fantasy points / volume_per_game (healthy games)
+team_vol        = team targets/carries/attempts per game (same weeks)
+nflverse_ppg    = volume_share × team_vol × efficiency
+```
+
+**Blend (v1):** `projected_ppg = 0.5 × nflverse_ppg + 0.5 × (Sleeper season pts ÷ 17)` when both exist → `projection_source = nflverse_blend`. Sleeper-only or volume-only fallbacks set `sleeper` or `custom`. Stored on `player_snapshots` + history; UI reads, never recomputes.
+
+**Win-now lens:** `win_now_rating` (50–99) ranks `projected_ppg` within position in the league snapshot pool (same curve as flex).
+
+**Outlook JSON:** `archetype`, `peak_window` (`years_to_peak`, `peak_window_end` from `_PEAK_AGE`), `percentiles` (HPPG / W·g / TV vs position pool), `opportunity_score`.
+
+**Spot-check (GLA sync):** Rashee Rice — proj 12.7 PPG (`nflverse_blend`), opp 30, `alpha_wr`; Josh Allen — 22.3, opp 99, `elite_qb`; Justin Jefferson — 12.2, `alpha_wr`.
 
 ---
 

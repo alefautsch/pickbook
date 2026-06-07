@@ -22,6 +22,24 @@ export type PlayerLenses = {
   win_now_rating: number | null;
 };
 
+export type PeakWindow = {
+  years_to_peak: number | null;
+  peak_window_end: number | null;
+};
+
+export type StatisticalPercentiles = {
+  hppg_pct: number | null;
+  worp_ppg_pct: number | null;
+  tv_pct: number | null;
+};
+
+export type PlayerOutlook = {
+  archetype: string | null;
+  peak_window: PeakWindow;
+  opportunity_score: number | null;
+  percentiles: StatisticalPercentiles;
+};
+
 export type PlayerCard = {
   player_id: string;
   player_name: string | null;
@@ -38,6 +56,9 @@ export type PlayerCard = {
   availability: number | null;
   hppg_expected: boolean;
   trade_value: number | null;
+  projected_ppg: number | null;
+  projection_source: string | null;
+  outlook: PlayerOutlook;
   headshot_url: string;
   league_id: string;
   league_name: string;

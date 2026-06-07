@@ -13,6 +13,12 @@ from backend.config import get_settings
 from backend.db.models import League, LeagueSnapshotHistory, PlayerSnapshot, PlayerSnapshotHistory, Roster, RosterPlayer
 from backend.services.formula_version import compute_formula_version
 from backend.services.league_engine import build_league_scoring_state
+from backend.services.opportunity_service import (
+    OpportunityStore,
+    compute_projection,
+    position_percentiles,
+    win_now_relative_ratings,
+)
 from backend.services.sync_service import _resolve_my_user_id
 from dynasty_draft.sleeper_client import SleeperClient
 
@@ -88,6 +94,15 @@ def compute_player_snapshots(
     ]
     flex_by_id = state.flex_relative_ratings(roster_flex + fa_flex)
 
+    try:
+        opportunity_store = OpportunityStore.load(
+            sleeper_players=state.sleeper_players,
+            ppr=context.ppr,
+        )
+    except Exception:
+        opportunity_store = None
+
+    projections = getattr(state, "projection_store", None)
     computed_at = datetime.now(timezone.utc)
 
     league_history = LeagueSnapshotHistory(
@@ -107,6 +122,8 @@ def compute_player_snapshots(
     roster_ids_in_pool = {player_id for player_id, _ in roster_pool}
     upserted = 0
     fa_scored = 0
+
+    base_rows: list[dict[str, Any]] = []
     for player_id, war_player in pool:
         scored = dynasty_by_id.get(player_id) or {}
         flex = flex_by_id.get(player_id) or {}
@@ -115,24 +132,88 @@ def compute_player_snapshots(
         sleeper = state.sleeper_players.get(player_id) or {}
         age = state._player_age(player_id)
 
+        base_rows.append(
+            {
+                "player_id": player_id,
+                "player_name": war_player.name,
+                "position": war_player.pos,
+                "nfl_team": (war_player.team or sleeper.get("team") or "").upper() or None,
+                "age": age,
+                "dynasty_rating": scored.get("dynasty_rating"),
+                "dynasty_score": scored.get("dynasty_score"),
+                "dynasty_rookie": bool(scored.get("dynasty_rookie")),
+                "components_json": scored.get("dynasty_components") or {},
+                "hppg": healthy.get("healthy_ppg"),
+                "worp_ppg": healthy.get("worp_ppg"),
+                "availability": healthy.get("availability"),
+                "hppg_expected": bool(healthy.get("hppg_expected")),
+                "trade_value": round(blended.trade_value, 2),
+                "flex_rating": flex.get("flex_rating"),
+            }
+        )
+
+    percentile_by_id = position_percentiles(base_rows)
+
+    projection_by_id: dict[str, Any] = {}
+    for row in base_rows:
+        player_id = row["player_id"]
+        projection_by_id[player_id] = compute_projection(
+            player_id=player_id,
+            player_name=row["player_name"],
+            position=row["position"],
+            age=row["age"],
+            trade_value=row["trade_value"],
+            hppg=row["hppg"],
+            worp_ppg=row["worp_ppg"],
+            dynasty_rookie=row["dynasty_rookie"],
+            opportunity_store=opportunity_store,
+            projections=projections,
+            percentile_row=percentile_by_id.get(player_id),
+        )
+
+    win_now_pool = [
+        (
+            row["player_id"],
+            {
+                **row,
+                "projected_ppg": projection_by_id[row["player_id"]].projected_ppg,
+            },
+        )
+        for row in base_rows
+    ]
+    win_now_by_id = win_now_relative_ratings(
+        win_now_pool,
+        curve=state.dynasty_rating_curve,
+    )
+
+    war_by_id = {player_id: war_player for player_id, war_player in pool}
+
+    for row in base_rows:
+        player_id = row["player_id"]
+        proj = projection_by_id[player_id]
+
         snapshot_fields = dict(
             league_id=league_id,
             sleeper_player_id=player_id,
-            player_name=war_player.name,
-            position=war_player.pos,
-            nfl_team=(war_player.team or sleeper.get("team") or "").upper() or None,
-            age=age,
-            dynasty_rating=scored.get("dynasty_rating"),
-            dynasty_score=scored.get("dynasty_score"),
-            dynasty_rookie=bool(scored.get("dynasty_rookie")),
-            components_json=scored.get("dynasty_components") or {},
-            hppg=healthy.get("healthy_ppg"),
-            worp_ppg=healthy.get("worp_ppg"),
-            availability=healthy.get("availability"),
-            hppg_expected=bool(healthy.get("hppg_expected")),
-            trade_value=round(blended.trade_value, 2),
-            flex_rating=flex.get("flex_rating"),
-            win_now_rating=None,
+            player_name=row["player_name"],
+            position=row["position"],
+            nfl_team=row["nfl_team"],
+            age=row["age"],
+            dynasty_rating=row["dynasty_rating"],
+            dynasty_score=row["dynasty_score"],
+            dynasty_rookie=row["dynasty_rookie"],
+            components_json=row["components_json"],
+            hppg=row["hppg"],
+            worp_ppg=row["worp_ppg"],
+            availability=row["availability"],
+            hppg_expected=row["hppg_expected"],
+            trade_value=row["trade_value"],
+            flex_rating=row["flex_rating"],
+            win_now_rating=win_now_by_id.get(player_id),
+            opportunity_score=proj.opportunity_score,
+            projected_ppg=proj.projected_ppg,
+            projection_source=proj.projection_source,
+            outlook_json=proj.outlook,
             context_hash=context.context_hash,
             computed_at=computed_at,
         )
@@ -157,7 +238,12 @@ def compute_player_snapshots(
                 hppg_expected=snapshot_fields["hppg_expected"],
                 trade_value=snapshot_fields["trade_value"],
                 flex_rating=snapshot_fields["flex_rating"],
-                season_worp=war_player.worp,
+                win_now_rating=snapshot_fields["win_now_rating"],
+                opportunity_score=snapshot_fields["opportunity_score"],
+                projected_ppg=snapshot_fields["projected_ppg"],
+                projection_source=snapshot_fields["projection_source"],
+                outlook_json=snapshot_fields["outlook_json"],
+                season_worp=war_by_id[player_id].worp if player_id in war_by_id else None,
                 context_hash=snapshot_fields["context_hash"],
                 formula_version=formula_version,
                 computed_at=computed_at,

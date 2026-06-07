@@ -4,7 +4,7 @@ The executable backlog for building Blackbook. Design rationale lives in `BLACKB
 
 **Status legend:** `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
-**Current branch:** `blackbook` · **Last updated:** 2026-06-07 · **Phase 0–2, 3, 4, 4.5:** complete (local) · **Next:** Phase 5 (opportunity model) · **UI north star:** `.cache/*_mockup*.png`
+**Current branch:** `blackbook` · **Last updated:** 2026-06-07 · **Phase 0–2, 3, 4, 4.5, 5:** complete (local) · **Next:** Phase 6 (UI parity vs mockups) · **UI north star:** `.cache/*_mockup*.png`
 
 ---
 
@@ -277,7 +277,7 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 | Rank, Roster OVR, Starter Σ PPG, TV summary cards | 2 partial | Tiles have rank/OVR/PPG + contender tag; missing TV card |
 | OVR trend badge (+2) | **4.5** ✓ | `my_roster_ovr_delta` on hub tiles |
 | Power rankings (4 sorts) + contender column | 2 + **4** ✓ | Contender tags on rankings rows |
-| My optimal starters + projected PPG sidebar | **5** + 2 | Lineup read exists; projected PPG needs opportunity model |
+| My optimal starters + projected PPG sidebar | **5** ✓ + 2 | Proj PPG on roster table + player cards |
 | Portfolio (exposure, multi-league holdings) | 3 ✓ | Hub strip + `/portfolio` |
 | Position strength, age donuts, trade targets | **4** ✓ | Heatmap + age/window + trade surplus panels (donut polish → Phase 6) |
 | Contender index breakdown bars | **4** partial | Tags + traceable inputs on analysis API; bar chart polish → Phase 6 |
@@ -287,7 +287,7 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 |---------|-------|-------|
 | Card lineup (starters/bench) | 2 ✓ | |
 | Full roster **table** (OVR, HPPG, W/G, ACTV, TV, WORP, FLEX, PORP) | **6** | Table view + persist WORP/PORP on snapshot or join war.csv at read |
-| Projected PPG column | **5** | Opportunity model |
+| Projected PPG column | **5** ✓ | `RosterTable` on team page |
 | Team OVR breakdown donut | **6** | Aggregate components at sync |
 | Team traits tags (Young Core, QB Elite, …) | **4** | Heuristics from analysis |
 | Compact depth chart | **6** | |
@@ -301,12 +301,12 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 | Hero card + OVR badge | 2 ✓ | |
 | Height / weight / college / experience | **6** | Sleeper `players` payload |
 | Positional + overall rank | **6** | Compute from snapshots at sync |
-| Lens panel (win-now, flex, TV, market) | **5–6** | `win_now_rating` not persisted yet |
-| Statistical profile (percentile bars) | **5–6** | nflverse seasonal aggregates |
+| Lens panel (win-now, flex, TV, market) | **5** ✓ | `LensPanel` + persisted `win_now_rating` |
+| Statistical profile (percentile bars) | **5** ✓ | HPPG/W·g/TV percentiles vs position pool |
 | Dynasty donut (weighted components) | 2 partial | Bars today; donut is polish |
 | Bio + news feed | icebox | Sleeper news API or static |
 | Production trend (HPPG by season) | **4.5** + nflverse | Multi-season nflverse; OVR trend from history |
-| Age & outlook / peak window timeline | **5** | §16 archetype + peak ages |
+| Age & outlook / peak window timeline | **5** ✓ | `AgeOutlookTimeline` + `outlook_json` |
 | Durability gauge | **6** | Visual polish on `availability` |
 | Owned in leagues (cross-league OVRs) | 3 ✓ | `GET /players/{id}/holdings` on player page |
 
@@ -380,26 +380,30 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 
 **Goal:** custom volume/opportunity → projected PPG (§16). Bootstrap before proprietary model.
 
+**Status:** Complete locally (2026-06-07).
+
 ### Data layer
-- [ ] `backend/services/opportunity_service.py` (or under `dynasty_draft/` additive): ingest nflverse player-weekly + team pace (cache in `.cache/` or DB).
-- [ ] Per player at sync: `opportunity_score`, `projected_ppg`, `projection_source` (`sleeper` | `nflverse_blend` | `custom`).
-- [ ] Persist on `player_snapshots` (+ history in 4.5).
-- [ ] v1 formula: trailing target/carry/route share × team plays/game × efficiency → half-PPR PPG; blend 50/50 Sleeper projection until custom wins spot-checks.
+- [x] `backend/services/opportunity_service.py`: ingest nflverse player-weekly + team pace (cache `.cache/opportunity_{seasons}.json`).
+- [x] Per player at sync: `opportunity_score`, `projected_ppg`, `projection_source` (`sleeper` | `nflverse_blend` | `custom`).
+- [x] Persist on `player_snapshots` + `player_snapshot_history` (migration `b2c3d4e5f6a7`).
+- [x] v1 formula: trailing volume share × team vol/game × efficiency → half-PPR PPG; 50/50 Sleeper blend.
 
 ### Archetype & outlook (lightweight)
-- [ ] Rule-based `archetype` tag (e.g. `alpha_wr`, `slot_volume`, `committee_rb`, `developmental`) from TV/WORP/HPPG shape.
-- [ ] `years_to_peak`, `peak_window_end` from positional peak ages (engine `_PEAK_AGE`).
-- [ ] Expose on player DTO: `outlook_json` { archetype, peak_window, opportunity_score }.
+- [x] Rule-based `archetype` tag from TV/WORP/HPPG + volume shares.
+- [x] `years_to_peak`, `peak_window_end` from `_PEAK_AGE`.
+- [x] Player DTO: `outlook` { archetype, peak_window, opportunity_score, percentiles }.
 
 ### Engine / lenses
-- [ ] Persist `win_now_rating` at sync (currently null).
-- [ ] Projected PPG on team/overview starter lists (read from snapshot).
+- [x] Persist `win_now_rating` at sync (position-relative on `projected_ppg`).
+- [x] Projected PPG on team roster table + player cards.
 
 ### Frontend
-- [ ] Player page: lens panel, age/outlook timeline, statistical profile percentiles (v1: HPPG/W/g/TV vs position pool).
-- [ ] Team table: Projected PPG column.
+- [x] Player page: `LensPanel`, `AgeOutlookTimeline`, `StatisticalProfile`.
+- [x] Team page: `RosterTable` with Projected PPG column.
 
-**Exit criteria:** projected PPG visible on team roster for 3 spot-check players; opportunity score documented in `BLACKBOOK.md`; archetype + peak window on player page.
+**Exit criteria:** ✓ Rice / Allen / Jefferson spot-checks on GLA sync; §16.4 documents opportunity score; archetype + peak window on player page.
+
+**Test URLs:** `/players/10229?league_id=1314731206859853824` · team roster table on `/leagues/1314731206859853824/teams/{rosterId}`
 
 ---
 
