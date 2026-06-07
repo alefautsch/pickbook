@@ -28,6 +28,17 @@ STARTER_COUNTS: dict[str, int] = {
     "FLEX": 1,
 }
 
+# Value-based drafting: cross-position surplus + ADP fall bonus; penalize reaches.
+VALUE_OVERRIDE_ADP_DELTA = 6
+ADP_VALUE_PER_PICK = 0.012
+ADP_VALUE_CAP = 0.25
+ADP_REACH_PER_PICK = 0.015
+ADP_REACH_PENALTY_CAP = 0.35
+WAIT_FOR_UPCOMING_WINDOW = 4
+WAIT_FOR_UPCOMING_PENALTY = 0.22
+BPA_VOR_WEIGHT = 0.55
+BPA_DYNASTY_WEIGHT = 0.45
+
 
 @dataclass
 class DraftState:
@@ -315,6 +326,49 @@ class DraftState:
             return pick_no + until
         return pick_no
 
+    def _adp_bpa_adjustment(
+        self,
+        adp_pick: int | None,
+        adp_delta: int | None,
+        ref_pick: int | None,
+    ) -> tuple[float, str, bool, bool]:
+        """
+        ADP adjustment for BPA scoring.
+        Returns (adjustment, note, wait_for_later, value_override).
+        """
+        adjustment = 0.0
+        notes: list[str] = []
+        wait_for_later = False
+
+        if adp_delta is not None:
+            if adp_delta > 0:
+                adjustment += min(ADP_VALUE_CAP, adp_delta * ADP_VALUE_PER_PICK)
+                if adp_delta >= VALUE_OVERRIDE_ADP_DELTA:
+                    notes.append(f"VBD value +{adp_delta} vs ADP")
+            elif adp_delta < 0:
+                reach = abs(adp_delta)
+                adjustment -= min(ADP_REACH_PENALTY_CAP, reach * ADP_REACH_PER_PICK)
+                if reach >= 6:
+                    notes.append(f"Reach {reach} vs ADP")
+
+        if adp_pick is not None and ref_pick is not None and adp_pick > ref_pick + 2:
+            upcoming = self.next_pick_info().get("my_upcoming") or []
+            for pick in upcoming:
+                if pick <= ref_pick:
+                    continue
+                if abs(adp_pick - pick) <= WAIT_FOR_UPCOMING_WINDOW:
+                    adjustment -= WAIT_FOR_UPCOMING_PENALTY
+                    notes.append(f"ADP #{adp_pick} — wait for pick #{pick}")
+                    wait_for_later = True
+                    break
+
+        value_override = (
+            adp_delta is not None
+            and adp_delta >= VALUE_OVERRIDE_ADP_DELTA
+            and not wait_for_later
+        )
+        return adjustment, "; ".join(notes), wait_for_later, value_override
+
     def _years_exp(self, player_id: str) -> int | None:
         years_exp = self.sleeper_players.get(player_id, {}).get("years_exp")
         return int(years_exp) if years_exp is not None else None
@@ -524,6 +578,142 @@ class DraftState:
 
     def recommend(self, limit: int = 15) -> list[dict[str, Any]]:
         return self._scored_recommendations()[:limit]
+
+    def bpa_recommendations(self, limit: int = 15) -> list[dict[str, Any]]:
+        """Best player available: cross-position VOR + dynasty + ADP value; no need boost."""
+        available = self.available_players()
+        if not available:
+            return []
+
+        blended = self.blend_pool(available)
+        base_scores = self._normalize_scores(available)
+        replacement = self._replacement_levels(base_scores, available)
+        adp = self._adp_index()
+        ref_pick = self._adp_reference_pick()
+        dynasty_by_id = self.dynasty_scores(available)
+
+        rows: list[dict[str, Any]] = []
+        for player_id, player in blended:
+            pos = player.pos
+            vor = base_scores[player_id] - replacement.get(pos, 0.0)
+            dynasty = dynasty_by_id.get(player_id) or {}
+            rating = dynasty.get("dynasty_rating") or 0
+            dynasty_norm = (rating - 50) / 49.0 if rating else 0.0
+            adp_pick = adp.pick_no(player.name)
+            adp_delta = adp.delta(player.name, ref_pick) if ref_pick and adp_pick else None
+            adp_adj, note, wait_for_later, value_override = self._adp_bpa_adjustment(
+                adp_pick, adp_delta, ref_pick
+            )
+            bpa_score = BPA_VOR_WEIGHT * vor + BPA_DYNASTY_WEIGHT * dynasty_norm + adp_adj
+            blended_player = self.with_blended_tv(player)
+            eff_worp, worp_projected = self._effective_worp(player_id, blended_player)
+            rows.append(
+                {
+                    "player_id": player_id,
+                    "name": player.name,
+                    "pos": pos,
+                    "team": player.team,
+                    "age": dynasty.get("age") or self._player_age(player_id),
+                    "trade_value": self.blended_trade_value(player),
+                    "worp": player.worp,
+                    "effective_worp": eff_worp,
+                    "worp_uses_projection": worp_projected,
+                    "projected_worp": eff_worp if worp_projected else None,
+                    "worp_tier": player.worp_tier,
+                    "adp_pick": adp_pick,
+                    "adp_delta": adp_delta,
+                    "adp_class": adp.adp_class(adp_delta),
+                    "dynasty_score": dynasty.get("dynasty_score"),
+                    "dynasty_rating": rating,
+                    "dynasty_rookie": dynasty.get("dynasty_rookie"),
+                    "dynasty_components": dynasty.get("dynasty_components"),
+                    "vor": vor,
+                    "bpa_score": bpa_score,
+                    "adp_adjustment": adp_adj,
+                    "value_override": value_override,
+                    "wait_for_later": wait_for_later,
+                    "note": note,
+                }
+            )
+        rows.sort(key=lambda row: row["bpa_score"], reverse=True)
+        return rows[:limit]
+
+    def value_pivot_summary(self, limit: int = 8) -> dict[str, Any]:
+        """Where BPA disagrees with need-adjusted ranking — take value, trade surplus."""
+        scan = max(limit * 2, 16)
+        bpa = self.bpa_recommendations(limit=scan)
+        need = self.recommend(limit=scan)
+        bpa_rank = {row["name"]: index + 1 for index, row in enumerate(bpa)}
+        need_rank = {row["name"]: index + 1 for index, row in enumerate(need)}
+
+        take_bpa: list[dict[str, Any]] = []
+        wait_for_later: list[dict[str, Any]] = []
+        for row in bpa:
+            if row.get("wait_for_later"):
+                wait_for_later.append(
+                    {
+                        "name": row["name"],
+                        "pos": row["pos"],
+                        "dynasty_rating": row.get("dynasty_rating"),
+                        "adp_pick": row.get("adp_pick"),
+                        "adp_delta": row.get("adp_delta"),
+                        "reason": row.get("note"),
+                    }
+                )
+
+        for row in bpa[:limit]:
+            if row.get("wait_for_later"):
+                continue
+            adp_delta = row.get("adp_delta")
+            if adp_delta is not None and adp_delta < -5:
+                continue
+            name = row["name"]
+            bpa_pos = bpa_rank[name]
+            need_pos = need_rank.get(name, 99)
+            if row.get("value_override") or (bpa_pos <= 5 and need_pos >= 8) or (bpa_pos <= 3 and need_pos >= 6):
+                take_bpa.append(
+                    {
+                        "name": name,
+                        "pos": row["pos"],
+                        "dynasty_rating": row.get("dynasty_rating"),
+                        "trade_value": row.get("trade_value"),
+                        "adp_delta": row.get("adp_delta"),
+                        "bpa_rank": bpa_pos,
+                        "need_rank": need_pos,
+                        "reason": row.get("note") or f"BPA #{bpa_pos} vs need #{need_pos}",
+                    }
+                )
+
+        def _compact(row: dict[str, Any], rank: int) -> dict[str, Any]:
+            return {
+                "rank": rank,
+                "name": row["name"],
+                "pos": row["pos"],
+                "dynasty_rating": row.get("dynasty_rating"),
+                "trade_value": row.get("trade_value"),
+                "adp_pick": row.get("adp_pick"),
+                "adp_delta": row.get("adp_delta"),
+                "adp_class": row.get("adp_class"),
+                "wait_for_later": row.get("wait_for_later"),
+            }
+
+        return {
+            "bpa_top": [_compact(row, index + 1) for index, row in enumerate(bpa[:limit])],
+            "need_adjusted_top": [_compact(row, index + 1) for index, row in enumerate(need[:limit])],
+            "take_bpa_over_need": take_bpa[:limit],
+            "wait_for_later": wait_for_later[:limit],
+            "value_override_adp_delta": VALUE_OVERRIDE_ADP_DELTA,
+            "note": (
+                "take_bpa_over_need = clear ADP value or BPA beats need-adjusted. "
+                "wait_for_later = ADP aligns with a future pick — do not reach now."
+            ),
+        }
+
+    def bpa_by_position(self, per_pos: int = 8) -> dict[str, list[dict[str, Any]]]:
+        by_pos: dict[str, list[dict[str, Any]]] = {pos: [] for pos in POSITIONS}
+        for row in self.bpa_recommendations(limit=per_pos * len(POSITIONS)):
+            by_pos[row["pos"]].append(row)
+        return {pos: rows[:per_pos] for pos, rows in by_pos.items()}
 
     def dynasty_recommendations(
         self,

@@ -141,6 +141,12 @@ def audit_context(state: DraftState, context: dict[str, Any]) -> dict[str, Any]:
     if any("Dak" in (n or "") for n in planned_names):
         warnings.append(f"pick_projection planned pair includes Dak: {planned_names}")
 
+    pivot = context.get("value_pivot") or {}
+    overrides = pivot.get("take_bpa_over_need") or []
+    wait = pivot.get("wait_for_later") or []
+    bpa_top = pivot.get("bpa_top") or []
+    need_top = pivot.get("need_adjusted_top") or []
+
     framework = context.get("decision_framework") or {}
     return {
         "pick_no": info.get("pick_no"),
@@ -150,6 +156,10 @@ def audit_context(state: DraftState, context: dict[str, Any]) -> dict[str, Any]:
         "dynasty_qbs_top6": dynasty_qbs[:6],
         "fall_contingency_qbs_top6": contingency_qbs,
         "current_planned_pair": planned,
+        "bpa_top5": bpa_top[:5],
+        "need_top5": need_top[:5],
+        "vbd_overrides": overrides,
+        "wait_for_later": wait,
         "findings": findings,
         "warnings": warnings,
         "decision_primary_lens": framework.get("primary_lens"),
@@ -248,6 +258,23 @@ def _print_audit(audit: dict[str, Any]) -> None:
         print("\nIf current-board QBs fall:")
         for q in contingency:
             print(f"  {q['name']:<22} Dyn={q.get('dynasty_rating')} age={q.get('age')} ADP={q.get('adp_pick')}")
+    overrides = audit.get("vbd_overrides") or []
+    if overrides:
+        print("\nVBD overrides (BPA over need):")
+        for row in overrides[:5]:
+            print(
+                f"  {row['name']:<22} {row.get('pos')} BPA #{row.get('bpa_rank')} "
+                f"vs need #{row.get('need_rank')} delta={row.get('adp_delta')}"
+            )
+    wait = audit.get("wait_for_later") or []
+    if wait:
+        print("\nWait for later (do not reach now):")
+        for row in wait[:5]:
+            print(f"  {row['name']:<22} ADP #{row.get('adp_pick')} — {row.get('reason')}")
+    bpa_top = audit.get("bpa_top5") or []
+    need_top = audit.get("need_top5") or []
+    if bpa_top and need_top and bpa_top[0].get("name") != need_top[0].get("name"):
+        print(f"\nTop BPA: {bpa_top[0]['name']} vs top need-adjusted: {need_top[0]['name']}")
     for w in audit.get("warnings") or []:
         print(f"\n⚠ {w}")
     for f in audit.get("findings") or []:

@@ -69,9 +69,24 @@ def render_board(state, limit: int) -> str:
                 f"(TV gap {cliff['gap']:,.0f})"
             )
 
+    bpa = state.bpa_recommendations(limit=limit)
+    lines.append("")
+    lines.append("BPA / VBD (cross-position value + ADP adjustment):")
+    lines.append(
+        f"{'#':>2} {'Player':<26} {'Pos':<3} {'ADP':>4} {'Δ':>4} {'Dyn':>4} {'Note'}"
+    )
+    for idx, row in enumerate(bpa, start=1):
+        adp = str(row.get("adp_pick") or "-")
+        delta = str(row.get("adp_delta") if row.get("adp_delta") is not None else "-")
+        dyn = str(row.get("dynasty_rating") or "-")
+        note = row.get("note") or ""
+        lines.append(
+            f"{idx:>2} {row['name']:<26} {row['pos']:<3} {adp:>4} {delta:>4} {dyn:>4}  {note}"
+        )
+
     recs = state.recommend(limit=limit)
     lines.append("")
-    lines.append("Top recommendations (trade value + WORP + roster fit):")
+    lines.append("Need-adjusted (trade value + WORP + roster fit):")
     lines.append(
         f"{'#':>2} {'Player':<26} {'Pos':<3} {'Age':>3} {'TV':>6} {'WORP':>5} {'Tier':>4} {'Score':>6}"
     )

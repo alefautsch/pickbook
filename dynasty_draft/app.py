@@ -592,6 +592,12 @@ def _ask_suggestion_prompts(state: DraftState) -> list[tuple[str, str]]:
             "Review my_roster, starter_needs, bookend_dynasty_targets, and league_rankings. "
             "What positions and players should I prioritize at my next bookend in this superflex startup?",
         ),
+        (
+            "Value check",
+            "Compare bpa_recommendations vs need_adjusted_recommendations and value_pivot.take_bpa_over_need. "
+            "Should I take BPA when a player falls (adp_delta >= 6) even if I have roster needs elsewhere? "
+            "Include trade-market path to fill holes.",
+        ),
     ]
 
 
@@ -710,6 +716,7 @@ def _render_ask_draft_context(state: DraftState) -> None:
     with st.expander("Draft context", expanded=False):
         _render_hero(state)
         _render_stats(state)
+        _render_bpa_comparison(state, compact=True)
         _render_bookend_projection_sections(project_next_picks(state), detailed=True)
 
 
@@ -792,7 +799,7 @@ def _render_projection_preview(state: DraftState) -> None:
 
 def _llm_thread_key(state: DraftState) -> str:
     info = state.next_pick_info()
-    return f"advisor_v2_{len(state.picks)}_{info.get('pick_no')}"
+    return f"advisor_v4_{len(state.picks)}_{info.get('pick_no')}"
 
 
 def _sync_llm_thread(state: DraftState) -> None:
@@ -935,6 +942,9 @@ def _render_llm_tab(state: DraftState, config: dict[str, Any]) -> None:
     if prompt and not busy:
         if _queue_advisor_message(state, config, prompt):
             st.rerun()
+
+    if not history and not busy:
+        _render_bpa_comparison(state, compact=True)
 
     _render_ask_draft_context(state)
 
@@ -1094,25 +1104,71 @@ def _recommendation_table_rows(
     return body
 
 
-def _render_best_available(state: DraftState) -> None:
-    rows = state.recommend(limit=15)
-    if not rows:
+def _render_bpa_comparison(state: DraftState, *, compact: bool = False) -> None:
+    """Side-by-side BPA (VBD) vs need-adjusted rankings."""
+    limit = 6 if compact else 12
+    bpa = state.bpa_recommendations(limit=limit)
+    need = state.recommend(limit=limit)
+    if not bpa and not need:
         return
+
     ref = state._adp_reference_pick()
-    st.markdown('<div class="section-title">Best available</div>', unsafe_allow_html=True)
+    pivot = state.value_pivot_summary(limit=6)
+    overrides = pivot.get("take_bpa_over_need") or []
+    wait = pivot.get("wait_for_later") or []
+
+    if not compact:
+        st.markdown('<div class="section-title">Best available</div>', unsafe_allow_html=True)
     st.caption(
-        f"ADP vs pick #{ref} (green = fell past ADP; amber = reach). "
-        "TV = blended dynasty-daddy + KTC. "
-        "Dyn = 50–99 rating (TV + proj WORP + ceiling + age + trajectory). "
-        "WORP* = blended historical + Sleeper projection (more * for rookies). Sorted by pick fit, not Dyn."
+        f"Pick #{ref}. BPA = cross-position value with ADP bonus/penalty (reach = negative delta). "
+        "Need-adjusted = starter-need nudges."
     )
-    st.markdown(
-        _html_table(
-            ["Player", "Pos", "Tm", "Age", "ADP", "Dyn", "TV", "WORP", "Note"],
-            _recommendation_table_rows(rows, include_pos=True, include_adp=True),
-        ),
-        unsafe_allow_html=True,
-    )
+    if wait:
+        wait_text = ", ".join(
+            f"{row['name']} (ADP #{row.get('adp_pick')})" for row in wait[:4]
+        )
+        st.warning(f"Wait for later bookend: {wait_text}")
+    if overrides:
+        override_text = ", ".join(
+            f"{row['name']} (BPA #{row['bpa_rank']} vs need #{row['need_rank']})"
+            for row in overrides[:4]
+        )
+        st.info(f"Value override: {override_text}")
+
+    headers = ["Player", "Pos", "Tm", "Age", "ADP", "Dyn", "TV", "WORP", "Note"]
+    if compact:
+        headers = ["Player", "Pos", "ADP", "Dyn", "Note"]
+
+    def _compact_rows(rows: list[dict[str, Any]]) -> list[list[str]]:
+        if not compact:
+            return _recommendation_table_rows(rows, include_pos=True, include_adp=True)
+        body: list[list[str]] = []
+        for row in rows:
+            note = html.escape(row.get("note") or "")
+            body.append(
+                [
+                    f'<span class="player">{html.escape(row["name"])}</span>',
+                    f'<span class="pos">{html.escape(row.get("pos") or "")}</span>',
+                    _fmt_adp_cell(row),
+                    _fmt_dynasty_cell(row),
+                    f'<span class="note">{note}</span>' if note else "",
+                ]
+            )
+        return body
+
+    col_bpa, col_need = st.columns(2)
+    with col_bpa:
+        st.markdown("**BPA (VBD)**")
+        if bpa:
+            st.markdown(_html_table(headers, _compact_rows(bpa)), unsafe_allow_html=True)
+    with col_need:
+        st.markdown("**Need-adjusted**")
+        if need:
+            st.markdown(_html_table(headers, _compact_rows(need)), unsafe_allow_html=True)
+
+
+def _render_best_available(state: DraftState) -> None:
+    _render_bpa_comparison(state, compact=False)
 
 
 def _render_fall_preview(state: DraftState) -> None:
@@ -1121,34 +1177,51 @@ def _render_fall_preview(state: DraftState) -> None:
     if not blocks:
         return
     st.markdown('<div class="section-title">Who could fall to you</div>', unsafe_allow_html=True)
-    st.caption("Simulated board at each bookend pick (ADP + league needs). Not just current WORP rank.")
+    st.caption("Sim board vs dynasty-ranked targets at each bookend pick.")
     for block in blocks:
         pick_no = block.get("pick_no")
-        top = block.get("top_available_sim") or []
+        dyn_top = block.get("top_by_dynasty_rating") or []
+        values = block.get("value_vs_adp") or []
         fallers = block.get("likely_fallers") or []
-        if not top:
+        if not dyn_top:
             continue
-        names = ", ".join(_fmt_player_brief(row) for row in top[:6])
-        st.markdown(f"**Pick #{pick_no}** — sim top: {html.escape(names)}")
+        names = ", ".join(_fmt_player_brief(row) for row in dyn_top[:6])
+        st.markdown(f"**Pick #{pick_no}** — dynasty top: {html.escape(names)}")
+        if values:
+            val_names = ", ".join(
+                f"{row['name']} (+{row.get('adp_delta')} ADP)" for row in values[:4]
+            )
+            st.markdown(f'<span class="note-box">VBD value: {html.escape(val_names)}</span>', unsafe_allow_html=True)
         if fallers:
             fall_names = ", ".join(_fmt_player_brief(row) for row in fallers[:4])
             st.markdown(f'<span class="note-box">Likely fallers: {html.escape(fall_names)}</span>', unsafe_allow_html=True)
 
 
 def _render_quick_picks(state: DraftState) -> None:
-    by_pos = state.recommend_by_position(per_pos=8)
+    bpa_by_pos = state.bpa_by_position(per_pos=8)
+    need_by_pos = state.recommend_by_position(per_pos=8)
     for pos in ("QB", "RB", "WR", "TE"):
-        rows = by_pos.get(pos) or []
-        if not rows:
+        bpa_rows = bpa_by_pos.get(pos) or []
+        need_rows = need_by_pos.get(pos) or []
+        if not bpa_rows and not need_rows:
             continue
-        with st.expander(f"{pos} — top {len(rows)}", expanded=pos in ("QB", "WR")):
-            st.markdown(
-                _html_table(
-                    ["Player", "Tm", "Age", "ADP", "Dyn", "TV", "WORP", "Note"],
-                    _recommendation_table_rows(rows, include_adp=True),
-                ),
-                unsafe_allow_html=True,
-            )
+        with st.expander(f"{pos} — BPA vs need", expanded=pos in ("QB", "WR")):
+            col_bpa, col_need = st.columns(2)
+            headers = ["Player", "Tm", "Age", "ADP", "Dyn", "TV", "WORP", "Note"]
+            with col_bpa:
+                st.markdown("**BPA**")
+                if bpa_rows:
+                    st.markdown(
+                        _html_table(headers, _recommendation_table_rows(bpa_rows, include_adp=True)),
+                        unsafe_allow_html=True,
+                    )
+            with col_need:
+                st.markdown("**Need-adjusted**")
+                if need_rows:
+                    st.markdown(
+                        _html_table(headers, _recommendation_table_rows(need_rows, include_adp=True)),
+                        unsafe_allow_html=True,
+                    )
 
 
 def _render_draft_timeline(state: DraftState) -> None:
@@ -1346,6 +1419,9 @@ def _render_my_team_tab(state: DraftState) -> None:
     need_bits = [f"{pos}: {count}" for pos, count in needs.items() if count > 0]
     if need_bits:
         st.caption("Starter needs: " + ", ".join(need_bits))
+
+    st.markdown('<div class="section-title">Pick targets</div>', unsafe_allow_html=True)
+    _render_bpa_comparison(state, compact=True)
 
 
 def _team_expander_label(team: dict[str, Any]) -> str:

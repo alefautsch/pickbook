@@ -149,6 +149,18 @@ def _advisor_decision_framework(state: DraftState) -> dict[str, Any]:
             "win-now veterans with higher raw TV/historical WORP (e.g. prefer Trevor Lawrence "
             "profile over Dak Prescott profile when both are realistic targets)."
         ),
+        "value_based_drafting": {
+            "primary_ranking": "bpa_recommendations (cross-position VOR + dynasty + ADP value bonus)",
+            "need_ranking": "need_adjusted_recommendations (legacy pick-fit with starter-need nudges)",
+            "value_override_adp_delta": 6,
+            "rule": (
+                "When adp_delta >= 6 OR a player is in value_pivot.take_bpa_over_need, take BPA "
+                "and note the trade-market path to fill the roster hole later. "
+                "When value_pivot.wait_for_later is non-empty, do NOT recommend reaching — "
+                "their ADP aligns with a future bookend pick. starter_needs is a tiebreaker "
+                "when BPA and need-adjusted disagree by less than one tier (~3 dynasty points)."
+            ),
+        },
     }
 
 
@@ -180,7 +192,10 @@ def _metric_definitions() -> dict[str, str]:
         "dynasty_components": "Normalized 0–1 breakdown: tv, worp, upside, age, trajectory for each player.",
         "avg_dynasty_rating": "Team roster average dynasty_rating (50–99). Primary sort for league_rankings.by_dynasty.",
         "starter_avg_dynasty_rating": "Average dynasty_rating of optimal starters only.",
-        "score": "UI pick-fit rank (TV + WORP weights + roster needs). Secondary to dynasty_rating for startup advice.",
+        "score": "UI need-adjusted pick-fit rank (TV + WORP + roster needs). Use bpa_recommendations for true BPA/VBD.",
+        "bpa_score": "Cross-position value rank: VOR + dynasty_rating + ADP fall bonus; ignores roster holes.",
+        "value_pivot": "Players where BPA rank beats need-adjusted rank — take value, trade surplus later.",
+        "wait_for_later": "Elite players whose ADP matches a future pick — do not reach early; wait for that bookend.",
         "effective_worp": "Blended historical + Sleeper projection (WORP* in UI). Key dynasty_rating input.",
         "adp_pick": "Consensus draft slot from trade-value rank. Lower = goes earlier (ADP 12 ≈ pick 12).",
         "adp_delta": "your_pick - adp_pick. Positive = value (player fell to you). Negative = reach (you draft them early).",
@@ -233,10 +248,14 @@ def build_advisor_context(
         "league_team_rosters": build_league_team_rosters(state),
         "league_rankings": league_rankings_summary(state),
         "available_by_position": state.recommend_by_position(per_pos=per_position),
+        "bpa_by_position": state.bpa_by_position(per_pos=per_position),
         "pick_projection": project_next_picks(state),
         "bookend_plan": _bookend_plan_summary(state),
         "decision_framework": _advisor_decision_framework(state),
         "bookend_dynasty_targets": _bookend_dynasty_targets(state),
+        "bpa_recommendations": state.bpa_recommendations(limit=12),
+        "need_adjusted_recommendations": state.recommend(limit=12),
+        "value_pivot": state.value_pivot_summary(limit=8),
         "top_recommendations": state.recommend(limit=12),
         "falls_to_you": build_fall_analysis(state),
         "pick_trade_analysis": build_pick_trade_context(state),
@@ -272,15 +291,24 @@ Read `metric_definitions` and `decision_framework` in the context JSON.
 
 STARTUP DYNASTY PRIORITY (follow this order):
 1. **`bookend_dynasty_targets.top_by_dynasty_rating`** + **`dynasty_rating` (50–99)** — PRIMARY. This is projected at their actual bookend, not merely the current board.
-2. **`top_recommendations`** / **`available_by_position`** — curated lists with dynasty_rating, WORP*, TV, ADP.
-3. **`starter_needs`** + **`effective_worp`** — roster holes and projection-aware production.
-4. **`adp_delta`** — reach vs value (your_pick - adp; positive = fell to you, negative = reach).
-5. **`falls_to_you` / `pick_projection` sim boards** — ONLY who might be ON the board. TV-heavy sim over-ranks aging vets (Dak). **Never recommend someone just because they top `top_available_sim`.** Use `top_by_dynasty_rating` inside falls_to_you instead.
+2. **`bpa_recommendations`** + **`value_pivot.take_bpa_over_need`** — VALUE-BASED DRAFTING. Cross-position BPA; when ADP value is large or BPA beats need-adjusted, take the player and trade surplus later.
+3. **`need_adjusted_recommendations`** / **`available_by_position`** — need-adjusted pick-fit; tiebreaker only when value gap is small.
+4. **`starter_needs`** — roster holes; do NOT force-fill at the expense of clear BPA/ADP value (adp_delta >= 6).
+5. **`adp_delta`** — reach vs value (your_pick - adp; positive = fell to you, negative = reach).
+6. **`falls_to_you` / `pick_projection` sim boards** — ONLY who might be ON the board. TV-heavy sim over-ranks aging vets (Dak). **Never recommend someone just because they top `top_available_sim`.** Use `top_by_dynasty_rating` inside falls_to_you instead.
 
 Superflex startup QB rule: prefer younger QBs with higher dynasty_rating (e.g. Trevor Lawrence profile) over older win-now QBs (Dak) when both are realistic — unless user explicitly wants win-now.
 
-`score` in context uses `decision_framework.pick_fit_score_weights` for UI pick-fit — secondary to dynasty_rating for your advice.
+`score` in context is need-adjusted pick-fit — secondary to `bpa_recommendations` when value_pivot flags a player.
 Think in BOOKEND PAIRS — the current snake turn AND the next one.
+
+VALUE-BASED DRAFTING (dynasty trade market):
+- Compare `bpa_recommendations` vs `need_adjusted_recommendations` side by side.
+- If `value_pivot.take_bpa_over_need` is non-empty OR adp_delta >= 6: **take BPA**, explain how to fill the hole via trade or next bookend.
+- If `value_pivot.wait_for_later` is non-empty: **do NOT reach** — ADP aligns with a future pick (e.g. ADP 50 at pick 30 when pick 50 is next bookend). Wait and fill need now.
+- Negative adp_delta = reach. High dynasty_rating alone does NOT justify a reach.
+- Example: elite RB/WR falls 8+ picks (positive adp_delta) while you need QB/TE — draft the value, trade later.
+- Need-fill is a tiebreaker when BPA and need-adjusted are within ~3 dynasty_rating points, not an override.
 
 When they have back-to-back picks, always cover:
 1) Best single pick right now (pick 1 of the pair)
@@ -379,6 +407,18 @@ def build_followup_context_snippet(state: DraftState) -> str:
             for row in (nb.get("top_by_dynasty_rating") or [])[:4]
         )
         lines.append(f"Next bookend #{nb.get('pick_no')}: {top or '—'}")
+    pivot = state.value_pivot_summary(limit=4)
+    overrides = pivot.get("take_bpa_over_need") or []
+    if overrides:
+        names = ", ".join(
+            f"{row['name']} (BPA #{row['bpa_rank']} vs need #{row['need_rank']})"
+            for row in overrides[:4]
+        )
+        lines.append(f"VBD overrides: {names}")
+    wait = pivot.get("wait_for_later") or []
+    if wait:
+        names = ", ".join(f"{row['name']} ({row.get('reason') or ''})" for row in wait[:3])
+        lines.append(f"Wait for later: {names}")
     return "\n".join(lines)
 
 
