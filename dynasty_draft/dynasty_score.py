@@ -22,13 +22,13 @@ def composite_to_rating(composite: float) -> int:
 class DynastyRatingCurve:
     """Stretch raw composite scores so elites land in the mid/high 90s."""
 
-    exponent: float = 0.52
+    exponent: float = 0.54
 
     @classmethod
     def from_config(cls, raw: dict[str, float] | None) -> DynastyRatingCurve:
         if not raw:
             return cls()
-        return cls(exponent=float(raw.get("exponent", 0.52)))
+        return cls(exponent=float(raw.get("exponent", 0.54)))
 
 
 def curved_composite_to_rating(
@@ -36,7 +36,7 @@ def curved_composite_to_rating(
     *,
     raw_min: float,
     raw_max: float,
-    exponent: float = 0.52,
+    exponent: float = 0.54,
 ) -> int:
     """
     Map raw 0–1 composite to 50–99 using board min/max stretch + power curve.

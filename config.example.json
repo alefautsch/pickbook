@@ -13,7 +13,7 @@
     "trajectory": 0.05
   },
   "dynasty_rating_curve": {
-    "exponent": 0.52
+    "exponent": 0.54
   },
   "poll_seconds": 20,
   "ktc_enabled": true,
