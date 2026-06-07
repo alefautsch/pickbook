@@ -4,7 +4,7 @@ The executable backlog for building Blackbook. Design rationale lives in `BLACKB
 
 **Status legend:** `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
-**Current branch:** `blackbook` · **Last updated:** 2026-06-07 · **Phase 0–2, 3, 4, 4.5, 5:** complete (local) · **Next:** Phase 6 (UI parity vs mockups) · **UI north star:** `.cache/*_mockup*.png`
+**Current branch:** `blackbook` · **Last updated:** 2026-06-07 · **Phase 0–6:** complete (local) · **Next:** Phase 7 (Rookie draft mode) · **UI north star:** `.cache/*_mockup*.png`
 
 ---
 
@@ -266,48 +266,48 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 ### Chrome & IA
 | Mockup | Built (Phase 2) | Gap |
 |--------|-----------------|-----|
-| Left sidebar (Overview, League, My Team, Rankings, Players, Portfolio, Trade Targets, Rookie Draft, Settings) | Top league pills + hub link | Sidebar nav + active section state |
+| Left sidebar (Overview, League, My Team, Rankings, Players, Portfolio, Trade Targets, Rookie Draft, Settings) | **6** ✓ | Trade Targets / Rookie Draft → Phase 7 |
 | League tabs (GLA / Gridiron / …) | `LeagueSwitcher` pills | Tab styling + "my team" shortcut per league |
-| Sync status + Sync Now + settings | `SyncButton` + tile "synced Xm ago" | Global header bar; settings page |
-| Pickbook link | — | Footer link to Streamlit draft tool |
+| Sync status + Sync Now + settings | **6** ✓ | Global header bar + `/settings` |
+| Pickbook link | **6** ✓ | Footer link via `NEXT_PUBLIC_PICKBOOK_URL` |
 
 ### Overview / league dashboard (`overview_mockupo.png`)
 | Element | Phase | Notes |
 |---------|-------|-------|
-| Rank, Roster OVR, Starter Σ PPG, TV summary cards | 2 partial | Tiles have rank/OVR/PPG + contender tag; missing TV card |
+| Rank, Roster OVR, Starter Σ PPG, TV summary cards | **6** ✓ | `SummaryCards` + tile TV/rank fields |
 | OVR trend badge (+2) | **4.5** ✓ | `my_roster_ovr_delta` on hub tiles |
 | Power rankings (4 sorts) + contender column | 2 + **4** ✓ | Contender tags on rankings rows |
-| My optimal starters + projected PPG sidebar | **5** ✓ + 2 | Proj PPG on roster table + player cards |
-| Portfolio (exposure, multi-league holdings) | 3 ✓ | Hub strip + `/portfolio` |
-| Position strength, age donuts, trade targets | **4** ✓ | Heatmap + age/window + trade surplus panels (donut polish → Phase 6) |
-| Contender index breakdown bars | **4** partial | Tags + traceable inputs on analysis API; bar chart polish → Phase 6 |
+| My optimal starters + projected PPG sidebar | **6** ✓ | `OptimalStartersSidebar` |
+| Portfolio (exposure, multi-league holdings) | 3 + **6** ✓ | Hub strip + league dashboard strip |
+| Position strength, age donuts, trade targets | **4** ✓ | Heatmap + age/window + trade surplus panels (donut polish partial) |
+| Contender index breakdown bars | **6** ✓ | `ContenderBreakdown` sidebar |
 
 ### Team page (`team_page_mockup.png`)
 | Element | Phase | Notes |
 |---------|-------|-------|
-| Card lineup (starters/bench) | 2 ✓ | |
-| Full roster **table** (OVR, HPPG, W/G, ACTV, TV, WORP, FLEX, PORP) | **6** | Table view + persist WORP/PORP on snapshot or join war.csv at read |
-| Projected PPG column | **5** ✓ | `RosterTable` on team page |
-| Team OVR breakdown donut | **6** | Aggregate components at sync |
-| Team traits tags (Young Core, QB Elite, …) | **4** | Heuristics from analysis |
-| Compact depth chart | **6** | |
-| Injury watch | **6** | Sleeper `injury_status` at sync |
+| Card lineup (starters/bench) | 2 ✓ | Lineup tab |
+| Full roster **table** (OVR, HPPG, W/G, ACTV, TV, WORP, FLEX, PORP) | **6** ✓ | `RosterTable` full mode; WORP/PORP on snapshot |
+| Projected PPG column | **5** ✓ | `RosterTable` |
+| Team OVR breakdown donut | **6** ✓ | `component_breakdown` at sync |
+| Team traits tags (Young Core, QB Elite, …) | **6** ✓ | Heuristics in `analysis_json.teams` |
+| Compact depth chart | **6** ✓ | `DepthChartPanel` |
+| Injury watch | **6** ✓ | Sleeper `injury_status` at sync |
 | Matchup preview | icebox | Lower priority — redraft-ish |
-| Tabs (Roster / Lineup / Depth / Stats / History) | **6** | |
+| Tabs (Roster / Lineup / Depth / Stats / History) | **6** partial | History tab → Phase 4.5 sparkline on player page |
 
 ### Player page (`player_page_mockup.png`)
 | Element | Phase | Notes |
 |---------|-------|-------|
-| Hero card + OVR badge | 2 ✓ | |
-| Height / weight / college / experience | **6** | Sleeper `players` payload |
-| Positional + overall rank | **6** | Compute from snapshots at sync |
+| Hero card + OVR badge | **6** ✓ | `OvrGauge` hero + stat ribbon |
+| Height / weight / college / experience | **6** ✓ | Sleeper bio at sync |
+| Positional + overall rank | **6** ✓ | `position_rank` / `overall_rank` at sync |
 | Lens panel (win-now, flex, TV, market) | **5** ✓ | `LensPanel` + persisted `win_now_rating` |
 | Statistical profile (percentile bars) | **5** ✓ | HPPG/W·g/TV percentiles vs position pool |
-| Dynasty donut (weighted components) | 2 partial | Bars today; donut is polish |
-| Bio + news feed | icebox | Sleeper news API or static |
-| Production trend (HPPG by season) | **4.5** + nflverse | Multi-season nflverse; OVR trend from history |
+| Dynasty donut (weighted components) | **6** ✓ | `ComponentDonut` |
+| Bio + news feed | **6** partial | Bio placeholder; news → icebox |
+| Production trend (HPPG by season) | **4.5** + nflverse | OVR trend from history on player page |
 | Age & outlook / peak window timeline | **5** ✓ | `AgeOutlookTimeline` + `outlook_json` |
-| Durability gauge | **6** | Visual polish on `availability` |
+| Durability gauge | **6** ✓ | `DurabilityGauge` on availability |
 | Owned in leagues (cross-league OVRs) | 3 ✓ | `GET /players/{id}/holdings` on player page |
 
 ---
@@ -411,13 +411,22 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 
 **Goal:** close mockup gaps that are **presentation** once Phases 3–5 data exists (§12.8).
 
-- [ ] App chrome: sidebar nav, settings page, Pickbook link.
-- [ ] Overview dashboard layout (mockup grid: rankings + starters sidebar + portfolio).
-- [ ] Team page: roster table view, tabs, depth chart, team OVR donut, injury watch.
-- [ ] Player page: hero gauge, ranks, donut chart, durability gauge, bio placeholder.
-- [ ] `win_now_rating` + full lens panel wired.
+**Status:** Complete locally (2026-06-07).
 
-**Exit criteria:** side-by-side with mockups — same information architecture; charts may use placeholder data until history matures.
+- [x] App chrome: sidebar nav, settings page, Pickbook link.
+- [x] Overview dashboard layout (mockup grid: summary cards + TV, rankings + optimal-starters sidebar + portfolio strip + contender breakdown).
+- [x] Team page: full roster table (OVR, HPPG, W/G, ACTV, TV, WORP, FLEX, PORP), tabs (Roster / Lineup / Depth / Stats), team OVR donut, traits, depth chart, injury watch.
+- [x] Player page: hero OVR gauge, positional/overall rank, dynasty component donut, durability gauge, bio from Sleeper.
+- [x] Sync enrichment: `season_worp`, `porp`, `healthy_games`/`total_games`, bio, `injury_status`, `position_rank`/`overall_rank` at sync; team `traits` + `component_breakdown` in `analysis_json.teams`.
+
+**Exit criteria:** side-by-side with mockups — same information architecture; charts may use placeholder data until history matures. *(Met — sidebar IA, league dashboard grid, team tabs/table/donuts, player gauge/donut/durability/bio.)*
+
+### Phase 6 notes (for next agent)
+- **Migration:** `alembic/versions/c3d4e5f6a7b8_phase6_snapshot_enrichment.py`
+- **Re-sync required** after pull: `just bb-sync-all` (new snapshot columns + team meta in analysis_json).
+- **Frontend:** `SidebarNav`, `SummaryCards`, `OptimalStartersSidebar`, `ContenderBreakdown`, `OvrGauge`, `DonutChart`, `DurabilityGauge`, `TeamTabs`, `DepthChartPanel`, `InjuryWatchPanel`; pages `/settings`, `/players`.
+- **Pickbook link:** `NEXT_PUBLIC_PICKBOOK_URL` (default `http://localhost:8501`).
+- **Test URLs:** `/leagues/1314731206859853824`, `/leagues/1314731206859853824/teams/3`, `/players/10229?league_id=1314731206859853824`, `/settings`
 
 ---
 

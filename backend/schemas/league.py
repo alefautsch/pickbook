@@ -12,12 +12,17 @@ class LeagueTile(BaseModel):
     season: str
     total_rosters: int
     superflex: bool
+    my_roster_id: str | None = None
     my_team_name: str | None = None
     my_dynasty_rank: int | None = None
     my_roster_ovr: int | None = None
     my_starter_ppg: float | None = None
-    my_roster_ovr_delta: int | None = None
+    my_total_trade_value: float | None = None
+    my_starter_ppg_rank: int | None = None
+    my_tv_rank: int | None = None
     my_contender_tier: str | None = None
+    my_contender_score: float | None = None
+    my_roster_ovr_delta: int | None = None
     last_synced: datetime | None = None
 
 

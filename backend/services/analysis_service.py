@@ -29,8 +29,9 @@ TRADE_SURPLUS_BOTTOM_N = 3
 
 def _player_row_from_snapshot(snapshot: PlayerSnapshot, war: WarData) -> dict[str, Any]:
     war_player = war.lookup(snapshot.player_name or "")
-    worp = war_player.worp if war_player else None
-    porp = war_player.porp if war_player else None
+    worp = snapshot.season_worp if snapshot.season_worp is not None else (war_player.worp if war_player else None)
+    porp = snapshot.porp if snapshot.porp is not None else (war_player.porp if war_player else None)
+    components = snapshot.components_json or {}
     return {
         "player_id": snapshot.sleeper_player_id,
         "name": snapshot.player_name,
@@ -45,6 +46,13 @@ def _player_row_from_snapshot(snapshot: PlayerSnapshot, war: WarData) -> dict[st
         "healthy_ppg": snapshot.hppg,
         "hppg_expected": snapshot.hppg_expected,
         "flex_rating": snapshot.flex_rating,
+        "projected_ppg": snapshot.projected_ppg,
+        "availability": snapshot.availability,
+        "healthy_games": snapshot.healthy_games,
+        "total_games": snapshot.total_games,
+        "injury_status": snapshot.injury_status,
+        "injury_body_part": snapshot.injury_body_part,
+        "components": components,
     }
 
 
@@ -344,6 +352,83 @@ def _compute_age_profiles(
     return profiles
 
 
+def _strength_rank_label(rank: int, league_size: int) -> str:
+    third = max(1, league_size // 3)
+    if rank <= third:
+        return "Elite"
+    if rank <= 2 * third:
+        return "Strong"
+    if rank > league_size - third:
+        return "Weak"
+    return "Average"
+
+
+def _compute_component_breakdown(starters: list[dict[str, Any]]) -> dict[str, float | None]:
+    """Starter-weighted average normalized dynasty components for team OVR donut."""
+    keys = ("tv", "worp", "per_game", "upside", "age", "trajectory")
+    totals = {key: 0.0 for key in keys}
+    counts = {key: 0 for key in keys}
+    for row in starters:
+        player = row.get("player") or {}
+        components = player.get("components") or {}
+        for key in keys:
+            value = components.get(key)
+            if value is not None:
+                totals[key] += float(value)
+                counts[key] += 1
+    return {
+        key: round(totals[key] / counts[key], 3) if counts[key] else None for key in keys
+    }
+
+
+def _compute_team_traits(
+    *,
+    roster_id: str,
+    position_strength: dict[str, Any],
+    age_profile: dict[str, Any] | None,
+    league_size: int,
+) -> list[dict[str, str]]:
+    traits: list[dict[str, str]] = []
+    if age_profile and (age_profile.get("age_delta") or 0) <= -1.0:
+        traits.append({"label": "Young Core", "value": "Top 35%"})
+
+    positions = position_strength.get("positions") or []
+    teams = position_strength.get("teams") or []
+    pos_ranks: dict[str, int] = {}
+
+    for pos in positions:
+        ranked = sorted(
+            [
+                (str(team["roster_id"]), team["by_position"].get(pos))
+                for team in teams
+                if team["by_position"].get(pos) is not None
+            ],
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        for idx, (team_roster_id, _) in enumerate(ranked, start=1):
+            if team_roster_id == roster_id:
+                pos_ranks[pos] = idx
+                break
+
+    label_map = {
+        "QB": "QB Strength",
+        "RB": "RB Depth",
+        "WR": "WR Depth",
+        "TE": "TE Strength",
+        "FLEX": "Flex Strength",
+    }
+    for pos, label in label_map.items():
+        if pos not in positions:
+            continue
+        rank = pos_ranks.get(pos)
+        if rank is None:
+            continue
+        traits.append({"label": label, "value": _strength_rank_label(rank, league_size)})
+
+    return traits
+
+
 def _league_avg_starter_age(teams: list[dict[str, Any]]) -> float | None:
     rows: list[tuple[float | None, float | None]] = []
     for team in teams:
@@ -541,8 +626,12 @@ def compute_league_rankings(db: Session, league_id: str, *, war_csv: str = "war.
     }
 
     teams_lineup: dict[str, Any] = {}
+    age_by_roster = {str(p["roster_id"]): p for p in age_profiles}
+    league_size = len(teams)
+
     for team in teams:
         roster_id = str(team["roster_id"])
+        age_profile = age_by_roster.get(roster_id)
         teams_lineup[roster_id] = {
             "starters": [
                 {
@@ -556,6 +645,13 @@ def compute_league_rankings(db: Session, league_id: str, *, war_csv: str = "war.
                 or (row.get("player") or {}).get("player_id")
                 for row in team.get("bench", [])
             ],
+            "component_breakdown": _compute_component_breakdown(team.get("starters", [])),
+            "traits": _compute_team_traits(
+                roster_id=roster_id,
+                position_strength=position_strength,
+                age_profile=age_profile,
+                league_size=league_size,
+            ),
         }
 
     computed_at = datetime.now(timezone.utc)

@@ -27,16 +27,7 @@ export const tierLabels: Record<OvrTier, string> = {
 
 export type Position = "QB" | "RB" | "WR" | "TE" | string;
 
-export const positionColors: Record<string, string> = {
-  QB: "#d4a017",
-  RB: "#22c55e",
-  WR: "#3b82f6",
-  TE: "#f97316",
-};
-
-export function positionColor(pos: string | null | undefined): string {
-  return positionColors[pos ?? ""] ?? "#64748b";
-}
+export { positionColor, positionColors, slotColor, formatSlotLabel } from "./positions";
 
 export function sleeperHeadshot(playerId: string): string {
   return `https://sleepercdn.com/content/nfl/players/thumb/${playerId}.jpg`;

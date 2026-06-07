@@ -37,6 +37,18 @@ class PlayerLenses(BaseModel):
     win_now_rating: int | None = None
 
 
+class PlayerBio(BaseModel):
+    height: str | None = None
+    weight: str | None = None
+    college: str | None = None
+    years_exp: int | None = None
+
+
+class PlayerRanks(BaseModel):
+    position_rank: int | None = None
+    overall_rank: int | None = None
+
+
 class PlayerCard(BaseModel):
     """Pre-shaped player DTO for cards and detail views (§11)."""
 
@@ -51,12 +63,20 @@ class PlayerCard(BaseModel):
     dynasty_rookie: bool = False
     components: DynastyComponents = Field(default_factory=DynastyComponents)
     lenses: PlayerLenses = Field(default_factory=PlayerLenses)
+    bio: PlayerBio = Field(default_factory=PlayerBio)
+    ranks: PlayerRanks = Field(default_factory=PlayerRanks)
 
     hppg: float | None = None
     worp_ppg: float | None = None
     availability: float | None = None
+    healthy_games: int | None = None
+    total_games: int | None = None
     hppg_expected: bool = False
     trade_value: float | None = None
+    season_worp: float | None = None
+    porp: float | None = None
+    injury_status: str | None = None
+    injury_body_part: str | None = None
     projected_ppg: float | None = None
     projection_source: str | None = None
     outlook: PlayerOutlook = Field(default_factory=PlayerOutlook)

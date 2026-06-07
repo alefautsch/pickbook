@@ -1,132 +1,98 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
-import { AgeProfilePanel } from "@/components/AgeProfilePanel";
-import { FreeAgentBoard } from "@/components/FreeAgentBoard";
-import { PositionHeatmap } from "@/components/PositionHeatmap";
+import { AgeProfileSidebar } from "@/components/AgeProfileSidebar";
+import { ContenderBreakdown } from "@/components/ContenderBreakdown";
+import { OptimalStartersSidebar } from "@/components/OptimalStartersSidebar";
+import { HashScroll } from "@/components/HashScroll";
+import { PortfolioOverviewRow } from "@/components/PortfolioOverviewRow";
+import { PositionStrengthBars } from "@/components/PositionStrengthBars";
 import { RankingsTable } from "@/components/RankingsTable";
-import { TradeSurplusPanel } from "@/components/TradeSurplusPanel";
+import { SummaryCards } from "@/components/SummaryCards";
 import {
-  getFreeAgents,
   getLeague,
   getLeagueAnalysis,
   getLeagueRankings,
   getLeagues,
+  getPortfolio,
+  getTeam,
 } from "@/lib/api";
-import { timeAgo } from "@/lib/format";
-import { OvrBadge } from "@/components/OvrBadge";
 
 type PageProps = {
   params: Promise<{ leagueId: string }>;
 };
 
-export default async function LeaguePage({ params }: PageProps) {
+export default async function LeagueOverviewPage({ params }: PageProps) {
   const { leagueId } = await params;
 
   let leagues = [];
   let league;
   let rankings;
-  let freeAgents;
   let analysis;
+  let portfolio;
+  let myTeam = null;
 
   try {
-    [leagues, league, rankings, freeAgents, analysis] = await Promise.all([
+    [leagues, league, rankings, analysis, portfolio] = await Promise.all([
       getLeagues(),
       getLeague(leagueId),
       getLeagueRankings(leagueId),
-      getFreeAgents(leagueId),
       getLeagueAnalysis(leagueId),
+      getPortfolio(),
     ]);
+
+    const myRoster = league.teams.find((t) => t.is_me);
+    if (myRoster) {
+      myTeam = await getTeam(leagueId, myRoster.roster_id);
+    }
   } catch {
     notFound();
   }
 
+  const leagueTile = leagues.find((l) => l.league_id === leagueId);
+  const myContender =
+    analysis.contender_index?.teams.find((t) => t.is_me) ?? null;
+
   return (
     <AppShell leagues={leagues} activeLeagueId={leagueId}>
-      <div className="flex flex-1 flex-col px-6 py-10 sm:px-10">
-        <header className="mb-8">
-          <h1 className="text-3xl font-semibold text-white">{league.name}</h1>
-          <p className="mt-2 text-sm text-bb-muted">
-            {league.total_rosters} teams ·{" "}
-            {league.superflex ? "Superflex" : "1QB"} · Synced{" "}
-            {timeAgo(league.last_synced)}
-          </p>
-        </header>
+      <HashScroll />
+      <div className="flex flex-1 flex-col bg-[#0d1117]/40 px-5 py-6 sm:px-8">
+        {leagueTile ? <SummaryCards league={leagueTile} /> : null}
 
-        <section className="mb-10">
-          <h2 className="mb-4 text-lg font-medium text-white">Power Rankings</h2>
-          <RankingsTable
-            leagueId={leagueId}
-            byDynasty={rankings.by_dynasty}
-            byStarterPpg={rankings.by_starter_ppg}
-            byTv={rankings.by_tv}
-            byWinNow={rankings.by_win_now}
-          />
-        </section>
+        <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="min-w-0 space-y-6">
+            <div id="rankings" className="scroll-mt-6">
+              <RankingsTable
+                leagueId={leagueId}
+                byDynasty={rankings.by_dynasty}
+                byStarterPpg={rankings.by_starter_ppg}
+                byTv={rankings.by_tv}
+                byWinNow={rankings.by_win_now}
+              />
+            </div>
 
-        {analysis.position_strength ? (
-          <section className="bb-card mb-10 p-5">
-            <h2 className="mb-4 text-lg font-medium text-white">Position Strength</h2>
-            <p className="mb-4 text-sm text-bb-muted">
-              Average starter OVR by team and position — from optimal lineup at last sync.
-            </p>
-            <PositionHeatmap data={analysis.position_strength} leagueId={leagueId} />
-          </section>
-        ) : null}
-
-        <div className="mb-10 grid gap-6 lg:grid-cols-2">
-          <section className="bb-card p-5">
-            <h2 className="mb-4 text-lg font-medium text-white">Age & Window</h2>
-            <AgeProfilePanel profiles={analysis.age_profiles} />
-          </section>
-          <section className="bb-card p-5">
-            <h2 className="mb-4 text-lg font-medium text-white">Trade Surplus</h2>
-            <TradeSurplusPanel
-              tradeSurplus={analysis.trade_surplus}
-              leagueId={leagueId}
-            />
-          </section>
-        </div>
-
-        <section className="mb-10">
-          <FreeAgentBoard
-            leagueId={leagueId}
-            superflex={league.superflex}
-            initialBoard={freeAgents}
-          />
-        </section>
-
-        <section>
-          <h2 className="mb-4 text-lg font-medium text-white">Teams</h2>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {league.teams.map((team) => (
-              <Link
-                key={team.roster_id}
-                href={`/leagues/${leagueId}/teams/${team.roster_id}`}
-                className="block"
-              >
-                <article
-                  className={`bb-card flex items-center gap-3 p-4 transition hover:-translate-y-0.5 ${
-                    team.is_me ? "border-bb-gold/40" : ""
-                  }`}
-                >
-                  <OvrBadge ovr={team.avg_dynasty_rating} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium text-white">
-                      {team.team_name}
-                      {team.is_me ? (
-                        <span className="ml-2 text-xs text-bb-gold">(me)</span>
-                      ) : null}
-                    </p>
-                    <p className="text-xs text-bb-muted">
-                      Dynasty rank #{team.dynasty_rank ?? "—"}
-                    </p>
-                  </div>
-                </article>
-              </Link>
-            ))}
+            {portfolio ? (
+              <PortfolioOverviewRow portfolio={portfolio} leagueId={leagueId} />
+            ) : null}
           </div>
-        </section>
+
+          <aside className="space-y-4">
+            {myTeam ? (
+              <OptimalStartersSidebar
+                starters={myTeam.starters}
+                leagueId={leagueId}
+              />
+            ) : null}
+            {analysis.position_strength ? (
+              <PositionStrengthBars
+                data={analysis.position_strength}
+                myRosterId={leagueTile?.my_roster_id}
+              />
+            ) : null}
+            <AgeProfileSidebar profiles={analysis.age_profiles} />
+            <ContenderBreakdown team={myContender} />
+          </aside>
+        </div>
       </div>
     </AppShell>
   );

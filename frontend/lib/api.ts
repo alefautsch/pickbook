@@ -40,6 +40,18 @@ export type PlayerOutlook = {
   percentiles: StatisticalPercentiles;
 };
 
+export type PlayerBio = {
+  height: string | null;
+  weight: string | null;
+  college: string | null;
+  years_exp: number | null;
+};
+
+export type PlayerRanks = {
+  position_rank: number | null;
+  overall_rank: number | null;
+};
+
 export type PlayerCard = {
   player_id: string;
   player_name: string | null;
@@ -51,11 +63,19 @@ export type PlayerCard = {
   dynasty_rookie: boolean;
   components: DynastyComponents;
   lenses: PlayerLenses;
+  bio: PlayerBio;
+  ranks: PlayerRanks;
   hppg: number | null;
   worp_ppg: number | null;
   availability: number | null;
+  healthy_games: number | null;
+  total_games: number | null;
   hppg_expected: boolean;
   trade_value: number | null;
+  season_worp: number | null;
+  porp: number | null;
+  injury_status: string | null;
+  injury_body_part: string | null;
   projected_ppg: number | null;
   projection_source: string | null;
   outlook: PlayerOutlook;
@@ -71,12 +91,17 @@ export type LeagueTile = {
   season: string;
   total_rosters: number;
   superflex: boolean;
+  my_roster_id: string | null;
   my_team_name: string | null;
   my_dynasty_rank: number | null;
   my_roster_ovr: number | null;
   my_starter_ppg: number | null;
-  my_roster_ovr_delta: number | null;
+  my_total_trade_value: number | null;
+  my_starter_ppg_rank: number | null;
+  my_tv_rank: number | null;
   my_contender_tier: string | null;
+  my_contender_score: number | null;
+  my_roster_ovr_delta: number | null;
   last_synced: string | null;
 };
 
@@ -263,6 +288,31 @@ export type LineupSlot = {
   player: PlayerCard | null;
 };
 
+export type TeamTrait = {
+  label: string;
+  value: string;
+};
+
+export type DepthChartPlayer = {
+  player_id: string;
+  player_name: string | null;
+  ovr: number | null;
+  depth_rank: number;
+};
+
+export type DepthChartGroup = {
+  position: string;
+  players: DepthChartPlayer[];
+};
+
+export type InjuryWatchItem = {
+  player_id: string;
+  player_name: string | null;
+  position: string | null;
+  injury_status: string | null;
+  injury_body_part: string | null;
+};
+
 export type TeamDetail = {
   league_id: string;
   league_name: string;
@@ -275,8 +325,18 @@ export type TeamDetail = {
   starter_total_ppg: number | null;
   total_trade_value: number | null;
   dynasty_rank: number | null;
+  starter_ppg_rank: number | null;
+  tv_rank: number | null;
+  win_rank: number | null;
+  contender_tier: string | null;
+  contender_score: number | null;
+  component_breakdown: DynastyComponents;
+  traits: TeamTrait[];
   starters: LineupSlot[];
   bench: PlayerCard[];
+  roster: PlayerCard[];
+  depth_chart: DepthChartGroup[];
+  injuries: InjuryWatchItem[];
 };
 
 export type SyncLeagueResult = {
@@ -465,4 +525,28 @@ export function getFreeAgents(
 ): Promise<FreeAgentBoard> {
   const params = position ? `?position=${encodeURIComponent(position)}` : "";
   return apiFetch<FreeAgentBoard>(`/leagues/${leagueId}/free-agents${params}`);
+}
+
+export type UserSettings = {
+  sleeper_username: string;
+  dynasty_weights: Record<string, number>;
+  dynasty_rating_curve: Record<string, number>;
+  trade_value_blend: Record<string, number>;
+  worp_blend: Record<string, unknown>;
+  ktc_enabled: boolean;
+  war_csv: string;
+  trade_weight: number;
+  worp_weight: number;
+  season: string;
+};
+
+export function getSettings(): Promise<UserSettings> {
+  return apiFetch<UserSettings>("/settings");
+}
+
+export function putSettings(payload: Partial<UserSettings>): Promise<UserSettings> {
+  return apiFetch<UserSettings>("/settings", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
 }

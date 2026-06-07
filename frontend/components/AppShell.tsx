@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { LeagueTile as LeagueTileData } from "@/lib/api";
 import { LeagueSwitcher } from "./LeagueSwitcher";
 import { PlayerSearch } from "./PlayerSearch";
+import { SidebarNav } from "./SidebarNav";
 import { SyncButton } from "./SyncButton";
 import { SyncStatusBar } from "./SyncStatusBar";
 
@@ -12,38 +13,35 @@ type AppShellProps = {
 };
 
 export function AppShell({ leagues, activeLeagueId, children }: AppShellProps) {
+  const resolvedLeagueId =
+    activeLeagueId ?? leagues[0]?.league_id;
+
   return (
-    <div className="flex min-h-full flex-col">
-      <header className="border-b border-bb-border/80 bg-black/20 px-6 py-4 sm:px-10">
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="flex flex-wrap items-center gap-4">
-                <Link href="/" className="text-xs uppercase tracking-[0.2em] text-bb-gold">
-                  Dynasty Blackbook
-                </Link>
-                <nav className="flex gap-3 text-xs">
-                  <Link href="/" className="text-bb-muted hover:text-white">
-                    Hub
-                  </Link>
-                  <Link href="/portfolio" className="text-bb-muted hover:text-white">
-                    Portfolio
-                  </Link>
-                </nav>
-              </div>
-              <LeagueSwitcher leagues={leagues} activeLeagueId={activeLeagueId} />
-            </div>
-            <div className="flex flex-col items-stretch gap-2 sm:items-end">
+    <div className="flex min-h-full">
+      <SidebarNav leagues={leagues} activeLeagueId={resolvedLeagueId} />
+
+      <div className="flex min-h-full min-w-0 flex-1 flex-col">
+        <header className="border-b border-bb-border/40 bg-[#0a0e14]/80 px-5 py-2 sm:px-8">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <LeagueSwitcher leagues={leagues} activeLeagueId={resolvedLeagueId} />
+            <div className="flex flex-wrap items-center gap-3 lg:justify-end">
               <PlayerSearch />
-              <div className="flex flex-col items-start gap-2 sm:items-end">
+              <div className="flex items-center gap-2 rounded-lg border border-bb-border/50 bg-black/20 px-3 py-1.5">
                 <SyncStatusBar />
                 <SyncButton />
               </div>
+              <Link
+                href="/settings"
+                className="rounded-lg border border-bb-border/60 px-2.5 py-1.5 text-sm text-bb-muted transition hover:border-bb-gold/40 hover:text-white"
+                title="Settings"
+              >
+                ⚙
+              </Link>
             </div>
           </div>
-        </div>
-      </header>
-      <div className="flex flex-1 flex-col">{children}</div>
+        </header>
+        <main className="flex flex-1 flex-col">{children}</main>
+      </div>
     </div>
   );
 }

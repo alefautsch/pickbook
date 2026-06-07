@@ -14,9 +14,55 @@ export function formatTv(value: number | null | undefined): string {
   return String(Math.round(value));
 }
 
+export function formatWorpPpg(value: number | null | undefined): string {
+  if (value == null || value === 0) return "—";
+  return value.toFixed(3);
+}
+
 export function formatActv(value: number | null | undefined): string {
   if (value == null) return "—";
   return `${Math.round(value * 100)}%`;
+}
+
+export function formatActvGames(
+  healthyGames: number | null | undefined,
+  totalGames: number | null | undefined,
+  availability: number | null | undefined,
+): string {
+  if (healthyGames != null && totalGames != null) {
+    return `${healthyGames} / ${totalGames} games`;
+  }
+  if (availability != null) {
+    const total = 17;
+    return `${Math.round(availability * total)} / ${total} games`;
+  }
+  return "—";
+}
+
+export function formatHeight(inches: string | null | undefined): string {
+  if (!inches) return "—";
+  const n = Number(inches);
+  if (Number.isNaN(n)) return inches;
+  const feet = Math.floor(n / 12);
+  const rem = n % 12;
+  return `${feet}'${rem}"`;
+}
+
+export function formatExp(yearsExp: number | null | undefined, dynastyRookie?: boolean): string {
+  if (dynastyRookie || yearsExp === 0) return "R";
+  if (yearsExp == null) return "—";
+  return String(yearsExp);
+}
+
+export function ordinal(n: number | null | undefined): string {
+  if (n == null) return "—";
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+  const mod10 = n % 10;
+  if (mod10 === 1) return `${n}st`;
+  if (mod10 === 2) return `${n}nd`;
+  if (mod10 === 3) return `${n}rd`;
+  return `${n}th`;
 }
 
 export function timeAgo(iso: string | null | undefined): string {

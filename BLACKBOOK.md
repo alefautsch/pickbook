@@ -379,13 +379,13 @@ The feeling target: opening a **franchise-mode front office**. Dark, premium, nu
 
 High-fidelity mockups (`overview_mockupo.png`, `team_page_mockup.png`, `player_page_mockup.png`) define the **north star** beyond Phase 2. Gap summary vs current build — see `BLACKBOOK_TASKS.md` §Mockup gaps.
 
-**Shared chrome (all pages):** left sidebar nav (Overview, League, My Team, Rankings, Players, Portfolio, …), league switcher tabs, sync status + Sync Now, settings gear. Phase 2 has top pills only.
+**Shared chrome (all pages):** left sidebar nav (Overview, League, My Team, Rankings, Players, Portfolio, Settings), league switcher tabs, sync status + Sync Now + settings gear. Phase 6 adds `SidebarNav`, `/settings`, Pickbook footer link.
 
-**Overview / league dashboard:** contender index, power rankings with sort tabs, my optimal starters sidebar (with projected PPG), portfolio strip, position strength, age donuts, trade targets. Phase 2 hub is league tiles + portfolio stub.
+**Overview / league dashboard:** summary cards (rank, OVR, Σ PPG, TV, contender), power rankings, optimal-starters sidebar with projected PPG, portfolio strip, position strength / age / trade surplus panels, contender breakdown bars. Phase 6 league page matches mockup grid layout.
 
-**Team page:** full roster **table** (OVR, HPPG, W/G, ACTV, TV, WORP, FLEX, PORP), team traits, depth chart, injury watch, matchup preview, OVR trend badge (+2). Phase 2 is card-based lineup only.
+**Team page:** full roster table (OVR, HPPG, W/G, ACTV, TV, WORP, FLEX, PORP), tabs (Roster / Lineup / Depth / Stats), team OVR component donut, traits, depth chart, injury watch. Matchup preview remains icebox.
 
-**Player page:** hero OVR gauge + positional/overall rank, lens panel (win-now, flex, TV), statistical profile percentiles, dynasty donut, bio/news, production trend chart, age/outlook timeline with peak window, durability gauge, cross-league ownership. Phase 2 is hero card + component bars.
+**Player page:** hero OVR gauge, bio ribbon (Sleeper height/weight/college/exp), positional/overall rank, stat strip, lens panel, dynasty component donut, durability gauge, age/outlook timeline, cross-league ownership, grade trend sparkline.
 
 Build order: ship data foundations (history, lenses, portfolio) before visual polish that depends on them.
 

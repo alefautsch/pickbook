@@ -8,30 +8,27 @@ type LeagueSwitcherProps = {
 
 export function LeagueSwitcher({ leagues, activeLeagueId }: LeagueSwitcherProps) {
   return (
-    <nav className="flex flex-wrap gap-2">
-      <Link
-        href="/"
-        className={`rounded-full px-3 py-1.5 text-sm transition ${
-          !activeLeagueId
-            ? "bg-bb-gold/20 text-bb-gold"
-            : "text-bb-muted hover:bg-bb-surface hover:text-white"
-        }`}
-      >
-        Hub
-      </Link>
-      {leagues.map((league) => (
-        <Link
-          key={league.league_id}
-          href={`/leagues/${league.league_id}`}
-          className={`rounded-full px-3 py-1.5 text-sm transition ${
-            activeLeagueId === league.league_id
-              ? "bg-bb-gold/20 text-bb-gold"
-              : "text-bb-muted hover:bg-bb-surface hover:text-white"
-          }`}
-        >
-          {league.name}
-        </Link>
-      ))}
+    <nav className="flex flex-wrap gap-1">
+      {leagues.map((league) => {
+        const active = activeLeagueId === league.league_id;
+        const meta = `${league.total_rosters}-Team ${league.superflex ? "SF" : "1QB"} · ${league.season}`;
+        return (
+          <Link
+            key={league.league_id}
+            href={`/leagues/${league.league_id}`}
+            className={`rounded-t-lg border px-4 py-2 transition ${
+              active
+                ? "border-bb-gold/50 border-b-transparent bg-[#121820] text-bb-gold"
+                : "border-transparent text-bb-muted hover:bg-white/5 hover:text-white"
+            }`}
+          >
+            <span className="block text-sm font-medium uppercase tracking-wide">
+              {league.name}
+            </span>
+            <span className="block text-[10px] text-bb-muted">{meta}</span>
+          </Link>
+        );
+      })}
     </nav>
   );
 }

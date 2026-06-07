@@ -25,6 +25,54 @@ from dynasty_draft.sleeper_client import SleeperClient
 _FLEX_POSITIONS = frozenset({"RB", "WR", "TE"})
 
 
+def _bio_from_sleeper(sleeper: dict[str, Any]) -> dict[str, Any]:
+    years_exp = sleeper.get("years_exp")
+    return {
+        "height": str(sleeper["height"]) if sleeper.get("height") is not None else None,
+        "weight": str(sleeper["weight"]) if sleeper.get("weight") is not None else None,
+        "college": sleeper.get("college"),
+        "years_exp": int(years_exp) if years_exp is not None else None,
+        "injury_status": sleeper.get("injury_status"),
+        "injury_body_part": sleeper.get("injury_body_part"),
+    }
+
+
+def _resolve_worp_ppg_for_snapshot(
+    state,
+    player_id: str,
+    war_player,
+    healthy: dict[str, Any],
+) -> float | None:
+    """Persisted W/G for UI — nflverse VOR can be 0 below SF replacement; fall back to season WORP."""
+    worp_ppg = healthy.get("worp_ppg")
+    if worp_ppg is not None and worp_ppg > 0:
+        return float(worp_ppg)
+    if war_player.worp is not None and war_player.worp > 0:
+        return round(float(war_player.worp) / 17.0, 4)
+    blended = state.with_blended_tv(war_player)
+    eff, _ = state._effective_worp(player_id, blended)
+    if eff is not None and eff > 0:
+        return round(float(eff) / 17.0, 4)
+    return float(worp_ppg) if worp_ppg is not None else None
+
+
+def _assign_snapshot_ranks(rows: list[dict[str, Any]]) -> None:
+    """Overall and positional dynasty ranks within the league snapshot pool."""
+    rated = [row for row in rows if row.get("dynasty_rating") is not None]
+    rated.sort(key=lambda row: row["dynasty_rating"], reverse=True)
+    for rank, row in enumerate(rated, start=1):
+        row["overall_rank"] = rank
+
+    by_pos: dict[str, list[dict[str, Any]]] = {}
+    for row in rated:
+        pos = row.get("position") or "UNK"
+        by_pos.setdefault(pos, []).append(row)
+    for pos_rows in by_pos.values():
+        pos_rows.sort(key=lambda row: row["dynasty_rating"], reverse=True)
+        for rank, row in enumerate(pos_rows, start=1):
+            row["position_rank"] = rank
+
+
 def _collect_rostered_player_ids(db: Session, league_id: str) -> set[str]:
     rows = db.execute(
         select(RosterPlayer.sleeper_player_id)
@@ -131,6 +179,8 @@ def compute_player_snapshots(
         blended = state.with_blended_tv(war_player)
         sleeper = state.sleeper_players.get(player_id) or {}
         age = state._player_age(player_id)
+        bio = _bio_from_sleeper(sleeper)
+        worp_ppg = _resolve_worp_ppg_for_snapshot(state, player_id, war_player, healthy)
 
         base_rows.append(
             {
@@ -144,13 +194,20 @@ def compute_player_snapshots(
                 "dynasty_rookie": bool(scored.get("dynasty_rookie")),
                 "components_json": scored.get("dynasty_components") or {},
                 "hppg": healthy.get("healthy_ppg"),
-                "worp_ppg": healthy.get("worp_ppg"),
+                "worp_ppg": worp_ppg,
                 "availability": healthy.get("availability"),
+                "healthy_games": healthy.get("healthy_games"),
+                "total_games": healthy.get("total_games"),
                 "hppg_expected": bool(healthy.get("hppg_expected")),
                 "trade_value": round(blended.trade_value, 2),
                 "flex_rating": flex.get("flex_rating"),
+                "season_worp": war_player.worp,
+                "porp": war_player.porp,
+                **bio,
             }
         )
+
+    _assign_snapshot_ranks(base_rows)
 
     percentile_by_id = position_percentiles(base_rows)
 
@@ -214,6 +271,18 @@ def compute_player_snapshots(
             projected_ppg=proj.projected_ppg,
             projection_source=proj.projection_source,
             outlook_json=proj.outlook,
+            season_worp=row["season_worp"],
+            porp=row["porp"],
+            healthy_games=row.get("healthy_games"),
+            total_games=row.get("total_games"),
+            injury_status=row.get("injury_status"),
+            injury_body_part=row.get("injury_body_part"),
+            height=row.get("height"),
+            weight=row.get("weight"),
+            college=row.get("college"),
+            years_exp=row.get("years_exp"),
+            position_rank=row.get("position_rank"),
+            overall_rank=row.get("overall_rank"),
             context_hash=context.context_hash,
             computed_at=computed_at,
         )
@@ -243,7 +312,18 @@ def compute_player_snapshots(
                 projected_ppg=snapshot_fields["projected_ppg"],
                 projection_source=snapshot_fields["projection_source"],
                 outlook_json=snapshot_fields["outlook_json"],
-                season_worp=war_by_id[player_id].worp if player_id in war_by_id else None,
+                season_worp=snapshot_fields["season_worp"],
+                porp=snapshot_fields["porp"],
+                healthy_games=snapshot_fields["healthy_games"],
+                total_games=snapshot_fields["total_games"],
+                injury_status=snapshot_fields["injury_status"],
+                injury_body_part=snapshot_fields["injury_body_part"],
+                height=snapshot_fields["height"],
+                weight=snapshot_fields["weight"],
+                college=snapshot_fields["college"],
+                years_exp=snapshot_fields["years_exp"],
+                position_rank=snapshot_fields["position_rank"],
+                overall_rank=snapshot_fields["overall_rank"],
                 context_hash=snapshot_fields["context_hash"],
                 formula_version=formula_version,
                 computed_at=computed_at,

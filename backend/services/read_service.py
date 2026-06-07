@@ -15,12 +15,14 @@ from backend.schemas.league import LeagueDetail, LeagueRankings, LeagueTeamSumma
 from backend.schemas.player import (
     DynastyComponents,
     PeakWindow,
+    PlayerBio,
     PlayerCard,
     PlayerLenses,
     PlayerOutlook,
+    PlayerRanks,
     StatisticalPercentiles,
 )
-from backend.schemas.team import LineupSlot, TeamDetail
+from backend.schemas.team import DepthChartGroup, DepthChartPlayer, InjuryWatchItem, LineupSlot, TeamDetail, TeamTrait
 
 SLEEPER_HEADSHOT = "https://sleepercdn.com/content/nfl/players/thumb/{player_id}.jpg"
 
@@ -103,11 +105,27 @@ def _player_card_from_snapshot(snapshot: PlayerSnapshot, league_name: str) -> Pl
             flex_rating=snapshot.flex_rating,
             win_now_rating=snapshot.win_now_rating,
         ),
+        bio=PlayerBio(
+            height=snapshot.height,
+            weight=snapshot.weight,
+            college=snapshot.college,
+            years_exp=snapshot.years_exp,
+        ),
+        ranks=PlayerRanks(
+            position_rank=snapshot.position_rank,
+            overall_rank=snapshot.overall_rank,
+        ),
         hppg=snapshot.hppg,
         worp_ppg=snapshot.worp_ppg,
         availability=snapshot.availability,
+        healthy_games=snapshot.healthy_games,
+        total_games=snapshot.total_games,
         hppg_expected=snapshot.hppg_expected,
         trade_value=snapshot.trade_value,
+        season_worp=snapshot.season_worp,
+        porp=snapshot.porp,
+        injury_status=snapshot.injury_status,
+        injury_body_part=snapshot.injury_body_part,
         projected_ppg=snapshot.projected_ppg,
         projection_source=snapshot.projection_source,
         outlook=_outlook_from_snapshot(snapshot),
@@ -182,8 +200,12 @@ def list_league_tiles(db: Session) -> list[LeagueTile]:
         my_rank = None
         my_ovr = None
         my_ppg = None
+        my_tv = None
+        my_ppg_rank = None
+        my_tv_rank = None
         my_team_name = None
         my_contender_tier = None
+        my_contender_score = None
 
         if snap is not None:
             for row in snap.rankings_json.get("by_dynasty", []):
@@ -191,8 +213,18 @@ def list_league_tiles(db: Session) -> list[LeagueTile]:
                     my_rank = row.get("dynasty_rank")
                     my_ovr = row.get("avg_dynasty_rating")
                     my_ppg = row.get("starter_total_ppg")
+                    my_tv = row.get("total_trade_value")
                     my_team_name = row.get("team_name")
                     my_contender_tier = row.get("contender_tier")
+                    my_contender_score = row.get("contender_score")
+                    break
+            for row in snap.rankings_json.get("by_starter_ppg", []):
+                if row.get("is_me"):
+                    my_ppg_rank = row.get("starter_ppg_rank")
+                    break
+            for row in snap.rankings_json.get("by_tv", []):
+                if row.get("is_me"):
+                    my_tv_rank = row.get("tv_rank")
                     break
 
         my_roster = db.scalar(
@@ -217,12 +249,17 @@ def list_league_tiles(db: Session) -> list[LeagueTile]:
                 season=league.season,
                 total_rosters=league.total_rosters,
                 superflex=league.superflex,
+                my_roster_id=my_roster.sleeper_roster_id if my_roster else None,
                 my_team_name=my_team_name,
                 my_dynasty_rank=my_rank,
                 my_roster_ovr=my_ovr,
                 my_starter_ppg=my_ppg,
-                my_roster_ovr_delta=ovr_delta,
+                my_total_trade_value=my_tv,
+                my_starter_ppg_rank=my_ppg_rank,
+                my_tv_rank=my_tv_rank,
                 my_contender_tier=my_contender_tier,
+                my_contender_score=my_contender_score,
+                my_roster_ovr_delta=ovr_delta,
                 last_synced=_last_synced(db, league.sleeper_league_id),
             )
         )
@@ -284,6 +321,55 @@ def get_league_rankings(db: Session, league_id: str) -> LeagueRankings | None:
     )
 
 
+def _depth_chart_from_roster(players: list[PlayerCard]) -> list[DepthChartGroup]:
+    by_pos: dict[str, list[PlayerCard]] = {}
+    for player in players:
+        pos = player.position or "UNK"
+        by_pos.setdefault(pos, []).append(player)
+
+    groups: list[DepthChartGroup] = []
+    for pos in ("QB", "RB", "WR", "TE"):
+        if pos not in by_pos:
+            continue
+        sorted_players = sorted(by_pos[pos], key=lambda p: p.ovr or 0, reverse=True)[:3]
+        groups.append(
+            DepthChartGroup(
+                position=pos,
+                players=[
+                    DepthChartPlayer(
+                        player_id=p.player_id,
+                        player_name=p.player_name,
+                        ovr=p.ovr,
+                        depth_rank=idx,
+                    )
+                    for idx, p in enumerate(sorted_players, start=1)
+                ],
+            )
+        )
+    return groups
+
+
+def _injuries_from_roster(players: list[PlayerCard]) -> list[InjuryWatchItem]:
+    items: list[InjuryWatchItem] = []
+    for player in players:
+        if not player.injury_status:
+            continue
+        status = player.injury_status.lower()
+        if status in ("healthy", "active", "none", ""):
+            continue
+        items.append(
+            InjuryWatchItem(
+                player_id=player.player_id,
+                player_name=player.player_name,
+                position=player.position,
+                injury_status=player.injury_status,
+                injury_body_part=player.injury_body_part,
+            )
+        )
+    items.sort(key=lambda row: row.player_name or "")
+    return items
+
+
 def get_team_detail(db: Session, league_id: str, roster_id: str) -> TeamDetail | None:
     league = db.get(League, league_id)
     if league is None:
@@ -307,6 +393,8 @@ def get_team_detail(db: Session, league_id: str, roster_id: str) -> TeamDetail |
     if team_lineup is None:
         return None
 
+    team_meta = team_lineup
+
     snapshots = {
         row.sleeper_player_id: row
         for row in db.scalars(
@@ -329,11 +417,29 @@ def get_team_detail(db: Session, league_id: str, roster_id: str) -> TeamDetail |
     bench = [_card(pid) for pid in team_lineup.get("bench", [])]
     bench = [card for card in bench if card is not None]
 
+    starter_players = [slot.player for slot in starters if slot.player]
+    roster_players = starter_players + bench
+
     rankings = snap.rankings_json or {}
     dynasty_row = next(
         (r for r in rankings.get("by_dynasty", []) if str(r.get("roster_id")) == roster_id),
         {},
     )
+    ppg_row = next(
+        (r for r in rankings.get("by_starter_ppg", []) if str(r.get("roster_id")) == roster_id),
+        {},
+    )
+    tv_row = next(
+        (r for r in rankings.get("by_tv", []) if str(r.get("roster_id")) == roster_id),
+        {},
+    )
+    win_row = next(
+        (r for r in rankings.get("by_win_now", []) if str(r.get("roster_id")) == roster_id),
+        {},
+    )
+
+    breakdown_raw = team_meta.get("component_breakdown") or {}
+    traits_raw = team_meta.get("traits") or []
 
     return TeamDetail(
         league_id=league_id,
@@ -347,6 +453,23 @@ def get_team_detail(db: Session, league_id: str, roster_id: str) -> TeamDetail |
         starter_total_ppg=dynasty_row.get("starter_total_ppg"),
         total_trade_value=dynasty_row.get("total_trade_value"),
         dynasty_rank=dynasty_row.get("dynasty_rank"),
+        starter_ppg_rank=ppg_row.get("starter_ppg_rank"),
+        tv_rank=tv_row.get("tv_rank"),
+        win_rank=win_row.get("win_rank"),
+        contender_tier=dynasty_row.get("contender_tier"),
+        contender_score=dynasty_row.get("contender_score"),
+        component_breakdown=DynastyComponents(
+            tv=breakdown_raw.get("tv"),
+            worp=breakdown_raw.get("worp"),
+            per_game=breakdown_raw.get("per_game"),
+            upside=breakdown_raw.get("upside"),
+            age=breakdown_raw.get("age"),
+            trajectory=breakdown_raw.get("trajectory"),
+        ),
+        traits=[TeamTrait(label=t["label"], value=t["value"]) for t in traits_raw if t.get("label")],
         starters=starters,
         bench=bench,
+        roster=roster_players,
+        depth_chart=_depth_chart_from_roster(roster_players),
+        injuries=_injuries_from_roster(roster_players),
     )

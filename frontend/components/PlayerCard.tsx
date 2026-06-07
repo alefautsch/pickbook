@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { PlayerCard as PlayerCardData } from "@/lib/api";
 import { projectionSourceLabel } from "@/lib/archetype";
-import { formatActv, formatDecimal, formatPpg, formatTv } from "@/lib/format";
+import { formatActv, formatPpg, formatTv, formatWorpPpg } from "@/lib/format";
 import { positionColor } from "@/lib/ovr";
 import { OvrBadge } from "./OvrBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
@@ -99,7 +99,7 @@ export function PlayerCard({
             <div>
               <dt className="text-bb-muted">W/g</dt>
               <dd className="font-medium text-white">
-                {formatDecimal(player.worp_ppg, 3)}
+                {formatWorpPpg(player.worp_ppg)}
               </dd>
             </div>
             <div>
