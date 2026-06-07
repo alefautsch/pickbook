@@ -1,8 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
+import { AgeProfilePanel } from "@/components/AgeProfilePanel";
+import { FreeAgentBoard } from "@/components/FreeAgentBoard";
+import { PositionHeatmap } from "@/components/PositionHeatmap";
 import { RankingsTable } from "@/components/RankingsTable";
-import { getLeague, getLeagueRankings, getLeagues } from "@/lib/api";
+import { TradeSurplusPanel } from "@/components/TradeSurplusPanel";
+import {
+  getFreeAgents,
+  getLeague,
+  getLeagueAnalysis,
+  getLeagueRankings,
+  getLeagues,
+} from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { OvrBadge } from "@/components/OvrBadge";
 
@@ -16,12 +26,16 @@ export default async function LeaguePage({ params }: PageProps) {
   let leagues = [];
   let league;
   let rankings;
+  let freeAgents;
+  let analysis;
 
   try {
-    [leagues, league, rankings] = await Promise.all([
+    [leagues, league, rankings, freeAgents, analysis] = await Promise.all([
       getLeagues(),
       getLeague(leagueId),
       getLeagueRankings(leagueId),
+      getFreeAgents(leagueId),
+      getLeagueAnalysis(leagueId),
     ]);
   } catch {
     notFound();
@@ -47,6 +61,38 @@ export default async function LeaguePage({ params }: PageProps) {
             byStarterPpg={rankings.by_starter_ppg}
             byTv={rankings.by_tv}
             byWinNow={rankings.by_win_now}
+          />
+        </section>
+
+        {analysis.position_strength ? (
+          <section className="bb-card mb-10 p-5">
+            <h2 className="mb-4 text-lg font-medium text-white">Position Strength</h2>
+            <p className="mb-4 text-sm text-bb-muted">
+              Average starter OVR by team and position — from optimal lineup at last sync.
+            </p>
+            <PositionHeatmap data={analysis.position_strength} leagueId={leagueId} />
+          </section>
+        ) : null}
+
+        <div className="mb-10 grid gap-6 lg:grid-cols-2">
+          <section className="bb-card p-5">
+            <h2 className="mb-4 text-lg font-medium text-white">Age & Window</h2>
+            <AgeProfilePanel profiles={analysis.age_profiles} />
+          </section>
+          <section className="bb-card p-5">
+            <h2 className="mb-4 text-lg font-medium text-white">Trade Surplus</h2>
+            <TradeSurplusPanel
+              tradeSurplus={analysis.trade_surplus}
+              leagueId={leagueId}
+            />
+          </section>
+        </div>
+
+        <section className="mb-10">
+          <FreeAgentBoard
+            leagueId={leagueId}
+            superflex={league.superflex}
+            initialBoard={freeAgents}
           />
         </section>
 

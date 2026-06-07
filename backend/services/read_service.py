@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from backend.db.models import League, LeagueSnapshot, PlayerSnapshot, Roster, SyncRun
 from backend.services.history_service import team_ovr_delta
+from backend.schemas.analysis import LeagueAnalysis
 from backend.schemas.league import LeagueDetail, LeagueRankings, LeagueTeamSummary, LeagueTile
 from backend.schemas.player import DynastyComponents, PlayerCard, PlayerLenses
 from backend.schemas.team import LineupSlot, TeamDetail
@@ -134,6 +135,9 @@ def _merge_team_summaries(snapshot: LeagueSnapshot) -> list[LeagueTeamSummary]:
                 starter_ppg_rank=by_ppg.get(roster_id, {}).get("starter_ppg_rank"),
                 tv_rank=by_tv.get(roster_id, {}).get("tv_rank"),
                 win_rank=by_win.get(roster_id, {}).get("win_rank"),
+                contender_tier=base.get("contender_tier"),
+                contender_rank=base.get("contender_rank"),
+                contender_score=base.get("contender_score"),
             )
         )
     teams.sort(key=lambda t: t.dynasty_rank or 999)
@@ -150,6 +154,7 @@ def list_league_tiles(db: Session) -> list[LeagueTile]:
         my_ovr = None
         my_ppg = None
         my_team_name = None
+        my_contender_tier = None
 
         if snap is not None:
             for row in snap.rankings_json.get("by_dynasty", []):
@@ -158,6 +163,7 @@ def list_league_tiles(db: Session) -> list[LeagueTile]:
                     my_ovr = row.get("avg_dynasty_rating")
                     my_ppg = row.get("starter_total_ppg")
                     my_team_name = row.get("team_name")
+                    my_contender_tier = row.get("contender_tier")
                     break
 
         my_roster = db.scalar(
@@ -187,10 +193,30 @@ def list_league_tiles(db: Session) -> list[LeagueTile]:
                 my_roster_ovr=my_ovr,
                 my_starter_ppg=my_ppg,
                 my_roster_ovr_delta=ovr_delta,
+                my_contender_tier=my_contender_tier,
                 last_synced=_last_synced(db, league.sleeper_league_id),
             )
         )
     return tiles
+
+
+def get_league_analysis(db: Session, league_id: str) -> LeagueAnalysis | None:
+    league = db.get(League, league_id)
+    if league is None:
+        return None
+    snap = _latest_league_snapshot(db, league_id)
+    if snap is None:
+        return LeagueAnalysis(league_id=league_id, league_name=league.name)
+    analysis = snap.analysis_json or {}
+    return LeagueAnalysis(
+        league_id=league_id,
+        league_name=league.name,
+        computed_at=snap.computed_at,
+        contender_index=analysis.get("contender_index"),
+        position_strength=analysis.get("position_strength"),
+        age_profiles=analysis.get("age_profiles", []),
+        trade_surplus=analysis.get("trade_surplus"),
+    )
 
 
 def get_league_detail(db: Session, league_id: str) -> LeagueDetail | None:

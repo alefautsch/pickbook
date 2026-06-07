@@ -164,7 +164,7 @@ This is a hard guarantee, learned from a real bug where per-game normalization u
 | **Within a league snapshot** | A player's OVR is identical on every screen (team, rankings, player card, FA board) until the next sync. |
 | **Across leagues** | OVR may differ. Always labeled with the league. |
 | **Anchors** | Per-game maxes (`max_worp_ppg`, `max_hppg`) split **QB vs flex**, TV max, and curve min/max are **fixed from the full player universe** for that league's scoring context — never from who happens to be rostered or how far a startup draft has progressed. |
-| **Who gets scored** | Snapshots are written for **rostered players** (FA board later, §14.2). A player's OVR does not move because someone else was drafted or dropped. |
+| **Who gets scored** | Snapshots are written for **rostered players + top-N FAs** (§14.2). Anchors are universe-wide; roster membership only affects who gets a row, not another player's grade. |
 | **Persistence** | OVR + components are stored on the snapshot. The UI never recomputes; it reads. |
 
 ### 5.8 OVR lenses (one headline, multiple readings)
@@ -214,6 +214,8 @@ Owning the same players across leagues is a real dynasty consideration (correlat
 
 Portfolio is a cross-cutting view built *on top of* per-league snapshots; it never invents a "global OVR." It shows each league's grade side by side.
 
+**API (Phase 3):** `GET /portfolio` (holdings + exposure), `GET /leagues/{id}/free-agents?position=` (unrostered snapshot reads), `GET /players/search?q=` (cross-league name search), `GET /players/{id}/holdings` (owned-in-leagues on player page).
+
 ---
 
 ## 8. League analysis (designed heuristics)
@@ -237,14 +239,22 @@ A single classification — **Contender / Competitive / Rebuild** — from a wei
 
 Intent: tell me at a glance who's pushing now vs who's selling, so I know who to trade with.
 
+**Implemented (Phase 4):** computed at sync in `analysis_service`, persisted in `league_snapshots.analysis_json.contender_index` and mirrored on each rankings row (`contender_tier`, `contender_rank`, `contender_score`). Weights and tier cutoffs are fixed in §14.4. UI shows tags on hub tiles and power rankings; inputs are exposed on `GET /leagues/{id}/analysis`.
+
 ### 8.3 Position strength map
 Per league, a heatmap of **average starter OVR by team × position**. Reveals where each roster is strong/weak — the basis for trade fits ("they're QB-rich, RB-poor; I'm the opposite").
+
+**Implemented:** `analysis_json.position_strength` — columns follow starter slots (QB, RB, WR, TE, FLEX; SUPER_FLEX rolls into FLEX). Multiple RB/WR slots are averaged per position group. `PositionHeatmap.tsx` on league detail.
 
 ### 8.4 Age & window profile
 Per roster: age distribution of starters vs league average, and a "competitive window" read (young core trending up vs aging core trending down).
 
+**Implemented:** `analysis_json.age_profiles` — OVR-weighted starter avg age vs league avg; window label **rising** (≥1 yr younger), **peak** (within 1 yr), **closing** (≥1 yr older). My-team panel on league detail lists optimal starters with ages.
+
 ### 8.5 Trade surplus
 For my teams: positions where I rank **top-3** (surplus to sell) or **bottom-3** (need to buy) in the league. Combined with §8.3 to suggest realistic counterparties.
+
+**Implemented:** `analysis_json.trade_surplus` for `is_me` roster — surplus/needs from position-strength ranks; counterparties are top-3 / bottom-3 complements per position. Trade Surplus panel on league detail.
 
 > Analyses are presented with their inputs visible. No black-box "trust me" numbers — every grade and tag can be traced to its components.
 
@@ -397,17 +407,33 @@ Build order: ship data foundations (history, lenses, portfolio) before visual po
 To resolve as the build progresses; capture decisions back into this book.
 
 1. **Per-league setting overrides** — do dynasty weights / per-game tilt stay global, or do some leagues warrant their own knobs (e.g. a TE-premium league)?
-2. **FA pool scope** — **Phase 1 decision:** metrics and OVR anchors use **rostered players only** (no FA pool at sync). Phase 3 will add a per-league FA board with its own scoped pool (likely top-N unrostered by trade value). This keeps sync fast and guarantees the consistency contract over everything the UI shows for owned players.
+2. **FA pool scope** — **Resolved (Phase 3, 2026-06-07):** OVR **anchors** still come from the full player universe (unchanged). At sync, `player_snapshots` are written for **rostered players + top-N unrostered by blended trade value** (default N=150, `FA_POOL_SIZE` env). FA grades use the same fixed anchors as rostered players, so a player's OVR is identical on team, rankings, player card, and FA board until the next sync (§5.7). The FA board read path filters snapshots to players not on any roster — no request-time scoring. Rankings/lineups still join only rostered players. N is tunable if sync time grows; deep waiver wire beyond N is out of scope for v1.
 3. **Lens prominence** — is win-now a toggle on the player card, or a persistent secondary number? Depends on how often I think win-now vs dynasty.
-4. **Contender index thresholds** — exact weights and cut points for Contender/Competitive/Rebuild need calibration against my actual leagues.
+4. **Contender index thresholds** — **Resolved (Phase 4, 2026-06-07):** weights and tier cutoffs documented in §14.4; calibrated against seeded 10-team leagues.
 5. **Sync trigger** — **Direction (2026-06-07):** manual + external scheduler (§9.1). Daily in-season default; 2×/day during trade season. API exposes `POST /sync`; Railway Cron or local cron is the runner.
 6. **Snapshot history** — **Resolved (Phase 4.5):** append-only `player_snapshot_history` + `league_snapshot_history` at each sync; store **OVR inputs**, not just the headline grade (§15). `player_snapshots` stays latest. Re-grade via `POST /admin/recompute-history`.
 7. **Projected PPG / opportunity** — **Direction (2026-06-07):** build a **custom** opportunity model (not outsource the answer to Sleeper alone). Bootstrap with Sleeper projections + nflverse volume; evolve toward offense context + role share → projected PPG. See §15.
 
+### 14.4 Contender index calibration (Phase 4)
+
+Composite score (0–100) blends three league-normalized inputs (min–max within the league; flat field → 50 for all):
+
+| Input | Weight | Source |
+|-------|--------|--------|
+| Starter avg OVR | **40%** | `starter_avg_dynasty_rating` from optimal lineup |
+| Starter Σ PPG | **35%** | `starter_total_ppg` |
+| Age-weighted depth | **25%** | Youth factor vs positional peak ages (`dynasty_score._PEAK_AGE`): 65% starter-weighted + 35% top-4 bench by TV |
+
+**Tier assignment** (within-league ranks on composite): top ⌈n/3⌉ → **Contender**, bottom ⌊n/3⌋ → **Rebuild**, middle → **Competitive**. On 10-team leagues that is ranks 1–4 / 5–7 / 8–10 (ceil(10/3)=4, floor(10/3)=3).
+
+**Trade surplus:** top-3 / bottom-3 by position-strength rank; counterparties are complementary top/bottom teams per position.
+
+Rationale on seeded leagues: age depth breaks ties when starter OVR and PPG cluster (e.g. GLA teams with similar 88–89 starter OVR but different bench youth). PPG weight rewards weekly ceiling without letting it dominate dynasty OVR.
+
 ### Resolved (Phase 1)
 
 - **Startup-draft roster source:** When Sleeper `rosters[].players` is empty (league still in startup draft), sync falls back to grouping `draft_picks` by `roster_id`. In-season leagues use live Sleeper rosters.
-- **Anchor universe vs scored players:** OVR anchors (TV max, per-game maxes, curve bounds) come from the **full fantasy player universe** with league scoring context applied — same idea as Pickbook's eligible board. **Snapshots** are still written only for rostered players (FA scope TBD, §14.2). Draft progress must not shift another player's grade.
+- **Anchor universe vs scored players:** OVR anchors (TV max, per-game maxes, curve bounds) come from the **full fantasy player universe** with league scoring context applied — same idea as Pickbook's eligible board. **Snapshots** are written for rostered players plus top-N FAs by TV (§14.2). Draft progress must not shift another player's grade.
 
 ---
 

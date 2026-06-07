@@ -17,6 +17,7 @@ class LeagueTile(BaseModel):
     my_roster_ovr: int | None = None
     my_starter_ppg: float | None = None
     my_roster_ovr_delta: int | None = None
+    my_contender_tier: str | None = None
     last_synced: datetime | None = None
 
 
@@ -32,6 +33,9 @@ class LeagueTeamSummary(BaseModel):
     starter_ppg_rank: int | None = None
     tv_rank: int | None = None
     win_rank: int | None = None
+    contender_tier: str | None = None
+    contender_rank: int | None = None
+    contender_score: float | None = None
 
 
 class LeagueDetail(BaseModel):

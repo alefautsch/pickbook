@@ -55,6 +55,7 @@ export type LeagueTile = {
   my_roster_ovr: number | null;
   my_starter_ppg: number | null;
   my_roster_ovr_delta: number | null;
+  my_contender_tier: string | null;
   last_synced: string | null;
 };
 
@@ -131,6 +132,99 @@ export type RankingRow = {
   starter_ppg_rank?: number;
   tv_rank?: number;
   win_rank?: number;
+  contender_tier?: string | null;
+  contender_rank?: number | null;
+  contender_score?: number | null;
+};
+
+export type ContenderInputs = {
+  starter_avg_ovr: number | null;
+  starter_total_ppg: number | null;
+  age_depth_score: number | null;
+  starter_ovr_norm: number | null;
+  starter_ppg_norm: number | null;
+  age_depth_norm: number | null;
+};
+
+export type ContenderTeam = {
+  roster_id: string;
+  team_name: string | null;
+  is_me: boolean;
+  tier: string;
+  composite_score: number;
+  contender_rank: number;
+  inputs: ContenderInputs;
+};
+
+export type ContenderIndex = {
+  weights: Record<string, number>;
+  teams: ContenderTeam[];
+};
+
+export type PositionStrengthTeam = {
+  roster_id: string;
+  team_name: string | null;
+  is_me: boolean;
+  by_position: Record<string, number | null>;
+};
+
+export type PositionStrengthMap = {
+  positions: string[];
+  teams: PositionStrengthTeam[];
+};
+
+export type AgeProfile = {
+  roster_id: string;
+  team_name: string | null;
+  is_me: boolean;
+  starter_avg_age: number | null;
+  bench_avg_age: number | null;
+  league_avg_starter_age: number | null;
+  age_delta: number | null;
+  window: string | null;
+  starter_ages: {
+    player_id: string;
+    name: string;
+    pos: string;
+    age: number;
+    ovr: number | null;
+    slot: string;
+  }[];
+};
+
+export type TradeSurplusItem = {
+  position: string;
+  avg_ovr: number | null;
+  league_rank: number;
+  league_size: number;
+};
+
+export type TradeCounterparty = {
+  position: string;
+  direction: string;
+  roster_id: string;
+  team_name: string | null;
+  my_rank: number;
+  their_rank: number;
+  their_avg_ovr: number | null;
+};
+
+export type TradeSurplus = {
+  roster_id: string;
+  team_name: string | null;
+  surplus: TradeSurplusItem[];
+  needs: TradeSurplusItem[];
+  counterparties: TradeCounterparty[];
+};
+
+export type LeagueAnalysis = {
+  league_id: string;
+  league_name: string;
+  computed_at: string | null;
+  contender_index: ContenderIndex | null;
+  position_strength: PositionStrengthMap | null;
+  age_profiles: AgeProfile[];
+  trade_surplus: TradeSurplus | null;
 };
 
 export type LeagueRankings = {
@@ -210,6 +304,10 @@ export function getLeagueRankings(leagueId: string): Promise<LeagueRankings> {
   return apiFetch<LeagueRankings>(`/leagues/${leagueId}/rankings`);
 }
 
+export function getLeagueAnalysis(leagueId: string): Promise<LeagueAnalysis> {
+  return apiFetch<LeagueAnalysis>(`/leagues/${leagueId}/analysis`);
+}
+
 export function getTeam(leagueId: string, rosterId: string): Promise<TeamDetail> {
   return apiFetch<TeamDetail>(`/leagues/${leagueId}/teams/${rosterId}`);
 }
@@ -234,4 +332,116 @@ export function getSyncStatus(): Promise<SyncStatusResponse> {
 
 export function postSyncAll(): Promise<SyncAllResponse> {
   return apiFetch<SyncAllResponse>("/sync", { method: "POST" });
+}
+
+export type PortfolioLeagueHolding = {
+  league_id: string;
+  league_name: string;
+  ovr: number | null;
+  tier: string | null;
+  team_name: string | null;
+};
+
+export type PortfolioPlayer = {
+  player_id: string;
+  player_name: string | null;
+  position: string | null;
+  nfl_team: string | null;
+  age: number | null;
+  headshot_url: string;
+  league_count: number;
+  leagues: PortfolioLeagueHolding[];
+  exposure_flag: string | null;
+};
+
+export type PositionExposure = {
+  position: string;
+  holding_count: number;
+  unique_players: number;
+};
+
+export type PortfolioSummary = {
+  total_leagues: number;
+  unique_players: number;
+  multi_league_count: number;
+  holdings: PortfolioPlayer[];
+  by_position: PositionExposure[];
+};
+
+export type PlayerHoldings = {
+  player_id: string;
+  player_name: string | null;
+  position: string | null;
+  leagues: PortfolioLeagueHolding[];
+};
+
+export type PlayerSearchLeagueMatch = {
+  league_id: string;
+  league_name: string;
+  ovr: number | null;
+  tier: string | null;
+  is_owned: boolean;
+};
+
+export type PlayerSearchHit = {
+  player_id: string;
+  player_name: string | null;
+  position: string | null;
+  nfl_team: string | null;
+  headshot_url: string;
+  leagues: PlayerSearchLeagueMatch[];
+};
+
+export type PlayerSearchResults = {
+  query: string;
+  hits: PlayerSearchHit[];
+};
+
+export type FreeAgentRow = {
+  player_id: string;
+  player_name: string | null;
+  position: string | null;
+  nfl_team: string | null;
+  age: number | null;
+  ovr: number | null;
+  tier: string | null;
+  hppg: number | null;
+  worp_ppg: number | null;
+  trade_value: number | null;
+  hppg_expected: boolean;
+  headshot_url: string;
+  league_id: string;
+  league_name: string;
+  computed_at: string | null;
+};
+
+export type FreeAgentBoard = {
+  league_id: string;
+  league_name: string;
+  superflex: boolean;
+  position_filter: string | null;
+  fa_pool_size: number;
+  total_available: number;
+  players: FreeAgentRow[];
+};
+
+export function getPortfolio(): Promise<PortfolioSummary> {
+  return apiFetch<PortfolioSummary>("/portfolio");
+}
+
+export function getPlayerHoldings(playerId: string): Promise<PlayerHoldings> {
+  return apiFetch<PlayerHoldings>(`/players/${playerId}/holdings`);
+}
+
+export function searchPlayers(q: string, limit = 25): Promise<PlayerSearchResults> {
+  const params = new URLSearchParams({ q, limit: String(limit) });
+  return apiFetch<PlayerSearchResults>(`/players/search?${params}`);
+}
+
+export function getFreeAgents(
+  leagueId: string,
+  position?: string,
+): Promise<FreeAgentBoard> {
+  const params = position ? `?position=${encodeURIComponent(position)}` : "";
+  return apiFetch<FreeAgentBoard>(`/leagues/${leagueId}/free-agents${params}`);
 }

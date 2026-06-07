@@ -9,11 +9,14 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from backend.api.settings import _read_settings
+from backend.config import get_settings
 from backend.db.models import League, LeagueSnapshotHistory, PlayerSnapshot, PlayerSnapshotHistory, Roster, RosterPlayer
 from backend.services.formula_version import compute_formula_version
 from backend.services.league_engine import build_league_scoring_state
 from backend.services.sync_service import _resolve_my_user_id
 from dynasty_draft.sleeper_client import SleeperClient
+
+_FLEX_POSITIONS = frozenset({"RB", "WR", "TE"})
 
 
 def _collect_rostered_player_ids(db: Session, league_id: str) -> set[str]:
@@ -60,6 +63,8 @@ def compute_player_snapshots(
     if not roster_player_ids:
         raise ValueError(f"No rostered players for league {league_id}")
 
+    fa_pool_size = get_settings().fa_pool_size
+
     state = build_league_scoring_state(
         league_row=league_row,
         roster_player_ids=roster_player_ids,
@@ -68,11 +73,20 @@ def compute_player_snapshots(
         client=client,
     )
     context = state.scoring_context
-    pool = state.scoring_pool()
+    roster_pool = state.scoring_pool()
+    fa_pool = state.fa_scoring_pool(fa_pool_size)
+    pool = state.snapshot_pool(fa_pool_size)
     anchors = _anchors_blob(state)
 
     dynasty_by_id = state.dynasty_scores(pool)
-    flex_by_id = state.flex_relative_ratings(state.flex_pool())
+    roster_flex = state.flex_pool()
+    roster_flex_ids = {player_id for player_id, _ in roster_flex}
+    fa_flex = [
+        (player_id, war_player)
+        for player_id, war_player in fa_pool
+        if war_player.pos in _FLEX_POSITIONS and player_id not in roster_flex_ids
+    ]
+    flex_by_id = state.flex_relative_ratings(roster_flex + fa_flex)
 
     computed_at = datetime.now(timezone.utc)
 
@@ -90,7 +104,9 @@ def compute_player_snapshots(
 
     db.execute(delete(PlayerSnapshot).where(PlayerSnapshot.league_id == league_id))
 
+    roster_ids_in_pool = {player_id for player_id, _ in roster_pool}
     upserted = 0
+    fa_scored = 0
     for player_id, war_player in pool:
         scored = dynasty_by_id.get(player_id) or {}
         flex = flex_by_id.get(player_id) or {}
@@ -148,6 +164,8 @@ def compute_player_snapshots(
             )
         )
         upserted += 1
+        if player_id not in roster_ids_in_pool:
+            fa_scored += 1
 
     db.commit()
     return {
@@ -155,6 +173,9 @@ def compute_player_snapshots(
         "context_hash": context.context_hash,
         "formula_version": formula_version,
         "players_scored": upserted,
+        "rostered_scored": len(roster_ids_in_pool),
+        "fa_scored": fa_scored,
+        "fa_pool_size": fa_pool_size,
         "computed_at": computed_at.isoformat(),
         "league_snapshot_history_id": league_history.id,
     }

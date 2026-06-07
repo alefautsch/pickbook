@@ -5,10 +5,32 @@ from sqlalchemy.orm import Session
 
 from backend.db.session import get_db
 from backend.schemas.player import PlayerCard, PlayerHistorySeries
+from backend.schemas.portfolio import PlayerHoldings, PlayerSearchResults
 from backend.services.history_service import get_player_history
+from backend.services.portfolio_service import get_player_holdings, search_players
 from backend.services.read_service import get_player_card
 
 router = APIRouter(prefix="/players", tags=["players"])
+
+
+@router.get("/search", response_model=PlayerSearchResults)
+def read_player_search(
+    q: str = Query(..., min_length=1, description="Player name search"),
+    limit: int = Query(default=25, ge=1, le=50),
+    db: Session = Depends(get_db),
+) -> PlayerSearchResults:
+    return search_players(db, q, limit=limit)
+
+
+@router.get("/{player_id}/holdings", response_model=PlayerHoldings)
+def read_player_holdings(
+    player_id: str,
+    db: Session = Depends(get_db),
+) -> PlayerHoldings:
+    holdings = get_player_holdings(db, player_id)
+    if holdings is None:
+        raise HTTPException(status_code=404, detail="Player not in portfolio")
+    return holdings
 
 
 @router.get("/{player_id}", response_model=PlayerCard)

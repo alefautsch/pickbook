@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { LeagueTile as LeagueTileData } from "@/lib/api";
 import { formatPpg, timeAgo } from "@/lib/format";
+import { ContenderTag } from "./ContenderTag";
 import { OvrBadge } from "./OvrBadge";
 
 type LeagueTileProps = {
@@ -14,8 +15,11 @@ export function LeagueTile({ league }: LeagueTileProps) {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold text-white">{league.name}</h2>
-            <p className="mt-1 text-sm text-bb-muted">
-              {league.my_team_name ?? "My team"} · Rank #{league.my_dynasty_rank ?? "—"}
+            <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-bb-muted">
+              <span>
+                {league.my_team_name ?? "My team"} · Rank #{league.my_dynasty_rank ?? "—"}
+              </span>
+              <ContenderTag tier={league.my_contender_tier} />
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">

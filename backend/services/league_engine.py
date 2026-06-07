@@ -20,7 +20,7 @@ from backend.services.league_context import LeagueScoringContext, build_league_s
 
 
 class LeagueScoringState(DraftState):
-    """DraftState subclass: anchor pool = full player universe; snapshots = rostered only."""
+    """DraftState subclass: anchor pool = full universe; snapshots = rostered + top-N FAs."""
 
     def __init__(
         self,
@@ -140,6 +140,31 @@ class LeagueScoringState(DraftState):
                 continue
             if self.blended_trade_value(war_player) <= 0:
                 continue
+            pool.append((player_id, war_player))
+        return pool
+
+    def fa_scoring_pool(self, top_n: int = 150) -> list[tuple[str, PlayerValue]]:
+        """Top-N unrostered players by blended TV — snapshotted at sync (§14.2 Phase 3)."""
+        candidates: list[tuple[str, PlayerValue, float]] = []
+        for player_id, war_player in self._universe_pool():
+            if player_id in self._roster_player_ids:
+                continue
+            tv = self.blended_trade_value(war_player)
+            candidates.append((player_id, war_player, tv))
+        candidates.sort(key=lambda row: row[2], reverse=True)
+        return [(player_id, war_player) for player_id, war_player, _ in candidates[:top_n]]
+
+    def snapshot_pool(self, fa_top_n: int = 150) -> list[tuple[str, PlayerValue]]:
+        """Rostered + FA pool for player_snapshots (deduped, roster wins)."""
+        seen: set[str] = set()
+        pool: list[tuple[str, PlayerValue]] = []
+        for player_id, war_player in self.scoring_pool():
+            seen.add(player_id)
+            pool.append((player_id, war_player))
+        for player_id, war_player in self.fa_scoring_pool(fa_top_n):
+            if player_id in seen:
+                continue
+            seen.add(player_id)
             pool.append((player_id, war_player))
         return pool
 

@@ -4,7 +4,7 @@ The executable backlog for building Blackbook. Design rationale lives in `BLACKB
 
 **Status legend:** `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
-**Current branch:** `blackbook` · **Last updated:** 2026-06-07 · **Phase 0–2, 4.5:** complete (local) · **Next:** Phase 3 (portfolio) · **UI north star:** `.cache/*_mockup*.png`
+**Current branch:** `blackbook` · **Last updated:** 2026-06-07 · **Phase 0–2, 3, 4, 4.5:** complete (local) · **Next:** Phase 5 (opportunity model) · **UI north star:** `.cache/*_mockup*.png`
 
 ---
 
@@ -237,15 +237,25 @@ dc/
 
 **Goal:** Cross-league holdings (§7) and per-league FA boards.
 
-- [ ] `GET /portfolio` → holdings grouped by player with each league's OVR; exposure by player and position.
-- [ ] `GET /leagues/{id}/free-agents` → unrostered players with OVR, filterable by position (superflex-aware).
-- [ ] `GET /players/search?q=` → cross-league search.
-- [ ] `app/portfolio/page.tsx` — holdings + exposure view; flag high multi-league exposure (conviction vs risk, §7).
-- [ ] FA board UI within league detail; position filter.
-- [ ] Player search box in nav.
-- [ ] Resolve §14.2 (FA pool scope) and document the decision in `BLACKBOOK.md`.
+**Status:** Complete locally (2026-06-07).
 
-**Exit criteria:** "who do I own everywhere?" and "best available WR in league X" both answerable in-app.
+- [x] `GET /portfolio` → holdings grouped by player with each league's OVR; exposure by player and position.
+- [x] `GET /leagues/{id}/free-agents` → unrostered players with OVR, filterable by position (superflex-aware).
+- [x] `GET /players/search?q=` → cross-league search.
+- [x] `GET /players/{id}/holdings` → owned-in-leagues strip on player page.
+- [x] `app/portfolio/page.tsx` — holdings + exposure view; flag high multi-league exposure (conviction vs risk, §7).
+- [x] FA board UI within league detail; position filter (`FreeAgentBoard.tsx`).
+- [x] Player search box in nav (`PlayerSearch.tsx`).
+- [x] Resolve §14.2 (FA pool scope) and document the decision in `BLACKBOOK.md`.
+
+**Exit criteria:** "who do I own everywhere?" and "best available WR in league X" both answerable in-app. *(Met — `/portfolio`, league FA board with WR filter, nav search.)*
+
+### Phase 3 notes (for next agent)
+- **FA pool at sync:** `league_engine.fa_scoring_pool(top_n)` + `snapshot_pool()`; default `FA_POOL_SIZE=150` (`backend/config.py`). Same anchors as rostered; FA rows in `player_snapshots`, read path excludes rostered IDs.
+- **New backend:** `backend/services/portfolio_service.py`, `backend/api/portfolio.py`, `backend/schemas/{portfolio,free_agent}.py`.
+- **Sync counts:** metrics return `rostered_scored`, `fa_scored`, `fa_pool_size`.
+- **Re-sync required** after pulling Phase 3 to populate FA snapshots: `just bb-sync-all`.
+- **Test URLs:** `GET /portfolio`, `GET /leagues/1314731206859853824/free-agents?position=WR`, `GET /players/search?q=chase`.
 
 ---
 
@@ -264,13 +274,13 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 ### Overview / league dashboard (`overview_mockupo.png`)
 | Element | Phase | Notes |
 |---------|-------|-------|
-| Rank, Roster OVR, Starter Σ PPG, TV summary cards | 2 partial | Tiles have rank/OVR/PPG; missing TV + contender |
-| OVR trend badge (+2) | **4.5** | Needs `player_snapshot_history` + team rollup |
-| Power rankings (4 sorts) + contender column | 2 + **4** | Rankings yes; contender index no |
+| Rank, Roster OVR, Starter Σ PPG, TV summary cards | 2 partial | Tiles have rank/OVR/PPG + contender tag; missing TV card |
+| OVR trend badge (+2) | **4.5** ✓ | `my_roster_ovr_delta` on hub tiles |
+| Power rankings (4 sorts) + contender column | 2 + **4** ✓ | Contender tags on rankings rows |
 | My optimal starters + projected PPG sidebar | **5** + 2 | Lineup read exists; projected PPG needs opportunity model |
-| Portfolio (exposure, multi-league holdings) | **3** | Stub on hub |
-| Position strength, age donuts, trade targets | **4** | Analysis phase |
-| Contender index breakdown bars | **4** | |
+| Portfolio (exposure, multi-league holdings) | 3 ✓ | Hub strip + `/portfolio` |
+| Position strength, age donuts, trade targets | **4** ✓ | Heatmap + age/window + trade surplus panels (donut polish → Phase 6) |
+| Contender index breakdown bars | **4** partial | Tags + traceable inputs on analysis API; bar chart polish → Phase 6 |
 
 ### Team page (`team_page_mockup.png`)
 | Element | Phase | Notes |
@@ -298,7 +308,7 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 | Production trend (HPPG by season) | **4.5** + nflverse | Multi-season nflverse; OVR trend from history |
 | Age & outlook / peak window timeline | **5** | §16 archetype + peak ages |
 | Durability gauge | **6** | Visual polish on `availability` |
-| Owned in leagues (cross-league OVRs) | **3** | Portfolio on player page |
+| Owned in leagues (cross-league OVRs) | 3 ✓ | `GET /players/{id}/holdings` on player page |
 
 ---
 
@@ -306,15 +316,23 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 
 **Goal:** Insight beyond rankings (§8).
 
-- [ ] `analysis_service`: **contender index** (starter OVR + Σ PPG + age-weighted depth → Contender/Competitive/Rebuild). Calibrate thresholds against real leagues (§14.4); document chosen weights in `BLACKBOOK.md`.
-- [ ] `analysis_service`: **position strength map** (team × position avg starter OVR).
-- [ ] `analysis_service`: **age/window profile** per roster vs league average.
-- [ ] `analysis_service`: **trade surplus** for my teams (top-3 / bottom-3 by position) + suggested counterparties via position-strength complement.
-- [ ] Persist analysis outputs into `league_snapshots` (computed at sync).
-- [ ] Frontend: `PositionHeatmap.tsx`, contender tags on tiles/rankings, age profile + trade-surplus panels on league detail.
-- [ ] Defer OVR sparklines to Phase 4.5 (history table).
+**Status:** Complete locally (2026-06-07).
 
-**Exit criteria:** each league shows contender tags, a position heatmap, and my trade surplus — all traceable to inputs (§8 closing note).
+- [x] `analysis_service`: **contender index** (starter OVR + Σ PPG + age-weighted depth → Contender/Competitive/Rebuild). Calibrated on seeded leagues; weights in `BLACKBOOK.md` §14.4.
+- [x] `analysis_service`: **position strength map** (team × position avg starter OVR).
+- [x] `analysis_service`: **age/window profile** per roster vs league average.
+- [x] `analysis_service`: **trade surplus** for my teams (top-3 / bottom-3 by position) + suggested counterparties via position-strength complement.
+- [x] Persist analysis outputs into `league_snapshots.analysis_json` (computed at sync); contender fields mirrored on `rankings_json` rows.
+- [x] `GET /leagues/{id}/analysis` read API.
+- [x] Frontend: `PositionHeatmap.tsx`, `ContenderTag.tsx`, `AgeProfilePanel.tsx`, `TradeSurplusPanel.tsx`; contender tags on hub tiles + rankings; panels on league detail.
+- [x] OVR sparklines deferred to Phase 4.5 (done there).
+
+**Exit criteria:** each league shows contender tags, a position heatmap, and my trade surplus — all traceable to inputs (§8 closing note). *(Met — GLA: WR surplus rank #1 Chase 96 OVR; contender tags on hub + rankings; heatmap QB–FLEX columns.)*
+
+### Phase 4 notes (for next agent)
+- **Backend:** extended `backend/services/analysis_service.py`; new `backend/schemas/analysis.py`; `GET /leagues/{id}/analysis` in `backend/api/leagues.py`.
+- **Sync:** re-run `just bb-sync-all` after pulling — analysis is written at sync, not on read.
+- **Test URLs:** `GET /leagues/1314731206859853824/analysis`, hub tiles `my_contender_tier`, league page `/leagues/1314731206859853824`.
 
 ---
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { RankingRow } from "@/lib/api";
 import { formatPpg, formatTv } from "@/lib/format";
+import { ContenderTag } from "./ContenderTag";
 import { OvrBadge } from "./OvrBadge";
 
 type SortKey = "dynasty" | "ppg" | "tv" | "win";
@@ -94,11 +95,14 @@ export function RankingsTable(props: RankingsTableProps) {
                 #{row[rankKey] ?? "—"}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate font-medium text-white">
-                  {row.team_name ?? "Team"}
-                  {row.is_me ? (
-                    <span className="ml-2 text-xs text-bb-gold">(me)</span>
-                  ) : null}
+                <p className="flex flex-wrap items-center gap-2 truncate font-medium text-white">
+                  <span className="truncate">
+                    {row.team_name ?? "Team"}
+                    {row.is_me ? (
+                      <span className="ml-2 text-xs text-bb-gold">(me)</span>
+                    ) : null}
+                  </span>
+                  <ContenderTag tier={row.contender_tier} />
                 </p>
                 {row.owner ? (
                   <p className="truncate text-xs text-bb-muted">{row.owner}</p>

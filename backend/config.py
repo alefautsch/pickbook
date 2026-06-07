@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # Optional gate for POST /admin/recompute-history (personal tool).
     admin_token: str | None = None
 
+    # Top-N unrostered players scored per league at sync for the FA board (§14.2).
+    fa_pool_size: int = 150
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

@@ -2,7 +2,9 @@ import { notFound } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { PlayerCard } from "@/components/PlayerCard";
 import { OvrTrendSparkline } from "@/components/OvrTrendSparkline";
-import { getLeagues, getPlayer, getPlayerHistory } from "@/lib/api";
+import Link from "next/link";
+import { getLeagues, getPlayer, getPlayerHistory, getPlayerHoldings } from "@/lib/api";
+import { OvrBadge } from "@/components/OvrBadge";
 import { tierLabels, ovrTier } from "@/lib/ovr";
 
 type PageProps = {
@@ -21,12 +23,14 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
   let leagues = [];
   let player;
   let history = null;
+  let holdings = null;
 
   try {
-    [leagues, player, history] = await Promise.all([
+    [leagues, player, history, holdings] = await Promise.all([
       getLeagues(),
       getPlayer(playerId, leagueId),
       getPlayerHistory(playerId, leagueId).catch(() => null),
+      getPlayerHoldings(playerId).catch(() => null),
     ]);
   } catch {
     notFound();
@@ -104,6 +108,35 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
               </dl>
             )}
           </section>
+
+          {holdings && holdings.leagues.length > 0 ? (
+            <section className="bb-card p-5 lg:col-span-2">
+              <h2 className="text-lg font-medium text-white">Owned in leagues</h2>
+              <p className="mt-1 text-sm text-bb-muted">
+                Cross-league OVRs for your rosters
+              </p>
+              <ul className="mt-4 space-y-2">
+                {holdings.leagues.map((league) => (
+                  <li
+                    key={league.league_id}
+                    className="flex items-center justify-between rounded-lg bg-black/20 px-3 py-2"
+                  >
+                    <Link
+                      href={`/players/${playerId}?league_id=${league.league_id}`}
+                      className={`text-sm ${
+                        league.league_id === leagueId
+                          ? "font-medium text-bb-gold"
+                          : "text-white hover:text-bb-gold"
+                      }`}
+                    >
+                      {league.league_name}
+                    </Link>
+                    <OvrBadge ovr={league.ovr} size="sm" />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
 
           <section className="bb-card p-5 lg:col-span-2">
             <h2 className="text-lg font-medium text-white">Grade Trend</h2>
