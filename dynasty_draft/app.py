@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Any
 
+import pandas as pd
 import streamlit as st
 
 from dynasty_draft.builder import build_state
@@ -1468,6 +1469,201 @@ def _render_league_tab(state: DraftState) -> None:
             _render_lineup_table(team)
 
 
+def _render_board_tab(state: DraftState, config: dict[str, Any]) -> None:
+    poll = max(5, int(config.get("poll_seconds", 20)))
+    refresh = timedelta(seconds=poll) if st.session_state.auto_refresh else None
+
+    @st.fragment(run_every=refresh)
+    def live_board() -> None:
+        live_state = _load_state(config) or state
+        rows = live_state.available_board_rows()
+        if not rows:
+            st.info("No undrafted players in the pool.")
+            return
+
+        flex_rows = [
+            row for row in rows if row.get("pos") in ("RB", "WR", "TE") and row.get("flex_rating")
+        ]
+        flex_rows.sort(key=lambda row: row.get("flex_rating") or 0, reverse=True)
+        flex_slots = sum(1 for slot in live_state.roster_positions if slot == "FLEX")
+
+        st.markdown('<div class="section-title">Flex pool</div>', unsafe_allow_html=True)
+        st.caption(
+            f"RB/WR/TE ranked together for flex decisions ({flex_slots} flex slot"
+            f"{'s' if flex_slots != 1 else ''} in league). "
+            "Flex rating = WORP* + PORP on a shared 50–99 scale among undrafted skill players."
+        )
+        if flex_rows:
+            flex_df = pd.DataFrame(flex_rows[:40])
+            flex_df["Player"] = flex_df.apply(
+                lambda row: f"{row['name']}*" if row.get("dynasty_rookie") else row["name"],
+                axis=1,
+            )
+            flex_df["WORP"] = flex_df["effective_worp"].where(
+                flex_df["effective_worp"].notna(),
+                flex_df["worp"],
+            )
+            flex_table = flex_df.rename(
+                columns={
+                    "flex_rank": "Flex #",
+                    "flex_rating": "Flex",
+                    "pos": "Pos",
+                    "team": "Tm",
+                    "age": "Age",
+                    "dynasty_rating": "OVR",
+                    "trade_value": "TV",
+                    "porp": "PORP",
+                }
+            )[
+                ["Flex #", "Player", "Pos", "Tm", "Flex", "OVR", "WORP", "PORP", "TV"]
+            ]
+            st.dataframe(
+                flex_table,
+                use_container_width=True,
+                hide_index=True,
+                height=min(420, 38 + len(flex_table) * 35),
+                column_config={
+                    "Flex #": st.column_config.NumberColumn("Flex #", format="%d"),
+                    "Flex": st.column_config.NumberColumn(
+                        "Flex",
+                        help="Cross-position flex rating (RB/WR/TE pool)",
+                        format="%d",
+                    ),
+                    "OVR": st.column_config.NumberColumn("OVR", format="%d"),
+                    "WORP": st.column_config.NumberColumn("WORP", format="%.2f"),
+                    "PORP": st.column_config.NumberColumn("PORP", format="%d"),
+                    "TV": st.column_config.NumberColumn("TV", format="%d"),
+                },
+            )
+        else:
+            st.info("No flex-eligible players left on the board.")
+
+        st.markdown('<div class="section-title">All available</div>', unsafe_allow_html=True)
+        ref = live_state._adp_reference_pick()
+        st.caption(
+            f"{len(rows)} undrafted · pick #{ref} · ADP: "
+            f"{html.escape(live_state._adp_index().source_label)}"
+        )
+
+        filter_row = st.columns([2, 2, 2])
+        with filter_row[0]:
+            pos_filter = st.multiselect(
+                "Position",
+                options=["QB", "RB", "WR", "TE"],
+                default=[],
+                placeholder="All positions",
+            )
+        with filter_row[1]:
+            search = st.text_input("Search", placeholder="Player name…")
+        with filter_row[2]:
+            sort_by = st.selectbox(
+                "Sort by",
+                options=["Flex", "OVR", "TV", "WORP", "PORP", "ADP", "Name"],
+                index=0,
+            )
+
+        with st.expander("Metric filters", expanded=False):
+            min_ovr, max_ovr = st.slider("OVR range", 50, 99, (50, 99))
+            min_flex = st.slider("Min flex rating", 50, 99, 50)
+            min_tv = st.number_input("Min TV", min_value=0, value=0, step=500)
+            min_worp = st.number_input("Min WORP", min_value=0.0, value=0.0, step=0.1, format="%.1f")
+            min_porp = st.number_input("Min PORP", min_value=0, value=0, step=5)
+            skill_only = st.checkbox("Skill positions only (RB/WR/TE)")
+            rookies_only = st.checkbox("Rookie projections only (N*)")
+
+        df = pd.DataFrame(rows)
+        df["Player"] = df.apply(
+            lambda row: f"{row['name']}*" if row.get("dynasty_rookie") else row["name"],
+            axis=1,
+        )
+        df["WORP"] = df["effective_worp"].where(
+            df["effective_worp"].notna(),
+            df["worp"],
+        )
+        display = df.rename(
+            columns={
+                "pos": "Pos",
+                "team": "Tm",
+                "age": "Age",
+                "adp_pick": "ADP",
+                "adp_delta": "Δ",
+                "dynasty_rating": "OVR",
+                "trade_value": "TV",
+                "porp": "PORP",
+                "flex_rating": "Flex",
+                "flex_rank": "Flex #",
+            }
+        )
+
+        if pos_filter:
+            display = display[display["Pos"].isin(pos_filter)]
+        if skill_only:
+            display = display[display["Pos"].isin(["RB", "WR", "TE"])]
+        if search.strip():
+            needle = search.strip().lower()
+            display = display[display["name"].str.lower().str.contains(needle, na=False)]
+        if min_ovr > 50 or max_ovr < 99:
+            display = display[display["OVR"].between(min_ovr, max_ovr, inclusive="both")]
+        if min_flex > 50:
+            display = display[display["Flex"].fillna(0) >= min_flex]
+        if min_tv > 0:
+            display = display[display["TV"] >= min_tv]
+        if min_worp > 0:
+            display = display[display["WORP"].fillna(0) >= min_worp]
+        if min_porp > 0:
+            display = display[display["PORP"].fillna(0) >= min_porp]
+        if rookies_only:
+            display = display[display["dynasty_rookie"]]
+
+        sort_cols = {
+            "Flex": ("Flex", False),
+            "OVR": ("OVR", False),
+            "TV": ("TV", False),
+            "WORP": ("WORP", False),
+            "PORP": ("PORP", False),
+            "ADP": ("ADP", True),
+            "Name": ("Player", True),
+        }
+        col_name, ascending = sort_cols[sort_by]
+        display = display.sort_values(
+            by=col_name,
+            ascending=ascending,
+            na_position="last",
+        )
+
+        table = display[
+            ["Player", "Pos", "Tm", "Age", "Flex #", "Flex", "ADP", "Δ", "OVR", "TV", "WORP", "PORP"]
+        ].reset_index(drop=True)
+
+        st.dataframe(
+            table,
+            use_container_width=True,
+            hide_index=True,
+            height=min(640, 38 + len(table) * 35),
+            column_config={
+                "Player": st.column_config.TextColumn("Player", width="medium"),
+                "Pos": st.column_config.TextColumn("Pos", width="small"),
+                "Tm": st.column_config.TextColumn("Tm", width="small"),
+                "Age": st.column_config.NumberColumn("Age", format="%d"),
+                "Flex #": st.column_config.NumberColumn("Flex #", format="%d"),
+                "Flex": st.column_config.NumberColumn(
+                    "Flex",
+                    help="Cross-position rating vs undrafted RB/WR/TE",
+                    format="%d",
+                ),
+                "ADP": st.column_config.NumberColumn("ADP", format="%d"),
+                "Δ": st.column_config.NumberColumn("Δ", help="ADP minus your next pick. Positive = value."),
+                "OVR": st.column_config.NumberColumn("OVR", format="%d"),
+                "TV": st.column_config.NumberColumn("TV", format="%d"),
+                "WORP": st.column_config.NumberColumn("WORP", format="%.2f"),
+                "PORP": st.column_config.NumberColumn("PORP", format="%d"),
+            },
+        )
+        st.caption(f"Showing {len(table)} of {len(rows)} · click column headers to re-sort")
+
+    live_board()
+
+
 def _render_rankings_tab(state: DraftState) -> None:
     rankings = build_league_rankings(state)
 
@@ -1620,15 +1816,15 @@ def main() -> None:
 
     if state is None:
         st.info("Add your Sleeper username in Settings.")
-        tab_ask, tab_draft, tab_team, tab_league, tab_rankings, tab_settings = st.tabs(
-            ["Ask", "Draft", "Team", "League", "Rankings", "Settings"]
+        tab_ask, tab_draft, tab_board, tab_team, tab_league, tab_rankings, tab_settings = st.tabs(
+            ["Ask", "Draft", "Board", "Team", "League", "Rankings", "Settings"]
         )
         with tab_settings:
             _render_settings_tab(config)
         return
 
-    tab_ask, tab_draft, tab_team, tab_league, tab_rankings, tab_settings = st.tabs(
-        ["Ask", "Draft", "Team", "League", "Rankings", "Settings"]
+    tab_ask, tab_draft, tab_board, tab_team, tab_league, tab_rankings, tab_settings = st.tabs(
+        ["Ask", "Draft", "Board", "Team", "League", "Rankings", "Settings"]
     )
 
     with tab_ask:
@@ -1636,6 +1832,9 @@ def main() -> None:
 
     with tab_draft:
         _render_draft_tab(state, config)
+
+    with tab_board:
+        _render_board_tab(state, config)
 
     with tab_team:
         _render_my_team_tab(state)

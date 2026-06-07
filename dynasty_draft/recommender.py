@@ -11,6 +11,7 @@ from dynasty_draft.dynasty_score import (
     DynastyScorer,
     DynastyWeights,
     compute_reference_anchors,
+    curved_composite_to_rating,
 )
 from dynasty_draft.strategy import DraftStrategy
 from dynasty_draft.war_data import POSITIONS, PlayerValue, WarData, normalize_name
@@ -28,6 +29,8 @@ STARTER_COUNTS: dict[str, int] = {
     "TE": 1,
     "FLEX": 1,
 }
+
+FLEX_ELIGIBLE = frozenset({"RB", "WR", "TE"})
 
 # Value-based drafting: cross-position surplus + ADP fall bonus; penalize reaches.
 VALUE_OVERRIDE_ADP_DELTA = 6
@@ -790,6 +793,101 @@ class DraftState:
         for row in self._scored_recommendations():
             by_pos[row["pos"]].append(row)
         return {pos: rows[:per_pos] for pos, rows in by_pos.items()}
+
+    def _flex_raw_score(self, player_id: str, player: PlayerValue) -> float:
+        """Cross-position flex comparability: blended WORP + PORP bump."""
+        blended = self.with_blended_tv(player)
+        eff, _ = self._effective_worp(player_id, blended)
+        porp_bump = (player.porp or 0.0) / 250.0
+        if eff is not None:
+            return eff + porp_bump
+        return self.blended_trade_value(player) * 0.00005 + porp_bump
+
+    def flex_relative_ratings(
+        self,
+        pool: list[tuple[str, PlayerValue]] | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        """
+        Rank RB/WR/TE on a shared 50–99 scale within the pool.
+
+        For flex-spot decisions: skill positions compared head-to-head instead of
+        vs position-specific replacement or dedicated roster slots.
+        """
+        if pool is None:
+            pool = self.available_players()
+        flex_pool = [(pid, p) for pid, p in self.blend_pool(pool) if p.pos in FLEX_ELIGIBLE]
+        if not flex_pool:
+            return {}
+
+        raw_by_id = {
+            player_id: self._flex_raw_score(player_id, player)
+            for player_id, player in flex_pool
+        }
+        sorted_ids = sorted(raw_by_id, key=lambda pid: raw_by_id[pid], reverse=True)
+        raw_vals = list(raw_by_id.values())
+        raw_min, raw_max = min(raw_vals), max(raw_vals)
+        exponent = (self.dynasty_rating_curve or DynastyRatingCurve()).exponent
+
+        result: dict[str, dict[str, Any]] = {}
+        for rank, player_id in enumerate(sorted_ids, start=1):
+            raw = raw_by_id[player_id]
+            if raw_max > raw_min:
+                composite = (raw - raw_min) / (raw_max - raw_min)
+            else:
+                composite = 1.0
+            result[player_id] = {
+                "flex_rating": curved_composite_to_rating(
+                    composite,
+                    raw_min=0.0,
+                    raw_max=1.0,
+                    exponent=exponent,
+                ),
+                "flex_rank": rank,
+                "flex_pool_size": len(sorted_ids),
+            }
+        return result
+
+    def available_board_rows(self) -> list[dict[str, Any]]:
+        """Undrafted players with metrics for sortable board view."""
+        available = self.available_players()
+        if not available:
+            return []
+
+        blended = self.blend_pool(available)
+        dynasty_by_id = self.dynasty_scores(available)
+        flex_by_id = self.flex_relative_ratings(available)
+        adp = self._adp_index()
+        ref_pick = self._adp_reference_pick()
+
+        rows: list[dict[str, Any]] = []
+        for player_id, player in blended:
+            dynasty = dynasty_by_id.get(player_id) or {}
+            flex = flex_by_id.get(player_id) or {}
+            blended_player = self.with_blended_tv(player)
+            eff_worp, worp_projected = self._effective_worp(player_id, blended_player)
+            adp_pick = adp.pick_no(player.name)
+            adp_delta = adp.delta(player.name, ref_pick) if ref_pick and adp_pick else None
+            rows.append(
+                {
+                    "player_id": player_id,
+                    "name": player.name,
+                    "pos": player.pos,
+                    "team": player.team,
+                    "age": dynasty.get("age") or self._player_age(player_id),
+                    "trade_value": round(self.blended_trade_value(player)),
+                    "worp": player.worp,
+                    "effective_worp": eff_worp,
+                    "worp_projected": worp_projected,
+                    "porp": player.porp,
+                    "dynasty_rating": dynasty.get("dynasty_rating"),
+                    "dynasty_rookie": bool(dynasty.get("dynasty_rookie")),
+                    "flex_rating": flex.get("flex_rating"),
+                    "flex_rank": flex.get("flex_rank"),
+                    "adp_pick": adp_pick,
+                    "adp_delta": adp_delta,
+                }
+            )
+        return rows
 
     def roster_summary(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
