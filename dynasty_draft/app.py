@@ -1092,12 +1092,21 @@ def _fmt_hppg_cell(row: dict[str, Any]) -> str:
         return '<span class="num muted">—</span>'
     games = row.get("healthy_games")
     total = row.get("total_games")
-    title = ""
-    if games is not None and total:
+    source = row.get("ppg_source")
+    expected = bool(row.get("hppg_expected"))
+    title_bits: list[str] = []
+    if expected:
+        if source == "projected":
+            title_bits.append("Expected PPG from Sleeper season projection ÷ 17")
+        else:
+            title_bits.append("Estimated PPG from trade value / WORP imputation")
+    elif games is not None and total:
         avail = row.get("availability")
         pct = f"{float(avail) * 100:.0f}%" if avail is not None else ""
-        title = f' title="Healthy in {games}/{total} weeks ({pct})"'
-    return f'<span class="num"{title}>{_fmt_hppg(value)}</span>'
+        title_bits.append(f"Healthy in {games}/{total} weeks ({pct})")
+    title = f' title="{html.escape(" · ".join(title_bits))}"' if title_bits else ""
+    suffix = '<span class="muted">e</span>' if expected else ""
+    return f'<span class="num"{title}>{_fmt_hppg(value)}{suffix}</span>'
 
 
 def _fmt_worp_ppg_cell(row: dict[str, Any]) -> str:
@@ -1189,7 +1198,8 @@ def _render_bpa_comparison(state: DraftState, *, compact: bool = False) -> None:
         f"Pick #{ref}. ADP source: {html.escape(state._adp_index().source_label)}. "
         "BPA = cross-position value with ADP bonus/penalty (reach = negative delta). "
         "Need-adjusted = starter-need nudges. "
-        "HPPG/W/g = snap-filtered per-game rates (nflverse 2024–25)."
+        "HPPG/W/g = snap-filtered per-game rates (nflverse 2024–25); "
+        "e = expected from Sleeper projection or TV imputation (rookies)."
     )
     if wait:
         wait_text = ", ".join(
@@ -1473,6 +1483,8 @@ def _render_lineup_stats(lineup: dict[str, Any], *, team_count: int = 10) -> Non
             <div class="stat-value">{lineup["total_trade_value"]:,.0f}</div></div>
           <div class="stat-card"><div class="stat-label">Starter WORP</div>
             <div class="stat-value">{_fmt_worp(lineup.get("starter_worp"))}</div></div>
+          <div class="stat-card"><div class="stat-label">Starter PPG</div>
+            <div class="stat-value">{_fmt_hppg(lineup.get("starter_total_ppg"))}</div></div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1545,6 +1557,12 @@ def _render_team_chips(team: dict[str, Any]) -> None:
         f"{team.get('pick_count', 0)} picks",
         f"TV {team.get('total_trade_value', 0):,.0f}",
         f"WORP {_fmt_worp(team.get('starter_worp'))}",
+        (
+            f"PPG {_fmt_hppg(team.get('starter_total_ppg'))}"
+            + (f" (#{team['starter_ppg_rank']})" if team.get("starter_ppg_rank") else "")
+            if team.get("starter_total_ppg") is not None
+            else None
+        ),
     ]
     visible = [chip for chip in chips if chip]
     chip_html = "".join(
@@ -1846,6 +1864,32 @@ def _render_rankings_tab(state: DraftState) -> None:
         dyn_classes.append(row_class)
     st.markdown(
         _html_table(["#", "Team", "Picks", "OVR", "Starters", "TV"], dyn_body, dyn_classes),
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div class="section-title">Starter PPG</div>', unsafe_allow_html=True)
+    st.caption(
+        "Sum of expected/actual half-PPR points per game across optimal starters "
+        "(nflverse when available; Sleeper projection or TV imputation for rookies)."
+    )
+    ppg_body: list[list[str]] = []
+    ppg_classes: list[str] = []
+    for team in rankings["by_starter_ppg"]:
+        row_class = "row-you rank-you" if team["is_me"] else ""
+        slots = team.get("starter_ppg_slots") or 0
+        ppg_body.append(
+            [
+                f'<span class="rank-badge">{team["starter_ppg_rank"]}</span>',
+                f"<strong>{html.escape(team['team_name'])}</strong>" if team["is_me"] else html.escape(team["team_name"]),
+                str(team.get("pick_count") or 0),
+                f'<span class="num">{_fmt_hppg(team.get("starter_total_ppg"))}</span>',
+                f'<span class="num muted">{slots}</span>',
+                _fmt_dynasty_rating(team.get("avg_dynasty_rating")),
+            ]
+        )
+        ppg_classes.append(row_class)
+    st.markdown(
+        _html_table(["#", "Team", "Picks", "Σ PPG", "Slots", "OVR"], ppg_body, ppg_classes),
         unsafe_allow_html=True,
     )
 

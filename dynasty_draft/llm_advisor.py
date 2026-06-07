@@ -192,6 +192,9 @@ def _metric_definitions() -> dict[str, str]:
         "dynasty_components": "Normalized 0–1 breakdown: tv, worp (blended with per-game W/g+HPPG when available), upside, age, trajectory.",
         "avg_dynasty_rating": "Team roster average dynasty_rating (50–99). Primary sort for league_rankings.by_dynasty.",
         "starter_avg_dynasty_rating": "Average dynasty_rating of optimal starters only.",
+        "starter_total_ppg": "Sum of healthy/expected PPG across optimal starters (nflverse or Sleeper/TV imputation).",
+        "starter_ppg_rank": "League rank by starter_total_ppg (higher = more weekly scoring from starters).",
+        "hppg_expected": "True when HPPG is projected (rookie/no nflverse history) rather than snap-filtered actuals.",
         "score": "UI need-adjusted pick-fit rank (TV + WORP + roster needs). Use bpa_recommendations for true BPA/VBD.",
         "bpa_score": "Cross-position value rank: VOR + dynasty_rating + ADP fall bonus; ignores roster holes.",
         "value_pivot": "Players where BPA rank beats need-adjusted rank — take value, trade surplus later.",
@@ -352,6 +355,7 @@ Startup PICK-POSITION trades (not player trades):
 
 Use the full league context:
 - `league_rankings.by_dynasty`: team standings by avg_dynasty_rating (50–99) — use when comparing roster builds
+- `league_rankings.by_starter_ppg`: sum of starter HPPG/expected PPG — weekly scoring power from optimal lineup
 - `league_rankings.by_trade_value` / `by_win_now`: market TV and win-now standings
 - `league_team_rosters`: every manager's picks — infer tendencies (QB early, RB heavy, etc.)
 - `available_by_position`: top 12 available per position with `dynasty_rating` per player

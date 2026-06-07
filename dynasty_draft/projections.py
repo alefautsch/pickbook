@@ -185,6 +185,16 @@ class SleeperProjectionStore:
                     continue
                 self._worp_by_player_id[player_id] = max(0.0, vor * scale)
 
+    def replacement_ppg(self, pos: str) -> float:
+        """League replacement rate per active week (season pts ÷ 17)."""
+        season = self._replacement_pts.get(pos)
+        if season is None:
+            return 0.0
+        return float(season) / 17.0
+
+    def worp_per_vor(self, pos: str) -> float:
+        return float(self._worp_per_vor.get(pos, _DEFAULT_WORP_PER_VOR))
+
     def projected_points(self, player_id: str | None) -> float | None:
         if not player_id:
             return None

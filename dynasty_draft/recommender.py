@@ -461,8 +461,6 @@ class DraftState:
         self,
         pool: list[tuple[str, PlayerValue]],
     ) -> dict[str, dict[str, float]] | None:
-        if getattr(self, "healthy_ppg_store", None) is None:
-            return None
         result: dict[str, dict[str, float]] = {}
         for player_id, player in pool:
             metrics = self._healthy_ppg_metrics(player_id, player)
@@ -828,26 +826,104 @@ class DraftState:
             by_pos[row["pos"]].append(row)
         return {pos: rows[:per_pos] for pos, rows in by_pos.items()}
 
+    def _resolve_sleeper_id(
+        self,
+        player_id: str | None,
+        *,
+        name: str | None = None,
+    ) -> str | None:
+        if player_id:
+            return str(player_id)
+        if not name:
+            return None
+        key = normalize_name(name)
+        for sid, sleeper in self.sleeper_players.items():
+            if normalize_name(sleeper.get("full_name") or "") == key:
+                return str(sid)
+        return None
+
     def _healthy_ppg_metrics(
         self,
         player_id: str | None,
         player: PlayerValue | None = None,
         *,
         name: str | None = None,
-    ) -> dict[str, float | int] | None:
-        store = getattr(self, "healthy_ppg_store", None)
-        if store is None:
-            return None
+    ) -> dict[str, float | int | str | bool] | None:
         lookup_name = name or (player.name if player else None)
-        row = store.lookup(str(player_id) if player_id else None, name=lookup_name)
-        if row is None:
+        store = getattr(self, "healthy_ppg_store", None)
+        if store is not None:
+            row = store.lookup(str(player_id) if player_id else None, name=lookup_name)
+            if row is not None:
+                return {
+                    "healthy_ppg": row.healthy_ppg,
+                    "worp_ppg": row.worp_ppg,
+                    "availability": row.availability,
+                    "healthy_games": row.healthy_games,
+                    "total_games": row.total_games,
+                    "ppg_source": "nflverse",
+                    "hppg_expected": False,
+                }
+        return self._expected_ppg_metrics(
+            player_id,
+            player,
+            name=lookup_name,
+        )
+
+    def _expected_ppg_metrics(
+        self,
+        player_id: str | None,
+        player: PlayerValue | None,
+        *,
+        name: str | None = None,
+    ) -> dict[str, float | int | str | bool] | None:
+        """Sleeper season projection or TV/WORP imputation when nflverse history is missing."""
+        if player is None and name:
+            player = self.war.lookup(name)
+        if player is None:
             return None
+
+        pid = self._resolve_sleeper_id(player_id, name=name or player.name)
+        projections: SleeperProjectionStore | None = getattr(self, "projection_store", None)
+        source = "estimated"
+        season_pts: float | None = None
+        worp_ppg: float | None = None
+
+        if projections is not None and pid:
+            season_pts = projections.projected_points(pid)
+            projected_worp = projections.projected_worp(pid, player.pos)
+            if projected_worp is not None:
+                worp_ppg = projected_worp / 17.0
+            if season_pts is not None:
+                source = "projected"
+
+        blended = self.with_blended_tv(player)
+        eff, _ = self._effective_worp(pid, blended)
+        if eff is not None and worp_ppg is None:
+            worp_ppg = eff / 17.0
+
+        if season_pts is None:
+            if worp_ppg is None:
+                return None
+            if projections is not None:
+                rep = projections.replacement_ppg(player.pos)
+                scale = projections.worp_per_vor(player.pos)
+                vor_ppg = worp_ppg / scale if scale > 0 else 0.0
+                season_pts = (rep + vor_ppg) * 17.0
+            else:
+                season_pts = max(worp_ppg * 17.0 * 6.0, 0.0)
+
+        ppg = season_pts / 17.0
+        if worp_ppg is None and eff is not None:
+            worp_ppg = eff / 17.0
+
         return {
-            "healthy_ppg": row.healthy_ppg,
-            "worp_ppg": row.worp_ppg,
-            "availability": row.availability,
-            "healthy_games": row.healthy_games,
-            "total_games": row.total_games,
+            "healthy_ppg": round(ppg, 2),
+            "worp_ppg": round(worp_ppg, 4) if worp_ppg is not None else None,
+            "availability": 1.0,
+            "healthy_games": 17,
+            "total_games": 17,
+            "ppg_source": source,
+            "hppg_expected": True,
         }
 
     def _flex_raw_score(self, player_id: str, player: PlayerValue) -> float:
@@ -900,10 +976,14 @@ class DraftState:
 
     def attach_healthy_metrics(self, rows: list[dict[str, Any]]) -> None:
         for row in rows:
-            healthy = self._healthy_ppg_metrics(
-                str(row["player_id"]) if row.get("player_id") else None,
-                name=row.get("name"),
-            )
+            player_id = str(row["player_id"]) if row.get("player_id") else None
+            name = row.get("name")
+            war_player = None
+            if player_id:
+                war_player = self._match_war(player_id)
+            if war_player is None and name:
+                war_player = self.war.lookup(name)
+            healthy = self._healthy_ppg_metrics(player_id, war_player, name=name)
             if healthy:
                 row.update(healthy)
 

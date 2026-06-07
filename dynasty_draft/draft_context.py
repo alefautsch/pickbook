@@ -496,6 +496,8 @@ def _apply_dynasty_to_lineup(state: DraftState, team: dict[str, Any]) -> dict[st
             "total_dynasty_rating": 0,
             "starter_avg_dynasty_rating": 0,
             "avg_dynasty_rating": 0,
+            "starter_total_ppg": None,
+            "starter_ppg_slots": 0,
         }
 
     scores = state.dynasty_scores(pool)
@@ -523,12 +525,21 @@ def _apply_dynasty_to_lineup(state: DraftState, team: dict[str, Any]) -> dict[st
         for sid in starter_ids
         if sid and sid in scores
     ]
+    starter_ppg_values = [
+        float(player["healthy_ppg"])
+        for player in starters
+        if player.get("healthy_ppg") is not None
+    ]
     return {
         "total_dynasty_rating": sum(ratings),
         "starter_avg_dynasty_rating": (
             round(sum(starter_ratings) / len(starter_ratings)) if starter_ratings else 0
         ),
         "avg_dynasty_rating": round(sum(ratings) / len(ratings)) if ratings else 0,
+        "starter_total_ppg": (
+            round(sum(starter_ppg_values), 1) if starter_ppg_values else None
+        ),
+        "starter_ppg_slots": len(starter_ppg_values),
     }
 
 
@@ -573,17 +584,24 @@ def build_league_rankings(state: DraftState) -> dict[str, list[dict[str, Any]]]:
     def _rank_key_dynasty(row: dict[str, Any]) -> float:
         return float(row.get("avg_dynasty_rating") or 0)
 
+    def _rank_key_starter_ppg(row: dict[str, Any]) -> float:
+        return float(row.get("starter_total_ppg") or -1)
+
     by_trade_value = sorted(teams, key=_rank_key_tv, reverse=True)
     by_win_now = sorted(teams, key=_rank_key_win, reverse=True)
     by_dynasty = sorted(teams, key=_rank_key_dynasty, reverse=True)
+    by_starter_ppg = sorted(teams, key=_rank_key_starter_ppg, reverse=True)
     for idx, row in enumerate(by_trade_value, start=1):
         row["tv_rank"] = idx
     for idx, row in enumerate(by_win_now, start=1):
         row["win_rank"] = idx
+    for idx, row in enumerate(by_starter_ppg, start=1):
+        row["starter_ppg_rank"] = idx
     return {
         "by_dynasty": by_dynasty,
         "by_trade_value": by_trade_value,
         "by_win_now": by_win_now,
+        "by_starter_ppg": by_starter_ppg,
     }
 
 
@@ -600,6 +618,8 @@ def league_rankings_summary(state: DraftState) -> dict[str, list[dict[str, Any]]
             "starter_avg_dynasty_rating": team.get("starter_avg_dynasty_rating"),
             "total_trade_value": team.get("total_trade_value"),
             "win_now_score": team.get("win_now_score"),
+            "starter_total_ppg": team.get("starter_total_ppg"),
+            "starter_ppg_rank": team.get("starter_ppg_rank"),
             "dynasty_rank": team.get("dynasty_rank"),
             "tv_rank": team.get("tv_rank"),
             "win_rank": team.get("win_rank"),
@@ -609,6 +629,7 @@ def league_rankings_summary(state: DraftState) -> dict[str, list[dict[str, Any]]
         "by_dynasty": [_row(team) for team in rankings["by_dynasty"]],
         "by_trade_value": [_row(team) for team in rankings["by_trade_value"]],
         "by_win_now": [_row(team) for team in rankings["by_win_now"]],
+        "by_starter_ppg": [_row(team) for team in rankings["by_starter_ppg"]],
     }
 
 
