@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { LineupSlot, PlayerCard } from "@/lib/api";
+import type { RatingMode } from "./TeamPageContent";
 import { projectionSourceLabel } from "@/lib/archetype";
 import {
   formatActvGames,
@@ -20,6 +21,7 @@ type RosterTableProps = {
   slotLabels?: Record<string, string>;
   full?: boolean;
   statsOnly?: boolean;
+  ratingMode?: RatingMode;
 };
 
 function PlayerCell({ player }: { player: PlayerCard }) {
@@ -73,11 +75,15 @@ function StatRow({
   player,
   slot,
   full,
+  ratingMode = "dynasty",
 }: {
   player: PlayerCard;
   slot: string;
   full: boolean;
+  ratingMode?: RatingMode;
 }) {
+  const displayOvr =
+    ratingMode === "win_now" ? (player.lenses.win_now_rating ?? player.ovr) : player.ovr;
   return (
     <tr className="border-b border-bb-border/30 hover:bg-white/5">
       <td className="relative w-14 p-0 align-middle">
@@ -93,7 +99,7 @@ function StatRow({
         </>
       ) : null}
       <td className="px-3 py-2.5">
-        <OvrBadge ovr={player.ovr} expected={player.hppg_expected} size="sm" />
+        <OvrBadge ovr={displayOvr} expected={player.hppg_expected} size="sm" />
       </td>
       <ProjectionCell player={player} />
       <td className="px-3 py-2.5 text-white">
@@ -169,6 +175,7 @@ export function RosterTable({
   bench,
   slotLabels,
   full = false,
+  ratingMode = "dynasty",
 }: RosterTableProps) {
   const starterSlots = starters ?? [];
   const benchPlayers = bench ?? [];
@@ -234,6 +241,7 @@ export function RosterTable({
                     player={slot.player}
                     slot={slot.slot}
                     full={full}
+                    ratingMode={ratingMode}
                   />
                 ) : (
                   <EmptyStatRow
@@ -259,6 +267,7 @@ export function RosterTable({
                       player={player}
                       slot="BN"
                       full={full}
+                      ratingMode={ratingMode}
                     />
                   ))}
                 </>
@@ -280,6 +289,7 @@ export function RosterTable({
                   player={player}
                   slot="BN"
                   full={full}
+                  ratingMode={ratingMode}
                 />
               ))}
             </>
@@ -290,6 +300,7 @@ export function RosterTable({
                 player={player}
                 slot={slotLabels?.[player.player_id] ?? player.position ?? "BN"}
                 full={full}
+                ratingMode={ratingMode}
               />
             ))
           )}

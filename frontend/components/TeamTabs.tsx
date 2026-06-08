@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import type { TeamDetail } from "@/lib/api";
+import type { RatingMode } from "./TeamPageContent";
 import { DepthChartPanel } from "./DepthChartPanel";
 import { RosterTable } from "./RosterTable";
 
 type TeamTabsProps = {
   team: TeamDetail;
+  ratingMode?: RatingMode;
 };
 
 type TabKey = "roster" | "depth" | "stats";
@@ -17,7 +19,7 @@ const tabs: { key: TabKey; label: string }[] = [
   { key: "stats", label: "Stats" },
 ];
 
-export function TeamTabs({ team }: TeamTabsProps) {
+export function TeamTabs({ team, ratingMode = "dynasty" }: TeamTabsProps) {
   const [tab, setTab] = useState<TabKey>("roster");
 
   return (
@@ -40,7 +42,7 @@ export function TeamTabs({ team }: TeamTabsProps) {
       </div>
 
       {tab === "roster" ? (
-        <RosterTable starters={team.starters} bench={team.bench} full />
+        <RosterTable starters={team.starters} bench={team.bench} full ratingMode={ratingMode} />
       ) : null}
       {tab === "depth" ? (
         <DepthChartPanel depthChart={team.depth_chart} leagueId={team.league_id} />
@@ -51,6 +53,7 @@ export function TeamTabs({ team }: TeamTabsProps) {
           bench={team.bench}
           full
           statsOnly
+          ratingMode={ratingMode}
         />
       ) : null}
     </div>

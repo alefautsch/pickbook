@@ -650,35 +650,75 @@ def win_now_relative_ratings(
     *,
     curve: DynastyRatingCurve | None = None,
 ) -> dict[str, int]:
-    """50–99 win-now lens from projected_ppg within each position (§5.8)."""
-    curve = curve or DynastyRatingCurve()
-    by_pos: dict[str, list[tuple[str, float]]] = {}
+    """
+    Win-now rating: composite of projected_ppg (50%), worp_ppg (25%), porp (25%),
+    then rank-mapped within position so rank-1 → 99, rank-10 → 82, rank-20 → 77.
+    Formula: max(35, round(99 - 7.5 * ln(rank))).
+    """
+    import math
+
+    _WIN_NOW_WEIGHTS = (
+        ("projected_ppg", 0.50),
+        ("worp_ppg", 0.25),
+        ("porp", 0.25),
+    )
+
+    def _get(row: dict[str, Any], key: str) -> float | None:
+        v = row.get(key)
+        if v is None and key == "projected_ppg":
+            v = row.get("hppg")
+        return float(v) if v is not None else None
+
+    def _normalize(vals: list[float]) -> list[float]:
+        mn, mx = min(vals), max(vals)
+        if mx == mn:
+            return [1.0] * len(vals)
+        return [(v - mn) / (mx - mn) for v in vals]
+
+    by_pos: dict[str, list[tuple[str, dict[str, float | None]]]] = {}
     for player_id, row in pool:
         pos = (row.get("position") or "").upper()
-        raw = row.get("projected_ppg")
-        if raw is None:
-            raw = row.get("hppg")
-        if raw is None:
-            raw = (row.get("worp_ppg") or 0) * 12.0
         if pos not in POSITIONS:
             continue
-        by_pos.setdefault(pos, []).append((player_id, float(raw)))
+        metrics = {key: _get(row, key) for key, _ in _WIN_NOW_WEIGHTS}
+        by_pos.setdefault(pos, []).append((player_id, metrics))
 
     ratings: dict[str, int] = {}
     for pos_rows in by_pos.values():
         if not pos_rows:
             continue
-        vals = [v for _, v in pos_rows]
-        raw_min, raw_max = min(vals), max(vals)
-        for player_id, raw in pos_rows:
-            if raw_max > raw_min:
-                composite = (raw - raw_min) / (raw_max - raw_min)
-            else:
-                composite = 1.0
-            ratings[player_id] = curved_composite_to_rating(
-                composite,
-                raw_min=0.0,
-                raw_max=1.0,
-                exponent=curve.exponent,
-            )
+
+        norm: dict[str, list[float]] = {}
+        for key, _ in _WIN_NOW_WEIGHTS:
+            raw_vals = [m[key] for _, m in pos_rows]
+            present = [(i, v) for i, v in enumerate(raw_vals) if v is not None]
+            if not present:
+                norm[key] = [0.0] * len(pos_rows)
+                continue
+            indices, values = zip(*present)
+            normed = _normalize(list(values))
+            col = [0.0] * len(pos_rows)
+            for idx, nv in zip(indices, normed):
+                col[idx] = nv
+            norm[key] = col
+
+        composites: list[tuple[str, float]] = []
+        for i, (player_id, metrics) in enumerate(pos_rows):
+            total_weight = 0.0
+            composite = 0.0
+            for key, weight in _WIN_NOW_WEIGHTS:
+                if metrics[key] is not None:
+                    composite += weight * norm[key][i]
+                    total_weight += weight
+            composites.append((player_id, composite / total_weight if total_weight > 0 else 0.0))
+
+        # Percentile-based rating: p=1 is best in pool, p=0 is worst.
+        # Formula: 99 - 40*sqrt(1-p) gives proper spread —
+        #   top 1-2 → 90s, top 10 → ~82, top 20 → ~74, worst → ~59.
+        vals = [c for _, c in composites]
+        min_c, max_c = min(vals), max(vals)
+        for player_id, composite in composites:
+            p = (composite - min_c) / (max_c - min_c) if max_c > min_c else 1.0
+            raw = round(99 - 40 * math.sqrt(1.0 - p))
+            ratings[player_id] = max(35, min(99, raw))
     return ratings
