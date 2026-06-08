@@ -113,8 +113,8 @@ dc/
 
 ### Railway
 - [ ] Provision Postgres plugin.
-- [~] `api` service — `Dockerfile.blackbook` exists; not deployed yet.
-- [ ] `web` service (Next standalone) with `API_URL` pointing at internal api.
+- [~] `api` service — `Dockerfile.blackbook` + `scripts/start-blackbook-api.sh` exist; not deployed yet.
+- [~] `web` service — `frontend/Dockerfile` + `frontend/railway.toml` exist; not deployed yet.
 
 ### Phase 0 notes (for next agent)
 - Branch: `blackbook`. Do not refactor `dynasty_draft/` scoring on this branch except additive changes.
@@ -425,7 +425,7 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 - **Migration:** `alembic/versions/c3d4e5f6a7b8_phase6_snapshot_enrichment.py`
 - **Re-sync required** after pull: `just bb-sync-all` (new snapshot columns + team meta in analysis_json).
 - **Frontend:** `SidebarNav`, `SummaryCards`, `OptimalStartersSidebar`, `ContenderBreakdown`, `OvrGauge`, `DonutChart`, `DurabilityGauge`, `TeamTabs`, `DepthChartPanel`, `InjuryWatchPanel`; pages `/settings`, `/players`.
-- **Pickbook link:** `NEXT_PUBLIC_PICKBOOK_URL` (default `http://localhost:8501`).
+- **Pickbook link:** local dev defaults to `http://localhost:8501`; production hides the link unless `NEXT_PUBLIC_PICKBOOK_URL` is set.
 - **Test URLs:** `/leagues/1314731206859853824`, `/leagues/1314731206859853824/teams/3`, `/players/10229?league_id=1314731206859853824`, `/settings`
 
 ---
@@ -479,8 +479,8 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 
 - [ ] Railway project with: `api` service, `web` service, PostgreSQL plugin.
 - [ ] Shared variables: `DATABASE_URL` (from plugin), `SLEEPER_USERNAME`, `ANTHROPIC_API_KEY` (Phase 8).
-- [ ] `api`: run alembic migrations on deploy (release command), then `uvicorn`.
-- [ ] `web`: Next standalone server; `API_URL` → internal api URL.
+- [~] `api`: `Dockerfile.blackbook` runs alembic migrations, seeds leagues, then `uvicorn`.
+- [~] `web`: `frontend/Dockerfile` runs Next standalone; configure `API_URL` + `NEXT_PUBLIC_API_URL`.
 - [ ] **Scheduler:** Railway Cron service or cron job → `POST https://api…/sync` daily (§9.1, Phase 4.5).
 - [ ] Verify internal networking (web → api) and DB connectivity post-deploy.
 - [ ] Confirm no Vercel involved (§9).

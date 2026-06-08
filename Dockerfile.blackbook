@@ -12,9 +12,11 @@ COPY alembic.ini ./
 COPY war.csv ./
 COPY leagues.seed.json ./
 COPY config.example.json ./
+COPY scripts/start-blackbook-api.sh ./scripts/start-blackbook-api.sh
 
-RUN uv sync --frozen
+RUN chmod +x ./scripts/start-blackbook-api.sh && uv sync --frozen
 
+ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["./scripts/start-blackbook-api.sh"]

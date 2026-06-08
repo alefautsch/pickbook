@@ -13,6 +13,9 @@ install:
 app:
     uv run streamlit run dynasty_draft/app.py
 
+# Alias for the legacy Pickbook link in Blackbook
+pickbook: app
+
 # Alias for `just app`
 run: app
 

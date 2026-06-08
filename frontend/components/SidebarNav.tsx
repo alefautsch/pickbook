@@ -5,7 +5,9 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { LeagueTile as LeagueTileData } from "@/lib/api";
 
-const PICKBOOK_URL = process.env.NEXT_PUBLIC_PICKBOOK_URL ?? "http://localhost:8501";
+const PICKBOOK_URL =
+  process.env.NEXT_PUBLIC_PICKBOOK_URL ??
+  (process.env.NODE_ENV === "development" ? "http://localhost:8501" : "");
 
 type SidebarNavProps = {
   leagues: LeagueTileData[];
@@ -91,18 +93,18 @@ export function SidebarNav({ leagues, activeLeagueId }: SidebarNavProps) {
   ];
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-bb-border/60 bg-[#0a0e14]/90">
-      <div className="border-b border-bb-border/40 px-5 py-5">
+    <aside className="flex w-32 shrink-0 flex-col border-r border-bb-border/60 bg-[#0a0e14]/90">
+      <div className="border-b border-bb-border/40 px-3 py-4">
         <Link href={leagueBase} className="block">
-          <div className="flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-bb-gold/15 text-sm font-bold text-bb-gold">
+          <div className="flex items-center gap-1.5">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-bb-gold/15 text-xs font-bold text-bb-gold">
               B
             </span>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-bb-gold">
+            <div className="min-w-0">
+              <p className="truncate text-[9px] font-semibold uppercase tracking-normal text-bb-gold">
                 Blackbook
               </p>
-              <p className="text-[10px] uppercase tracking-wider text-bb-muted">
+              <p className="truncate text-[8px] uppercase tracking-wider text-bb-muted">
                 Command Center
               </p>
             </div>
@@ -117,7 +119,7 @@ export function SidebarNav({ leagues, activeLeagueId }: SidebarNavProps) {
             <Link
               key={item.key}
               href={item.href}
-              className={`relative rounded-lg px-3 py-2.5 text-sm transition ${
+              className={`relative rounded-lg px-2 py-2.5 text-xs transition ${
                 isActive
                   ? "bg-bb-gold/10 font-medium text-bb-gold"
                   : "text-bb-muted hover:bg-white/5 hover:text-white"
@@ -133,7 +135,7 @@ export function SidebarNav({ leagues, activeLeagueId }: SidebarNavProps) {
       </nav>
 
       {activeLeague?.my_team_name ? (
-        <div className="border-t border-bb-border/40 px-4 py-3">
+        <div className="border-t border-bb-border/40 px-3 py-3">
           <p className="truncate text-sm font-medium text-white">
             {activeLeague.my_team_name}
           </p>
@@ -141,17 +143,19 @@ export function SidebarNav({ leagues, activeLeagueId }: SidebarNavProps) {
         </div>
       ) : null}
 
-      <div className="border-t border-bb-border/40 px-3 py-4">
-        <a
-          href={PICKBOOK_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center justify-between rounded-lg border border-bb-gold/30 bg-bb-gold/5 px-3 py-2.5 text-xs font-medium text-bb-gold transition hover:bg-bb-gold/10"
-        >
-          <span>View Pickbook</span>
-          <span>↗</span>
-        </a>
-      </div>
+      {PICKBOOK_URL ? (
+        <div className="border-t border-bb-border/40 px-3 py-4">
+          <a
+            href={PICKBOOK_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-between rounded-lg border border-bb-gold/30 bg-bb-gold/5 px-3 py-2.5 text-xs font-medium text-bb-gold transition hover:bg-bb-gold/10"
+          >
+            <span>View Pickbook</span>
+            <span>↗</span>
+          </a>
+        </div>
+      ) : null}
     </aside>
   );
 }

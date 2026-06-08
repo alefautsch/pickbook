@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { PlayerCard } from "@/lib/api";
+import type { LineupSlot, PlayerCard } from "@/lib/api";
 import { projectionSourceLabel } from "@/lib/archetype";
 import {
   formatActvGames,
@@ -8,11 +8,13 @@ import {
   formatTv,
   formatWorpPpg,
 } from "@/lib/format";
+import { formatSlotLabel } from "@/lib/positions";
 import { OvrBadge } from "./OvrBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
 import { PositionPill } from "./PositionPill";
 
 type RosterTableProps = {
+  starters?: LineupSlot[];
   players?: PlayerCard[];
   bench?: PlayerCard[];
   slotLabels?: Record<string, string>;
@@ -66,7 +68,10 @@ function StatRow({
         <PlayerCell player={player} />
       </td>
       {full ? (
-        <td className="px-3 py-2.5 text-white">{player.age ?? "—"}</td>
+        <>
+          <td className="px-3 py-2.5 text-white">{player.nfl_team ?? "—"}</td>
+          <td className="px-3 py-2.5 text-white">{player.age ?? "—"}</td>
+        </>
       ) : null}
       <td className="px-3 py-2.5">
         <OvrBadge ovr={player.ovr} expected={player.hppg_expected} size="sm" />
@@ -119,17 +124,60 @@ function StatRow({
   );
 }
 
+function EmptyStatRow({
+  slot,
+  full,
+  statsOnly,
+}: {
+  slot: string;
+  full: boolean;
+  statsOnly: boolean;
+}) {
+  return (
+    <tr className="border-b border-bb-border/30">
+      <td className="relative w-14 p-0 align-middle">
+        <PositionPill slot={slot} fill />
+      </td>
+      <td className="px-3 py-2.5 text-bb-muted">
+        Empty {formatSlotLabel(slot)} slot
+      </td>
+      {full ? (
+        <>
+          <td className="px-3 py-2.5 text-bb-muted">—</td>
+          <td className="px-3 py-2.5 text-bb-muted">—</td>
+        </>
+      ) : null}
+      <td className="px-3 py-2.5 text-bb-muted">—</td>
+      <td className="px-3 py-2.5 text-bb-muted">—</td>
+      {!statsOnly ? <td className="px-3 py-2.5 text-bb-muted">—</td> : null}
+      <td className="px-3 py-2.5 text-bb-muted">—</td>
+      {full ? <td className="px-3 py-2.5 text-bb-muted">—</td> : null}
+      <td className="px-3 py-2.5 text-bb-muted">—</td>
+      {full ? (
+        <>
+          <td className="px-3 py-2.5 text-bb-muted">—</td>
+          <td className="px-3 py-2.5 text-bb-muted">—</td>
+          <td className="px-3 py-2.5 text-bb-muted">—</td>
+        </>
+      ) : null}
+    </tr>
+  );
+}
+
 export function RosterTable({
+  starters,
   players,
   bench,
   slotLabels,
   full = false,
   statsOnly = false,
 }: RosterTableProps) {
+  const starterSlots = starters ?? [];
   const benchPlayers = bench ?? [];
   const flatPlayers = players ?? [];
+  const hasStarterSection = starters != null;
 
-  if (bench != null) {
+  if (bench != null && !hasStarterSection) {
     if (benchPlayers.length === 0) {
       return (
         <div className="bb-card px-4 py-8 text-center text-sm text-bb-muted">
@@ -137,28 +185,33 @@ export function RosterTable({
         </div>
       );
     }
-  } else if (flatPlayers.length === 0) {
+  } else if (!hasStarterSection && flatPlayers.length === 0) {
     return null;
   }
 
-  const colSpan = full ? (statsOnly ? 11 : 12) : statsOnly ? 6 : 7;
+  const colSpan = full ? (statsOnly ? 12 : 13) : statsOnly ? 6 : 7;
 
   return (
     <div className="bb-card overflow-x-auto">
-      <table className="w-full min-w-[960px] text-left text-sm">
+      <table className="w-full min-w-[1040px] text-left text-sm">
         <thead>
           <tr className="border-b border-bb-border/60 text-xs uppercase tracking-wide text-bb-muted">
             <th className="w-14 px-3 py-3 text-center font-medium">Pos</th>
             <th className="px-3 py-3 font-medium">Player</th>
-            {full ? <th className="px-3 py-3 font-medium">Age</th> : null}
+            {full ? (
+              <>
+                <th className="px-3 py-3 font-medium">Team</th>
+                <th className="px-3 py-3 font-medium">Age</th>
+              </>
+            ) : null}
             <th className="px-3 py-3 font-medium">OVR</th>
             <th className="px-3 py-3 font-medium">HPPG</th>
             {!statsOnly ? (
-              <th className="px-3 py-3 font-medium">Proj PPG</th>
+              <th className="px-3 py-3 font-medium">Proj</th>
             ) : null}
-            <th className="px-3 py-3 font-medium">W/g</th>
+            <th className="px-3 py-3 font-medium">W/G</th>
             {full ? <th className="px-3 py-3 font-medium">ACTV</th> : null}
-            <th className="px-3 py-3 font-medium">TV</th>
+            <th className="px-3 py-3 font-medium">Trade Value</th>
             {full ? (
               <>
                 <th className="px-3 py-3 font-medium">WORP</th>
@@ -169,7 +222,57 @@ export function RosterTable({
           </tr>
         </thead>
         <tbody>
-          {bench != null ? (
+          {hasStarterSection ? (
+            <>
+              <tr className="bg-white/2">
+                <td
+                  colSpan={colSpan}
+                  className="px-3 py-2 text-xs font-bold uppercase tracking-widest text-bb-muted"
+                >
+                  Roster
+                </td>
+              </tr>
+              {starterSlots.map((slot, index) =>
+                slot.player ? (
+                  <StatRow
+                    key={`starter-${slot.slot}-${slot.player.player_id}-${index}`}
+                    player={slot.player}
+                    slot={slot.slot}
+                    full={full}
+                    statsOnly={statsOnly}
+                  />
+                ) : (
+                  <EmptyStatRow
+                    key={`starter-empty-${slot.slot}-${index}`}
+                    slot={slot.slot}
+                    full={full}
+                    statsOnly={statsOnly}
+                  />
+                ),
+              )}
+              {benchPlayers.length > 0 ? (
+                <>
+                  <tr className="bg-white/2">
+                    <td
+                      colSpan={colSpan}
+                      className="px-3 py-2 text-xs font-bold uppercase tracking-widest text-bb-muted"
+                    >
+                      Bench
+                    </td>
+                  </tr>
+                  {benchPlayers.map((player) => (
+                    <StatRow
+                      key={`bench-${player.player_id}`}
+                      player={player}
+                      slot="BN"
+                      full={full}
+                      statsOnly={statsOnly}
+                    />
+                  ))}
+                </>
+              ) : null}
+            </>
+          ) : bench != null ? (
             <>
               <tr className="bg-white/2">
                 <td

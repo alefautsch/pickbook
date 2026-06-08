@@ -26,7 +26,8 @@ from dynasty_draft.war_data import POSITIONS, normalize_name
 OPPORTUNITY_TTL_SECONDS = 7 * 24 * 60 * 60
 _NFLVERSE = "https://github.com/nflverse/nflverse-data/releases/download"
 _USER_AGENT = "blackbook/0.1 (dynasty portfolio tool)"
-_BLEND_WEIGHT = 0.5
+RECENCY_DECAY = 0.9
+_CACHE_VERSION = "v2"
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ class OpportunityRow:
     volume_per_game: float | None
     efficiency: float | None
     nflverse_ppg: float | None
+    sample_games: int | None
 
 
 @dataclass(frozen=True)
@@ -76,7 +78,7 @@ class OpportunityStore:
         ppr: float = 0.5,
         force_refresh: bool = False,
     ) -> OpportunityStore:
-        cache_path = CACHE_DIR / f"opportunity_{'-'.join(str(s) for s in seasons)}.json"
+        cache_path = CACHE_DIR / f"opportunity_{_CACHE_VERSION}_{'-'.join(str(s) for s in seasons)}.json"
         now = time.time()
         if not force_refresh and cache_path.exists():
             try:
@@ -157,7 +159,7 @@ def _build_opportunity_metrics(
         return {}
 
     data = pd.concat(weekly_frames, ignore_index=True)
-    team_col = "recent_team" if "recent_team" in data.columns else "team"
+    player_team_col = "recent_team" if "recent_team" in data.columns else "team"
     healthy = data[data["healthy"]].copy()
 
     for col in ("targets", "carries", "attempts", "receptions"):
@@ -187,12 +189,12 @@ def _build_opportunity_metrics(
             team_data["off_plays"] = passes + rushes
         else:
             team_data["off_plays"] = 60.0
-        team_col = "team_abbr" if "team_abbr" in team_data.columns else "team"
-        pace = team_data.groupby(team_col, dropna=False)["off_plays"].mean().to_dict()
+        team_pace_col = "team_abbr" if "team_abbr" in team_data.columns else "team"
+        pace = team_data.groupby(team_pace_col, dropna=False)["off_plays"].mean().to_dict()
         team_pace = {str(k): float(v) for k, v in pace.items() if k and pd.notna(k)}
 
     team_weekly = (
-        healthy.groupby([team_col, "season", "week"], dropna=False)
+        healthy.groupby([player_team_col, "season", "week"], dropna=False)
         .agg(
             team_targets=("targets", "sum"),
             team_carries=("carries", "sum"),
@@ -202,30 +204,18 @@ def _build_opportunity_metrics(
     )
     healthy = healthy.merge(
         team_weekly,
-        on=[team_col, "season", "week"],
+        on=[player_team_col, "season", "week"],
         how="left",
     )
+    keys = ["player_id", "player_display_name", "position", player_team_col]
+    healthy = _with_recency_weights(healthy, keys)
 
-    keys = ["player_id", "player_display_name", "position", team_col]
-    grouped = (
-        healthy.groupby(keys, dropna=False)
-        .agg(
-            targets_pg=("targets", "mean"),
-            carries_pg=("carries", "mean"),
-            attempts_pg=("attempts", "mean"),
-            fp_pg=("half_ppr", "mean"),
-            team_targets_pg=("team_targets", "mean"),
-            team_carries_pg=("team_carries", "mean"),
-            team_attempts_pg=("team_attempts", "mean"),
-            games=("week", "count"),
-        )
-        .reset_index()
-    )
+    grouped = _opportunity_rows(healthy, keys)
 
     metrics: dict[str, dict[str, Any]] = {}
     for _, row in grouped.iterrows():
         pos = str(row["position"])
-        team = str(row.get(team_col) or "")
+        team = str(row.get(player_team_col) or "")
         targets_pg = float(row["targets_pg"])
         carries_pg = float(row["carries_pg"])
         attempts_pg = float(row["attempts_pg"])
@@ -272,6 +262,7 @@ def _build_opportunity_metrics(
             "volume_per_game": round(volume_pg, 2),
             "efficiency": round(efficiency, 4) if efficiency is not None else None,
             "nflverse_ppg": nflverse_ppg,
+            "sample_games": int(row["games"]),
             "name": str(row["player_display_name"]),
             "gsis_id": str(row["player_id"]),
             "pos": pos,
@@ -280,6 +271,83 @@ def _build_opportunity_metrics(
         metrics[f"name:{normalize_name(str(row['player_display_name']))}"] = payload
 
     return metrics
+
+
+def _weighted_average(values: pd.Series, weights: pd.Series) -> float:
+    total_weight = float(weights.sum())
+    if total_weight <= 0:
+        return 0.0
+    return float((values.astype(float) * weights.astype(float)).sum() / total_weight)
+
+
+def _with_recency_weights(data: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
+    if data.empty:
+        data["recency_weight"] = pd.Series(dtype=float)
+        return data
+
+    weighted = data.copy()
+    weighted["recency_weight"] = 1.0
+    weighted["_game_order"] = pd.to_numeric(weighted["season"], errors="coerce").fillna(0) * 100
+    weighted["_game_order"] += pd.to_numeric(weighted["week"], errors="coerce").fillna(0)
+
+    for _, group in weighted.groupby(keys, dropna=False):
+        ordered = group.sort_values("_game_order", ascending=False).index
+        for age, idx in enumerate(ordered):
+            weighted.at[idx, "recency_weight"] = RECENCY_DECAY**age
+
+    return weighted.drop(columns=["_game_order"])
+
+
+def _opportunity_rows(data: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
+    metric_cols = [
+        "targets",
+        "carries",
+        "attempts",
+        "half_ppr",
+        "team_targets",
+        "team_carries",
+        "team_attempts",
+    ]
+    records: list[dict[str, Any]] = []
+    for key_values, group in data.groupby(keys, dropna=False):
+        if not isinstance(key_values, tuple):
+            key_values = (key_values,)
+        record = dict(zip(keys, key_values, strict=True))
+        weights = group["recency_weight"]
+        for col in metric_cols:
+            record[col] = _weighted_average(group[col], weights)
+        record["games"] = int(len(group))
+        records.append(record)
+
+    rows = []
+    for record in records:
+        rows.append(
+            {
+                **{key: record[key] for key in keys},
+                "targets_pg": record["targets"],
+                "carries_pg": record["carries"],
+                "attempts_pg": record["attempts"],
+                "fp_pg": record["half_ppr"],
+                "team_targets_pg": record["team_targets"],
+                "team_carries_pg": record["team_carries"],
+                "team_attempts_pg": record["team_attempts"],
+                "games": record["games"],
+            }
+        )
+    return pd.DataFrame(
+        rows,
+        columns=[
+            *keys,
+            "targets_pg",
+            "carries_pg",
+            "attempts_pg",
+            "fp_pg",
+            "team_targets_pg",
+            "team_carries_pg",
+            "team_attempts_pg",
+            "games",
+        ],
+    )
 
 
 def _row_from_dict(raw: dict[str, Any]) -> OpportunityRow | None:
@@ -292,6 +360,7 @@ def _row_from_dict(raw: dict[str, Any]) -> OpportunityRow | None:
             volume_per_game=raw.get("volume_per_game"),
             efficiency=raw.get("efficiency"),
             nflverse_ppg=raw.get("nflverse_ppg"),
+            sample_games=raw.get("sample_games"),
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -341,9 +410,20 @@ def _sleeper_ppg(
 def _blend_projected_ppg(
     nflverse_ppg: float | None,
     sleeper_ppg: float | None,
+    *,
+    sample_games: int | None = None,
+    dynasty_rookie: bool = False,
 ) -> tuple[float | None, str | None]:
     if nflverse_ppg is not None and sleeper_ppg is not None:
-        blended = round(_BLEND_WEIGHT * nflverse_ppg + _BLEND_WEIGHT * sleeper_ppg, 2)
+        sample_factor = min(max(float(sample_games or 0) / 12.0, 0.0), 1.0)
+        nflverse_weight = 0.25 + 0.45 * sample_factor
+        if dynasty_rookie:
+            nflverse_weight *= 0.5
+        nflverse_weight = min(max(nflverse_weight, 0.15), 0.70)
+        blended = round(
+            nflverse_weight * nflverse_ppg + (1.0 - nflverse_weight) * sleeper_ppg,
+            2,
+        )
         return blended, "nflverse_blend"
     if nflverse_ppg is not None:
         return nflverse_ppg, "custom"
@@ -461,7 +541,12 @@ def compute_projection(
 
     sleeper_ppg = _sleeper_ppg(player_id, projections=projections)
     nflverse_ppg = opp.nflverse_ppg if opp else None
-    projected_ppg, projection_source = _blend_projected_ppg(nflverse_ppg, sleeper_ppg)
+    projected_ppg, projection_source = _blend_projected_ppg(
+        nflverse_ppg,
+        sleeper_ppg,
+        sample_games=opp.sample_games if opp else None,
+        dynasty_rookie=dynasty_rookie,
+    )
 
     if projected_ppg is None and hppg is not None:
         projected_ppg = round(float(hppg), 2)

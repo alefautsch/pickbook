@@ -36,9 +36,9 @@ export function SyncButton() {
         type="button"
         onClick={handleSync}
         disabled={status === "syncing"}
-        className="rounded-lg border border-bb-gold/40 bg-bb-gold/10 px-4 py-2 text-sm font-medium text-bb-gold transition hover:bg-bb-gold/20 disabled:opacity-50"
+        className="rounded-lg border border-bb-gold/40 bg-bb-gold/10 px-3 py-1.5 text-sm font-medium text-bb-gold transition hover:bg-bb-gold/20 disabled:opacity-50"
       >
-        {status === "syncing" ? "Syncing…" : "Sync all leagues"}
+        {status === "syncing" ? "Syncing…" : "Sync Now"}
       </button>
       {message ? (
         <span

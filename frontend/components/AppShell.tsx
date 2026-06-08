@@ -22,13 +22,17 @@ export function AppShell({ leagues, activeLeagueId, children }: AppShellProps) {
       <SidebarNav leagues={leagues} activeLeagueId={resolvedLeagueId} />
 
       <div className="flex min-h-full min-w-0 flex-1 flex-col">
-        <header className="border-b border-bb-border/40 bg-[#0a0e14]/80 px-5 py-2 sm:px-8">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <header className="border-b border-bb-border/40 bg-[#0a0e14]/80 px-4 py-2 sm:px-6">
+          <div className="flex min-w-0 items-center justify-between gap-3">
             <LeagueSwitcher leagues={leagues} activeLeagueId={resolvedLeagueId} />
-            <div className="flex flex-wrap items-center gap-3 lg:justify-end">
-              <PlayerSearch />
-              <AdvisorLauncher leagueId={resolvedLeagueId} />
-              <div className="flex items-center gap-2 rounded-lg border border-bb-border/50 bg-black/20 px-3 py-1.5">
+            <div className="flex shrink-0 items-center gap-2">
+              <div className="hidden 2xl:block">
+                <PlayerSearch />
+              </div>
+              <div className="hidden 2xl:block">
+                <AdvisorLauncher leagueId={resolvedLeagueId} />
+              </div>
+              <div className="flex items-center gap-2 rounded-lg border border-bb-border/50 bg-black/20 px-2 py-1.5">
                 <SyncStatusBar />
                 <SyncButton />
               </div>

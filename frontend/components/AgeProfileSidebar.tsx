@@ -2,6 +2,7 @@ import type { AgeProfile } from "@/lib/api";
 
 type AgeProfileSidebarProps = {
   profiles: AgeProfile[];
+  rosterId?: string | null;
 };
 
 const BUCKETS = [
@@ -11,15 +12,17 @@ const BUCKETS = [
   { label: "31+", test: (age: number) => age >= 31 },
 ];
 
-export function AgeProfileSidebar({ profiles }: AgeProfileSidebarProps) {
-  const mine = profiles.find((p) => p.is_me);
-  if (!mine?.starter_ages.length) {
+export function AgeProfileSidebar({ profiles, rosterId }: AgeProfileSidebarProps) {
+  const profile =
+    profiles.find((p) => p.roster_id === rosterId) ??
+    profiles.find((p) => p.is_me);
+  if (!profile?.starter_ages.length) {
     return null;
   }
 
-  const ages = mine.starter_ages.map((s) => s.age);
+  const ages = profile.starter_ages.map((s) => s.age);
   const avg =
-    mine.starter_avg_age ??
+    profile.starter_avg_age ??
     ages.reduce((sum, age) => sum + age, 0) / ages.length;
 
   const bucketCounts = BUCKETS.map((bucket) => ({

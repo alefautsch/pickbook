@@ -18,7 +18,9 @@ HEALTHY_PPG_TTL_SECONDS = 7 * 24 * 60 * 60
 SNAP_PCT_MIN = 0.15
 SNAP_MIN = 8
 DEFAULT_SEASONS = (2024, 2025)
+RECENCY_DECAY = 0.9
 _WORP_PER_VOR_PPG = 0.012
+_CACHE_VERSION = "v2"
 
 _NFLVERSE = "https://github.com/nflverse/nflverse-data/releases/download"
 _USER_AGENT = "pickbook/0.3 (personal dynasty draft tool)"
@@ -66,7 +68,7 @@ class HealthyPpgStore:
         force_refresh: bool = False,
     ) -> HealthyPpgStore:
         roster_positions = roster_positions or ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX"]
-        cache_path = CACHE_DIR / f"healthy_ppg_{'-'.join(str(s) for s in seasons)}.json"
+        cache_path = CACHE_DIR / f"healthy_ppg_{_CACHE_VERSION}_{'-'.join(str(s) for s in seasons)}.json"
         now = time.time()
         if not force_refresh and cache_path.exists():
             try:
@@ -124,7 +126,7 @@ def _session() -> requests.Session:
 def _download_csv(url: str) -> pd.DataFrame:
     response = _session().get(url, timeout=120)
     response.raise_for_status()
-    return pd.read_csv(io.StringIO(response.text))
+    return pd.read_csv(io.StringIO(response.text), low_memory=False)
 
 
 def _build_metrics(
@@ -172,21 +174,12 @@ def _build_metrics(
         return {}
 
     data = pd.concat(frames, ignore_index=True)
+    team_col = "recent_team" if "recent_team" in data.columns else "team"
     keys = ["player_id", "player_display_name", "position"]
     healthy_only = data[data["healthy"]].copy()
-    grouped = (
-        data.groupby(keys, dropna=False)
-        .agg(total_games=("week", "count"))
-        .reset_index()
-    )
-    healthy_stats = (
-        healthy_only.groupby(keys, dropna=False)
-        .agg(
-            healthy_ppg=("half_ppr", "mean"),
-            healthy_games=("week", "count"),
-        )
-        .reset_index()
-    )
+    healthy_only = _with_recency_weights(healthy_only, keys)
+    grouped = _availability_rows(data, keys, team_col, seasons)
+    healthy_stats = _healthy_stats(healthy_only, keys)
     grouped = grouped.merge(healthy_stats, on=keys, how="left")
     grouped["healthy_ppg"] = grouped["healthy_ppg"].fillna(0.0)
     grouped["healthy_games"] = grouped["healthy_games"].fillna(0).astype(int)
@@ -231,6 +224,105 @@ def _build_metrics(
         metrics[f"gsis:{row['player_id']}"] = payload
         metrics[f"name:{normalize_name(str(row['player_display_name']))}"] = payload
     return metrics
+
+
+def _weighted_average(values: pd.Series, weights: pd.Series) -> float:
+    total_weight = float(weights.sum())
+    if total_weight <= 0:
+        return 0.0
+    return float((values.astype(float) * weights.astype(float)).sum() / total_weight)
+
+
+def _with_recency_weights(data: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
+    if data.empty:
+        data["recency_weight"] = pd.Series(dtype=float)
+        return data
+
+    weighted = data.copy()
+    weighted["recency_weight"] = 1.0
+    weighted["_game_order"] = pd.to_numeric(weighted["season"], errors="coerce").fillna(0) * 100
+    weighted["_game_order"] += pd.to_numeric(weighted["week"], errors="coerce").fillna(0)
+
+    for _, group in weighted.groupby(keys, dropna=False):
+        ordered = group.sort_values("_game_order", ascending=False).index
+        for age, idx in enumerate(ordered):
+            weighted.at[idx, "recency_weight"] = RECENCY_DECAY**age
+
+    return weighted.drop(columns=["_game_order"])
+
+
+def _healthy_stats(data: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
+    records: list[dict[str, Any]] = []
+    for key_values, group in data.groupby(keys, dropna=False):
+        if not isinstance(key_values, tuple):
+            key_values = (key_values,)
+        record = dict(zip(keys, key_values, strict=True))
+        record["healthy_ppg"] = _weighted_average(group["half_ppr"], group["recency_weight"])
+        record["healthy_games"] = int(len(group))
+        records.append(record)
+    return pd.DataFrame(records, columns=[*keys, "healthy_ppg", "healthy_games"])
+
+
+def _team_game_counts(seasons: tuple[int, ...]) -> dict[tuple[int, str], int]:
+    try:
+        schedules = _download_csv(f"{_NFLVERSE}/schedules/games.csv")
+    except Exception:
+        return {}
+
+    schedules = schedules[
+        (schedules["game_type"] == "REG")
+        & (schedules["season"].isin(list(seasons)))
+    ].copy()
+
+    counts: dict[tuple[int, str], int] = {}
+    for _, row in schedules.iterrows():
+        season = int(row["season"])
+        for col in ("home_team", "away_team"):
+            team = row.get(col)
+            if pd.isna(team):
+                continue
+            key = (season, str(team).upper())
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _most_common_team(group: pd.DataFrame, team_col: str) -> str | None:
+    if team_col not in group.columns:
+        return None
+    teams = group[team_col].dropna().astype(str).str.upper()
+    if teams.empty:
+        return None
+    return str(teams.mode().iloc[0])
+
+
+def _availability_rows(
+    data: pd.DataFrame,
+    keys: list[str],
+    team_col: str,
+    seasons: tuple[int, ...],
+) -> pd.DataFrame:
+    team_games = _team_game_counts(seasons)
+    records: list[dict[str, Any]] = []
+    for key_values, group in data.groupby(keys, dropna=False):
+        if not isinstance(key_values, tuple):
+            key_values = (key_values,)
+        record = dict(zip(keys, key_values, strict=True))
+
+        scheduled_games = 0
+        for season_value, season_group in group.groupby("season", dropna=False):
+            try:
+                season = int(season_value)
+            except (TypeError, ValueError):
+                scheduled_games += int(len(season_group))
+                continue
+
+            team = _most_common_team(season_group, team_col)
+            scheduled_games += team_games.get((season, team or ""), int(len(season_group)))
+
+        record["total_games"] = max(int(scheduled_games), int(len(group)))
+        records.append(record)
+
+    return pd.DataFrame(records, columns=[*keys, "total_games"])
 
 
 def _half_ppr_points(row: pd.Series, *, ppr: float) -> float:
