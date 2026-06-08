@@ -40,6 +40,13 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
 
+def sqlalchemy_database_url(url: str) -> str:
+    """Use the installed psycopg driver for Railway's plain postgresql URLs."""
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+psycopg://", 1)
+    return url
+
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
