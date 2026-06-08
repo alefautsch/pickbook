@@ -15,7 +15,7 @@ export function SummaryCards({ league }: SummaryCardsProps) {
       sub: league.total_rosters ? `of ${league.total_rosters}` : undefined,
     },
     {
-      label: "Roster OVR",
+      label: "Team OVR",
       value: league.my_roster_ovr ?? "—",
       delta: league.my_roster_ovr_delta,
       badge: true,
@@ -28,9 +28,13 @@ export function SummaryCards({ league }: SummaryCardsProps) {
         : undefined,
     },
     {
-      label: "Trade Value",
+      label: "Player Value",
       value: formatTv(league.my_total_trade_value),
       sub: league.my_tv_rank ? `${ordinal(league.my_tv_rank)} in league` : undefined,
+    },
+    {
+      label: "Pick Value",
+      value: formatTv(league.my_draft_pick_value),
     },
     {
       label: "Contender Index",
@@ -44,7 +48,7 @@ export function SummaryCards({ league }: SummaryCardsProps) {
   ];
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
       {cards.map((card) => (
         <article
           key={card.label}

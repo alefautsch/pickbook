@@ -307,11 +307,20 @@ def _take_best(
     return None
 
 
+def _sort_value(row: dict[str, Any], fields: tuple[str, ...]) -> float:
+    for field in fields:
+        value = row.get(field)
+        if value is not None:
+            return float(value)
+    return 0.0
+
+
 def _assign_lineup(
     players: list[dict[str, Any]],
     roster_positions: list[str],
+    sort_fields: tuple[str, ...] = ("trade_value",),
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    pool = sorted(players, key=lambda row: row.get("trade_value") or 0, reverse=True)
+    pool = sorted(players, key=lambda row: _sort_value(row, sort_fields), reverse=True)
     used: set[str] = set()
     starters: list[dict[str, Any]] = []
 

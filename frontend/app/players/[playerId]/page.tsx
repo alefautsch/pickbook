@@ -9,8 +9,15 @@ import { PlayerHeadshot } from "@/components/PlayerHeadshot";
 import { StatisticalProfile } from "@/components/StatisticalProfile";
 import { OvrTrendSparkline } from "@/components/OvrTrendSparkline";
 import Link from "next/link";
-import { getLeagues, getPlayer, getPlayerHistory, getPlayerHoldings } from "@/lib/api";
+import {
+  getLeagues,
+  getPlayer,
+  getPlayerGameLog,
+  getPlayerHistory,
+  getPlayerHoldings,
+} from "@/lib/api";
 import { OvrBadge } from "@/components/OvrBadge";
+import { projectionSourceLabel } from "@/lib/archetype";
 import {
   formatActvGames,
   formatDecimal,
@@ -22,6 +29,7 @@ import {
   ordinal,
 } from "@/lib/format";
 import { tierLabels, ovrTier } from "@/lib/ovr";
+import { positionColor } from "@/lib/positions";
 
 type PageProps = {
   params: Promise<{ playerId: string }>;
@@ -40,21 +48,35 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
   let player;
   let history = null;
   let holdings = null;
+  let gameLog = null;
 
   try {
-    [leagues, player, history, holdings] = await Promise.all([
+    [leagues, player, history, holdings, gameLog] = await Promise.all([
       getLeagues(),
       getPlayer(playerId, leagueId),
       getPlayerHistory(playerId, leagueId).catch(() => null),
       getPlayerHoldings(playerId).catch(() => null),
+      getPlayerGameLog(playerId, leagueId).catch(() => null),
     ]);
   } catch {
     notFound();
   }
 
   const tier = ovrTier(player.ovr);
-  const statStrip = [
-    { label: "HPPG", value: formatPpg(player.hppg) },
+  const statStrip: {
+    label: string;
+    value: string | number;
+    sub?: string;
+    title?: string;
+    featured?: boolean;
+  }[] = [
+    {
+      label: "Proj PPG",
+      value: formatPpg(player.projected_ppg),
+      sub: `HPPG ${formatPpg(player.hppg)}`,
+      title: projectionSourceLabel(player.projection_source),
+      featured: true,
+    },
     { label: "W/g", value: formatWorpPpg(player.worp_ppg) },
     {
       label: "ACTV",
@@ -68,92 +90,142 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
     { label: "TV", value: formatTv(player.trade_value) },
     { label: "FLEX", value: player.lenses.flex_rating ?? "—" },
     { label: "PORP", value: player.porp != null ? Math.round(player.porp) : "—" },
-    { label: "Proj PPG", value: formatPpg(player.projected_ppg) },
   ];
 
   return (
-    <AppShell leagues={leagues} activeLeagueId={leagueId}>
+    <AppShell
+      leagues={leagues}
+      activeLeagueId={leagueId}
+      advisorContext={{
+        pageType: "player",
+        playerId,
+        playerName: player.player_name ?? undefined,
+        summary: `${player.player_name ?? "Player"} · OVR ${player.ovr ?? "—"}`,
+      }}
+    >
       <div className="flex flex-1 flex-col px-6 py-8 sm:px-10">
         <section className="bb-card mb-6 overflow-hidden p-6">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-center">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
             <PlayerHeadshot
               src={player.headshot_url}
               alt={player.player_name ?? "Player"}
               position={player.position}
-              className="h-32 w-32 shrink-0"
-              sizes="128px"
+              className="h-40 w-40 shrink-0"
+              sizes="160px"
             />
+
+            {/* Name / bio block */}
             <div className="min-w-0 flex-1">
-              <p className="text-sm text-bb-gold">{player.league_name}</p>
-              <h1 className="mt-1 text-3xl font-semibold text-white">
-                {player.player_name}
-              </h1>
-              <p className="mt-1 text-sm text-bb-muted">
-                {player.nfl_team} · {player.position}
+              <p className="text-xs uppercase tracking-wider text-bb-muted">
+                {player.league_name}
               </p>
-              <dl className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
-                <div>
-                  <dt className="inline text-bb-muted">Age </dt>
-                  <dd className="inline text-white">{player.age ?? "—"}</dd>
-                </div>
-                <div>
-                  <dt className="inline text-bb-muted">Ht </dt>
-                  <dd className="inline text-white">{formatHeight(player.bio.height)}</dd>
-                </div>
-                <div>
-                  <dt className="inline text-bb-muted">Wt </dt>
-                  <dd className="inline text-white">
-                    {player.bio.weight ? `${player.bio.weight} lbs` : "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="inline text-bb-muted">Exp </dt>
-                  <dd className="inline text-white">
-                    {formatExp(player.bio.years_exp, player.dynasty_rookie)}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="inline text-bb-muted">College </dt>
-                  <dd className="inline text-white">{player.bio.college ?? "—"}</dd>
-                </div>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <h1 className="text-4xl font-bold tracking-tight text-white">
+                  {player.player_name}
+                </h1>
+                <span
+                  className="shrink-0 rounded-md px-2 py-0.5 text-xs font-bold uppercase"
+                  style={{
+                    backgroundColor: `${positionColor(player.position)}22`,
+                    color: positionColor(player.position),
+                  }}
+                >
+                  {player.position}
+                </span>
+              </div>
+              <p className="mt-1 text-sm font-medium text-bb-muted">
+                {player.nfl_team}
+              </p>
+
+              {/* Physical stats — stacked blocks */}
+              <dl className="mt-4 flex flex-wrap gap-4">
+                {[
+                  { label: "Age", value: player.age ?? "—" },
+                  { label: "Height", value: formatHeight(player.bio.height) },
+                  {
+                    label: "Weight",
+                    value: player.bio.weight ? `${player.bio.weight}` : "—",
+                  },
+                  {
+                    label: "Exp",
+                    value: formatExp(player.bio.years_exp, player.dynasty_rookie),
+                  },
+                  { label: "College", value: player.bio.college ?? "—" },
+                ].map(({ label, value }) => (
+                  <div key={label}>
+                    <dd className="text-base font-semibold text-white">{value}</dd>
+                    <dt className="text-[9px] uppercase tracking-widest text-bb-muted">
+                      {label}
+                    </dt>
+                  </div>
+                ))}
               </dl>
             </div>
-            <div className="flex flex-wrap items-center gap-6">
+
+            {/* OVR gauge + rank boxes */}
+            <div className="flex shrink-0 flex-col items-center gap-3">
               <OvrGauge
                 ovr={player.ovr}
                 expected={player.hppg_expected}
                 size="hero"
               />
-              <div className="text-sm">
+              <div className="flex gap-2">
                 {player.ranks.position_rank ? (
-                  <p className="font-medium text-white">
-                    {ordinal(player.ranks.position_rank)} {player.position} rank
-                  </p>
+                  <div className="rounded-lg bg-white/4 px-4 py-2.5 text-center ring-1 ring-inset ring-white/[0.07]">
+                    <p className="text-xl font-bold tabular-nums text-white">
+                      {ordinal(player.ranks.position_rank)}
+                    </p>
+                    <p className="mt-0.5 text-[9px] uppercase tracking-wider text-bb-muted">
+                      {player.position} rank
+                    </p>
+                  </div>
                 ) : null}
                 {player.ranks.overall_rank ? (
-                  <p className="mt-1 font-medium text-bb-gold">
-                    {ordinal(player.ranks.overall_rank)} overall
-                  </p>
+                  <div className="rounded-lg bg-white/4 px-4 py-2.5 text-center ring-1 ring-inset ring-white/[0.07]">
+                    <p className="text-xl font-bold tabular-nums text-bb-gold">
+                      {ordinal(player.ranks.overall_rank)}
+                    </p>
+                    <p className="mt-0.5 text-[9px] uppercase tracking-wider text-bb-muted">
+                      overall
+                    </p>
+                  </div>
                 ) : null}
-                <p className="mt-2 text-bb-muted">{tierLabels[tier]}</p>
               </div>
+              <span className="rounded-full bg-bb-gold/10 px-3 py-0.5 text-[10px] font-bold uppercase tracking-widest text-bb-gold">
+                {tierLabels[tier]}
+              </span>
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-2 gap-3 border-t border-bb-border/50 pt-4 sm:grid-cols-4 lg:grid-cols-8">
+          {/* Stat strip */}
+          <div className="mt-6 grid grid-cols-3 gap-2 border-t border-bb-border/50 pt-4 sm:grid-cols-4 lg:grid-cols-7">
             {statStrip.map((stat) => (
-              <div key={stat.label}>
-                <p className="text-xs uppercase tracking-wide text-bb-muted">
+              <div
+                key={stat.label}
+                title={stat.title}
+                className="rounded-lg bg-white/4 px-2.5 py-2 ring-1 ring-inset ring-white/[0.07]"
+              >
+                <p className="truncate text-[9px] uppercase tracking-wider text-bb-muted">
                   {stat.label}
                 </p>
-                <p className="mt-0.5 font-medium text-white">{stat.value}</p>
+                <p
+                  className={`mt-0.5 font-bold tabular-nums text-white ${
+                    stat.featured ? "text-xl" : "text-base"
+                  }`}
+                >
+                  {stat.value}
+                </p>
+                {stat.sub ? (
+                  <p className="mt-0.5 text-[10px] text-bb-muted">{stat.sub}</p>
+                ) : null}
               </div>
             ))}
           </div>
         </section>
 
         <div className="grid gap-8 lg:grid-cols-[1.2fr_1fr]">
-          <LensPanel player={player} />
+          {/* Row 1: Stats percentiles | Dynasty breakdown */}
+          <StatisticalProfile player={player} />
 
           <section className="bb-card p-5">
             <h2 className="text-lg font-medium text-white">Dynasty breakdown</h2>
@@ -163,7 +235,8 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
             </div>
           </section>
 
-          <StatisticalProfile player={player} />
+          {/* Row 2: Age outlook | Durability */}
+          <AgeOutlookTimeline player={player} />
 
           <section className="bb-card p-5">
             <h2 className="text-lg font-medium text-white">Durability</h2>
@@ -176,24 +249,11 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
             </div>
           </section>
 
-          <AgeOutlookTimeline player={player} />
-
-          {player.bio.college || player.bio.height ? (
-            <section className="bb-card p-5">
-              <h2 className="text-lg font-medium text-white">Bio</h2>
-              <p className="mt-3 text-sm leading-relaxed text-bb-muted">
-                {player.player_name} plays {player.position} for{" "}
-                {player.nfl_team ?? "—"}
-                {player.bio.college ? ` · ${player.bio.college}` : ""}.{" "}
-                {player.outlook.archetype
-                  ? `Archetype: ${player.outlook.archetype.replace(/_/g, " ")}.`
-                  : ""}
-              </p>
-            </section>
-          ) : null}
+          {/* Row 3: Lenses | Owned in leagues */}
+          <LensPanel player={player} />
 
           {holdings && holdings.leagues.length > 0 ? (
-            <section className="bb-card p-5 lg:col-span-2">
+            <section className="bb-card p-5">
               <h2 className="text-lg font-medium text-white">Owned in leagues</h2>
               <ul className="mt-4 space-y-2">
                 {holdings.leagues.map((league) => (
@@ -218,6 +278,7 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
             </section>
           ) : null}
 
+          {/* Row 4: Grade trend */}
           <section className="bb-card p-5 lg:col-span-2">
             <h2 className="text-lg font-medium text-white">Grade trend</h2>
             <div className="mt-4">
@@ -227,6 +288,109 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
                 <p className="text-sm text-bb-muted">
                   No history yet — sync twice to see trends.
                 </p>
+              )}
+            </div>
+          </section>
+
+          {/* Game log — full width, last */}
+          <section className="bb-card overflow-hidden p-5 lg:col-span-2">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-medium text-white">Game log</h2>
+                <p className="mt-1 text-sm text-bb-muted">
+                  Half-PPR rows from nflverse. Low snap-share injury outliers are excluded.
+                </p>
+              </div>
+              {gameLog ? (
+                <p className="text-xs uppercase tracking-wide text-bb-muted">
+                  {gameLog.entries.filter((entry) => entry.included).length} included ·{" "}
+                  {gameLog.entries.length} total
+                </p>
+              ) : null}
+            </div>
+            <div className="mt-4 overflow-x-auto">
+              {gameLog && gameLog.entries.length > 0 ? (
+                <table className="min-w-full text-left text-sm">
+                  <thead className="border-b border-bb-border/60 text-xs uppercase tracking-wide text-bb-muted">
+                    <tr>
+                      <th className="py-2 pr-4 font-medium">Week</th>
+                      <th className="px-3 py-2 font-medium">Opp</th>
+                      <th className="px-3 py-2 text-right font-medium">Pts</th>
+                      <th className="px-3 py-2 text-right font-medium">Snaps</th>
+                      <th className="px-3 py-2 text-right font-medium">Rec/Tgt</th>
+                      <th className="px-3 py-2 text-right font-medium">Rec Yds</th>
+                      <th className="px-3 py-2 text-right font-medium">Rush</th>
+                      <th className="px-3 py-2 text-right font-medium">Pass</th>
+                      <th className="py-2 pl-3 font-medium">Model</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-bb-border/40">
+                    {gameLog.entries.map((entry) => {
+                      const snapPct =
+                        entry.offense_pct != null
+                          ? `${Math.round(entry.offense_pct * 100)}%`
+                          : "—";
+                      const rush =
+                        entry.carries > 0
+                          ? `${entry.carries}/${entry.rushing_yards}`
+                          : "—";
+                      const pass =
+                        entry.attempts > 0
+                          ? `${entry.passing_yards}/${entry.passing_tds}/${entry.interceptions}`
+                          : "—";
+                      const modelLabel = entry.included ? "Included" : "Snap outlier";
+                      const pts = entry.points ?? 0;
+                      const ptsClass = !entry.included
+                        ? ""
+                        : pts >= 20
+                          ? "text-emerald-400"
+                          : pts >= 15
+                            ? "text-emerald-300/80"
+                            : pts >= 8
+                              ? "text-white"
+                              : "text-amber-400/80";
+                      return (
+                        <tr
+                          key={`${entry.season}-${entry.week}`}
+                          className={entry.included ? "text-white" : "text-bb-muted"}
+                        >
+                          <td className="whitespace-nowrap py-2 pr-4">
+                            {entry.season} W{entry.week}
+                          </td>
+                          <td className="px-3 py-2">{entry.opponent ?? "—"}</td>
+                          <td className={`px-3 py-2 text-right tabular-nums font-bold text-base ${ptsClass}`}>
+                            {formatPpg(entry.points)}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {entry.offense_snaps ?? "—"} / {snapPct}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {entry.receptions}/{entry.targets}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {entry.receiving_yards}
+                            {entry.receiving_tds ? ` (${entry.receiving_tds})` : ""}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums">{rush}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{pass}</td>
+                          <td className="py-2 pl-3">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs ${
+                                entry.included
+                                  ? "bg-emerald-400/10 text-emerald-300"
+                                  : "bg-bb-border/50 text-bb-muted"
+                              }`}
+                            >
+                              {modelLabel}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="text-sm text-bb-muted">No nflverse game log found.</p>
               )}
             </div>
           </section>

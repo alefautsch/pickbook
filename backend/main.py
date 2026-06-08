@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -14,10 +18,29 @@ from backend.api.sync import router as sync_router
 from backend.api.teams import router as teams_router
 from backend.config import get_settings
 from backend.schemas.settings import HealthResponse
+from backend.services.scheduler_service import scheduled_sync_loop
 
-app = FastAPI(title="Dynasty Blackbook API", version="0.1.0")
 
 settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    stop_event = asyncio.Event()
+    sync_task = asyncio.create_task(scheduled_sync_loop(settings, stop_event))
+    try:
+        yield
+    finally:
+        stop_event.set()
+        sync_task.cancel()
+        try:
+            await sync_task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="Dynasty Blackbook API", version="0.1.0", lifespan=lifespan)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,

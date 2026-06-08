@@ -103,6 +103,7 @@ def compute_player_snapshots(
     *,
     client: SleeperClient | None = None,
     sync_run_id: int | None = None,
+    force_refresh: bool = False,
 ) -> dict[str, Any]:
     """Score the league roster pool, upsert player_snapshots, append history rows."""
     client = client or SleeperClient()
@@ -110,7 +111,9 @@ def compute_player_snapshots(
     if league_row is None:
         raise ValueError(f"League not found: {league_id}")
 
-    settings = _read_settings(db)
+    settings = dict(_read_settings(db))
+    if force_refresh:
+        settings["_force_metric_refresh"] = True
     formula_version = compute_formula_version(settings)
     my_user_id = _resolve_my_user_id(client, settings)
     roster_player_ids = _collect_rostered_player_ids(db, league_id)
@@ -146,26 +149,43 @@ def compute_player_snapshots(
         opportunity_store = OpportunityStore.load(
             sleeper_players=state.sleeper_players,
             ppr=context.ppr,
+            force_refresh=force_refresh,
         )
     except Exception:
         opportunity_store = None
 
     projections = getattr(state, "projection_store", None)
     computed_at = datetime.now(timezone.utc)
+    snapshot_date = computed_at.date()
 
-    league_history = LeagueSnapshotHistory(
-        league_id=league_id,
-        sync_run_id=sync_run_id,
-        context_hash=context.context_hash,
-        formula_version=formula_version,
-        anchors_json=anchors,
-        team_ovr_json={},
-        computed_at=computed_at,
+    league_history = db.scalar(
+        select(LeagueSnapshotHistory).where(
+            LeagueSnapshotHistory.league_id == league_id,
+            LeagueSnapshotHistory.snapshot_date == snapshot_date,
+        )
     )
-    db.add(league_history)
+    if league_history is None:
+        league_history = LeagueSnapshotHistory(
+            league_id=league_id,
+            snapshot_date=snapshot_date,
+        )
+        db.add(league_history)
+
+    league_history.sync_run_id = sync_run_id
+    league_history.context_hash = context.context_hash
+    league_history.formula_version = formula_version
+    league_history.anchors_json = anchors
+    league_history.team_ovr_json = {}
+    league_history.computed_at = computed_at
     db.flush()
 
     db.execute(delete(PlayerSnapshot).where(PlayerSnapshot.league_id == league_id))
+    db.execute(
+        delete(PlayerSnapshotHistory).where(
+            PlayerSnapshotHistory.league_id == league_id,
+            PlayerSnapshotHistory.snapshot_date == snapshot_date,
+        )
+    )
 
     roster_ids_in_pool = {player_id for player_id, _ in roster_pool}
     upserted = 0
@@ -193,6 +213,7 @@ def compute_player_snapshots(
                 "dynasty_score": scored.get("dynasty_score"),
                 "dynasty_rookie": bool(scored.get("dynasty_rookie")),
                 "components_json": scored.get("dynasty_components") or {},
+                "value_inputs_json": state.value_inputs(war_player, blended),
                 "hppg": healthy.get("healthy_ppg"),
                 "worp_ppg": worp_ppg,
                 "availability": healthy.get("availability"),
@@ -225,6 +246,8 @@ def compute_player_snapshots(
             dynasty_rookie=row["dynasty_rookie"],
             opportunity_store=opportunity_store,
             projections=projections,
+            years_exp=row.get("years_exp"),
+            hppg_expected=row["hppg_expected"],
             percentile_row=percentile_by_id.get(player_id),
         )
 
@@ -260,6 +283,7 @@ def compute_player_snapshots(
             dynasty_score=row["dynasty_score"],
             dynasty_rookie=row["dynasty_rookie"],
             components_json=row["components_json"],
+            value_inputs_json=row["value_inputs_json"],
             hppg=row["hppg"],
             worp_ppg=row["worp_ppg"],
             availability=row["availability"],
@@ -301,6 +325,7 @@ def compute_player_snapshots(
                 dynasty_score=snapshot_fields["dynasty_score"],
                 dynasty_rookie=snapshot_fields["dynasty_rookie"],
                 components_json=snapshot_fields["components_json"],
+                value_inputs_json=snapshot_fields["value_inputs_json"],
                 hppg=snapshot_fields["hppg"],
                 worp_ppg=snapshot_fields["worp_ppg"],
                 availability=snapshot_fields["availability"],
@@ -326,6 +351,7 @@ def compute_player_snapshots(
                 overall_rank=snapshot_fields["overall_rank"],
                 context_hash=snapshot_fields["context_hash"],
                 formula_version=formula_version,
+                snapshot_date=snapshot_date,
                 computed_at=computed_at,
             )
         )

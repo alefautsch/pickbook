@@ -27,15 +27,18 @@ export function FreeAgentBoard({
   const [filter, setFilter] = useState<string>("ALL");
   const [board, setBoard] = useState(initialBoard);
   const [loading, setLoading] = useState(false);
+  const activeBoard = filter === "ALL" ? initialBoard : board;
+  const handleFilter = (pos: string) => {
+    setFilter(pos);
+    setLoading(pos !== "ALL");
+  };
 
   useEffect(() => {
     if (filter === "ALL") {
-      setBoard(initialBoard);
       return;
     }
 
     let cancelled = false;
-    setLoading(true);
     void getFreeAgents(leagueId, filter)
       .then((data) => {
         if (!cancelled) setBoard(data);
@@ -58,8 +61,8 @@ export function FreeAgentBoard({
         <div>
           <h2 className="text-lg font-medium text-white">Free Agents</h2>
           <p className="text-sm text-bb-muted">
-            Top {board.fa_pool_size} unrostered by trade value ·{" "}
-            {loading ? "…" : board.total_available} shown
+            Top {activeBoard.fa_pool_size} unrostered by trade value ·{" "}
+            {loading ? "…" : activeBoard.total_available} shown
           </p>
         </div>
         <div className="flex flex-wrap gap-1">
@@ -67,7 +70,7 @@ export function FreeAgentBoard({
             <button
               key={pos}
               type="button"
-              onClick={() => setFilter(pos)}
+              onClick={() => handleFilter(pos)}
               className={`rounded-full px-3 py-1 text-xs font-medium transition ${
                 filter === pos
                   ? "bg-bb-gold/20 text-bb-gold"
@@ -86,22 +89,22 @@ export function FreeAgentBoard({
             <tr className="border-b border-bb-border/80 text-left text-xs uppercase tracking-wider text-bb-muted">
               <th className="px-4 py-3">Player</th>
               <th className="px-4 py-3">OVR</th>
-              <th className="hidden px-4 py-3 sm:table-cell">HPPG</th>
+              <th className="hidden px-4 py-3 sm:table-cell">Proj PPG</th>
               <th className="hidden px-4 py-3 md:table-cell">TV</th>
             </tr>
           </thead>
           <tbody>
-            {board.players.length === 0 ? (
+            {activeBoard.players.length === 0 ? (
               <tr>
                 <td colSpan={4} className="px-4 py-6 text-center text-bb-muted">
                   {loading ? "Loading…" : "No free agents in this filter."}
                 </td>
               </tr>
             ) : (
-              board.players.map((player) => (
+              activeBoard.players.map((player) => (
                 <tr
                   key={player.player_id}
-                  className="border-b border-bb-border/40 transition hover:bg-white/[0.03]"
+                  className="border-b border-bb-border/40 transition hover:bg-white/3"
                 >
                   <td className="px-4 py-3">
                     <Link
@@ -134,11 +137,19 @@ export function FreeAgentBoard({
                       size="sm"
                     />
                   </td>
-                  <td className="hidden px-4 py-3 text-white sm:table-cell">
-                    {formatPpg(player.hppg)}
-                    {player.hppg_expected ? (
-                      <span className="ml-0.5 text-bb-gold">e</span>
-                    ) : null}
+                  <td
+                    className="hidden px-4 py-3 text-white sm:table-cell"
+                    title={`HPPG ${formatPpg(player.hppg)}`}
+                  >
+                    <span className="font-semibold tabular-nums">
+                      {formatPpg(player.projected_ppg)}
+                    </span>
+                    <p className="text-xs text-bb-muted">
+                      HPPG {formatPpg(player.hppg)}
+                      {player.hppg_expected ? (
+                        <span className="ml-0.5 text-bb-gold">e</span>
+                      ) : null}
+                    </p>
                   </td>
                   <td className="hidden px-4 py-3 text-white md:table-cell">
                     {formatTv(player.trade_value)}

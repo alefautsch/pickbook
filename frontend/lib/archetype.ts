@@ -24,6 +24,7 @@ export function projectionSourceLabel(
   source: string | null | undefined
 ): string {
   if (!source) return "";
+  if (source === "historical_blend") return "nflverse + Sleeper + HPPG";
   if (source === "nflverse_blend") return "nflverse + Sleeper";
   if (source === "sleeper") return "Sleeper";
   if (source === "custom") return "volume model";

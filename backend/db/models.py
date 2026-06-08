@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -79,6 +80,36 @@ class Roster(Base):
     )
 
 
+class RosterDraftPick(Base):
+    """Future draft pick owned by a roster (synced from Sleeper traded_picks)."""
+
+    __tablename__ = "roster_draft_picks"
+    __table_args__ = (
+        UniqueConstraint(
+            "league_id",
+            "season",
+            "round",
+            "original_roster_id",
+            name="uq_roster_draft_pick_slot",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    league_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("leagues.sleeper_league_id", ondelete="CASCADE"), nullable=False
+    )
+    owner_roster_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    original_roster_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    season: Mapped[str] = mapped_column(String(8), nullable=False)
+    round: Mapped[int] = mapped_column(Integer, nullable=False)
+    slot_tier: Mapped[str] = mapped_column(String(16), nullable=False, default="mid")
+    trade_value: Mapped[float | None] = mapped_column(Float)
+    label: Mapped[str | None] = mapped_column(String(64))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class RosterPlayer(Base):
     """Player ownership on a roster."""
 
@@ -117,6 +148,7 @@ class PlayerSnapshot(Base):
     dynasty_score: Mapped[float | None] = mapped_column(Float)
     dynasty_rookie: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     components_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    value_inputs_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
     hppg: Mapped[float | None] = mapped_column(Float)
     worp_ppg: Mapped[float | None] = mapped_column(Float)
@@ -199,6 +231,9 @@ class LeagueSnapshotHistory(Base):
     """League anchor state per sync — enables league-faithful re-curve (§15.1)."""
 
     __tablename__ = "league_snapshot_history"
+    __table_args__ = (
+        UniqueConstraint("league_id", "snapshot_date", name="uq_league_snapshot_history_date"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     league_id: Mapped[str] = mapped_column(
@@ -211,6 +246,7 @@ class LeagueSnapshotHistory(Base):
     formula_version: Mapped[str] = mapped_column(String(64), nullable=False)
     anchors_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     team_ovr_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     league: Mapped[League] = relationship(back_populates="league_snapshot_history")
@@ -222,6 +258,14 @@ class PlayerSnapshotHistory(Base):
     """Append-only input ledger per sync (§15.1)."""
 
     __tablename__ = "player_snapshot_history"
+    __table_args__ = (
+        UniqueConstraint(
+            "league_id",
+            "sleeper_player_id",
+            "snapshot_date",
+            name="uq_player_snapshot_history_date",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     league_id: Mapped[str] = mapped_column(
@@ -241,6 +285,7 @@ class PlayerSnapshotHistory(Base):
     dynasty_score: Mapped[float | None] = mapped_column(Float)
     dynasty_rookie: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     components_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    value_inputs_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
     hppg: Mapped[float | None] = mapped_column(Float)
     worp_ppg: Mapped[float | None] = mapped_column(Float)
@@ -271,6 +316,7 @@ class PlayerSnapshotHistory(Base):
 
     context_hash: Mapped[str | None] = mapped_column(String(64))
     formula_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     league: Mapped[League] = relationship(back_populates="player_snapshot_history")

@@ -66,13 +66,17 @@ def sync_status(db: Session = Depends(get_db)) -> SyncStatusResponse:
 
 
 @router.post("/{league_id}", response_model=SyncLeagueResult)
-def sync_one_league(league_id: str, db: Session = Depends(get_db)) -> SyncLeagueResult:
-    result = run_full_league_sync(db, league_id)
+def sync_one_league(
+    league_id: str,
+    force_refresh: bool = False,
+    db: Session = Depends(get_db),
+) -> SyncLeagueResult:
+    result = run_full_league_sync(db, league_id, force_refresh=force_refresh)
     if result.status == "failed":
         raise HTTPException(status_code=500, detail=result.errors)
     return result
 
 
 @router.post("", response_model=SyncAllResponse)
-def sync_all(db: Session = Depends(get_db)) -> SyncAllResponse:
-    return run_sync_all(db)
+def sync_all(force_refresh: bool = False, db: Session = Depends(get_db)) -> SyncAllResponse:
+    return run_sync_all(db, force_refresh=force_refresh)

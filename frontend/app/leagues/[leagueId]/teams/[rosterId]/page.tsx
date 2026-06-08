@@ -10,11 +10,22 @@ import { getLeagueAnalysis, getLeagues, getTeam } from "@/lib/api";
 import { formatPpg, formatTv, ordinal } from "@/lib/format";
 import { ContenderTag } from "@/components/ContenderTag";
 import { DepthChartPanel } from "@/components/DepthChartPanel";
+import { DraftPicksPanel } from "@/components/DraftPicksPanel";
 import { OvrGauge } from "@/components/OvrGauge";
 
 type PageProps = {
   params: Promise<{ leagueId: string; rosterId: string }>;
 };
+
+function rankSubClass(sub: ReactNode): string {
+  if (typeof sub !== "string") return "text-bb-muted";
+  const m = sub.match(/^(\d+)(st|nd|rd|th)$/);
+  if (!m) return "text-bb-muted";
+  const n = parseInt(m[1]);
+  if (n <= 2) return "text-emerald-400 font-semibold";
+  if (n <= 4) return "text-bb-gold";
+  return "text-bb-muted";
+}
 
 function Metric({
   label,
@@ -31,18 +42,20 @@ function Metric({
     tone === "good"
       ? "text-emerald-400"
       : tone === "bad"
-        ? "text-red-300"
+        ? "text-red-400"
         : "text-white";
 
   return (
-    <div className="min-w-0 rounded-md bg-black/15 px-2 py-1.5">
-      <dt className="truncate text-[9px] uppercase tracking-wider text-bb-muted">
+    <div className="min-w-0 rounded-lg bg-white/4 px-2 py-2 ring-1 ring-inset ring-white/[0.07]">
+      <dt className="truncate text-[9px] uppercase tracking-wide text-bb-muted">
         {label}
       </dt>
-      <dd className={`mt-0.5 truncate text-base font-semibold tabular-nums ${toneClass}`}>
+      <dd className={`mt-0.5 truncate text-xl font-bold tabular-nums leading-none ${toneClass}`}>
         {value}
       </dd>
-      {sub ? <p className="truncate text-[9px] text-bb-muted">{sub}</p> : null}
+      {sub ? (
+        <p className={`mt-0.5 truncate text-[10px] ${rankSubClass(sub)}`}>{sub}</p>
+      ) : null}
     </div>
   );
 }
@@ -81,63 +94,70 @@ export default async function TeamPage({ params }: PageProps) {
           : "default";
 
   return (
-    <AppShell leagues={leagues} activeLeagueId={leagueId}>
+    <AppShell
+      leagues={leagues}
+      activeLeagueId={leagueId}
+      advisorContext={{
+        pageType: "team",
+        rosterId,
+        summary: team.team_name ?? "Team",
+      }}
+    >
       <div className="flex flex-1 flex-col bg-[#0d1117]/40 px-4 py-5">
         <section className="mb-5 grid gap-4 lg:grid-cols-[minmax(300px,1fr)_280px_220px]">
           <div className="bb-panel p-4">
-            <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center">
-              <div className="flex items-start gap-4">
-                <div className="shrink-0 rounded-2xl border border-bb-gold/25 bg-bb-gold/5 p-2 shadow-[0_0_24px_rgba(212,160,23,0.08)]">
-                  <OvrGauge ovr={team.avg_dynasty_rating} size="md" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <h1 className="text-xl font-semibold leading-tight text-white sm:text-2xl">
-                      {team.team_name ?? "Team"}
-                    </h1>
-                    <ContenderTag tier={team.contender_tier} />
-                  </div>
-                  <p className="mt-1 text-sm text-bb-muted">
-                    {team.owner ?? "Unknown owner"}
-                    {team.is_me ? " · (me)" : ""}
-                  </p>
-                  <p className="mt-1 text-xs uppercase tracking-wider text-bb-muted">
-                    {team.league_name}
-                  </p>
-                </div>
+            <div className="flex items-start gap-4">
+              <div className="shrink-0">
+                <OvrGauge ovr={team.avg_dynasty_rating} size="md" />
               </div>
-
-              <dl className="grid min-w-0 flex-1 grid-cols-5 gap-2">
-                <Metric
-                  label="Rank"
-                  value={ordinal(team.dynasty_rank)}
-                  sub={team.dynasty_rank ? `of ${leagueRosterCount}` : undefined}
-                />
-                <Metric
-                  label="Start OVR"
-                  value={team.starter_avg_dynasty_rating ?? "—"}
-                  sub="avg"
-                />
-                <Metric
-                  label="Start PPG"
-                  value={formatPpg(team.starter_total_ppg)}
-                  sub={team.starter_ppg_rank ? ordinal(team.starter_ppg_rank) : undefined}
-                />
-                <Metric
-                  label="Trade Value"
-                  value={formatTv(team.total_trade_value)}
-                  sub={team.tv_rank ? ordinal(team.tv_rank) : undefined}
-                />
-                <Metric
-                  label="OVR Trend"
-                  value={
-                    ovrDelta != null && ovrDelta !== 0
-                      ? `${ovrDelta > 0 ? "+" : ""}${ovrDelta}`
-                      : "—"
-                  }
-                  tone={ovrTone}
-                />
-              </dl>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-xl font-semibold leading-tight text-white sm:text-2xl">
+                    {team.team_name ?? "Team"}
+                  </h1>
+                  <ContenderTag tier={team.contender_tier} />
+                </div>
+                <p className="mt-0.5 text-sm text-bb-muted">
+                  {team.owner ?? "Unknown owner"}
+                  {team.is_me ? " · (me)" : ""}
+                  {team.dynasty_rank
+                    ? ` · ${ordinal(team.dynasty_rank)} of ${leagueRosterCount}`
+                    : ""}
+                </p>
+                <p className="text-xs uppercase tracking-wider text-bb-muted">
+                  {team.league_name}
+                </p>
+                <dl className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5">
+                  <Metric
+                    label="Start OVR"
+                    value={team.starter_avg_dynasty_rating ?? "—"}
+                    sub="avg"
+                  />
+                  <Metric
+                    label="Start PPG"
+                    value={formatPpg(team.starter_total_ppg)}
+                    sub={team.starter_ppg_rank ? ordinal(team.starter_ppg_rank) : undefined}
+                  />
+                  <Metric
+                    label="Trade Value"
+                    value={formatTv(team.total_trade_value)}
+                    sub={team.tv_rank ? ordinal(team.tv_rank) : undefined}
+                  />
+                  <Metric
+                    label="Pick Value"
+                    value={formatTv(team.draft_pick_value)}
+                  />
+                  <Metric
+                    label="Trend"
+                    value={
+                      ovrDelta != null && ovrDelta !== 0
+                        ? `${ovrDelta > 0 ? "+" : ""}${ovrDelta}`
+                        : "—"
+                    }
+                    tone={ovrTone}
+                  />
+                </dl>
+              </div>
             </div>
           </div>
 
@@ -199,6 +219,13 @@ export default async function TeamPage({ params }: PageProps) {
             ) : null}
 
             <AgeProfileSidebar profiles={ageProfiles} rosterId={rosterId} />
+
+            <div className="bb-panel p-4">
+              <h2 className="bb-panel-title">Draft Picks</h2>
+              <div className="mt-3">
+                <DraftPicksPanel picks={team.draft_picks} compact />
+              </div>
+            </div>
 
             <div className="bb-panel p-4">
               <InjuryWatchPanel

@@ -21,7 +21,10 @@ export default async function PortfolioPage() {
   const multiLeague = portfolio.holdings.filter((h) => h.league_count >= 2);
 
   return (
-    <AppShell leagues={leagues}>
+    <AppShell
+      leagues={leagues}
+      advisorContext={{ pageType: "portfolio", summary: "Cross-league portfolio" }}
+    >
       <div className="flex flex-1 flex-col px-6 py-10 sm:px-10">
         <header className="mb-8">
           <h1 className="text-3xl font-semibold text-white">Portfolio</h1>

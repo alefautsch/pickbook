@@ -12,6 +12,9 @@ def compute_formula_version(settings: dict[str, Any]) -> str:
     payload = {
         "dynasty_weights": settings.get("dynasty_weights"),
         "dynasty_rating_curve": settings.get("dynasty_rating_curve"),
+        "trade_value_blend": settings.get("trade_value_blend"),
+        "worp_blend": settings.get("worp_blend"),
+        "dynasty_daddy": settings.get("dynasty_daddy"),
     }
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
     return digest[:16]

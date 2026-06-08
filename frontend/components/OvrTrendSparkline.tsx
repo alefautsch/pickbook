@@ -110,7 +110,7 @@ export function OvrTrendSparkline({
       </svg>
 
       <p className="mt-2 text-xs text-bb-muted">
-        {points.length} sync point{points.length === 1 ? "" : "s"}
+        {points.length} daily point{points.length === 1 ? "" : "s"}
         {latest.formula_version !== first.formula_version
           ? " · includes formula changes"
           : ""}

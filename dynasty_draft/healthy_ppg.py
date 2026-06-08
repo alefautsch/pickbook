@@ -16,11 +16,13 @@ from dynasty_draft.war_data import POSITIONS, WarData, normalize_name
 
 HEALTHY_PPG_TTL_SECONDS = 7 * 24 * 60 * 60
 SNAP_PCT_MIN = 0.15
+SNAP_PCT_RELATIVE_MIN = 0.50
+SNAP_PCT_BASELINE_MIN_GAMES = 3
 SNAP_MIN = 8
 DEFAULT_SEASONS = (2024, 2025)
-RECENCY_DECAY = 0.9
+RECENCY_DECAY = 0.97
 _WORP_PER_VOR_PPG = 0.012
-_CACHE_VERSION = "v2"
+_CACHE_VERSION = "v6"
 
 _NFLVERSE = "https://github.com/nflverse/nflverse-data/releases/download"
 _USER_AGENT = "pickbook/0.3 (personal dynasty draft tool)"
@@ -167,15 +169,14 @@ def _build_metrics(
             on=["season", "week", "pfr_id"],
             how="left",
         )
-        merged["healthy"] = merged.apply(_is_healthy_game, axis=1)
         frames.append(merged)
 
     if not frames:
         return {}
 
-    data = pd.concat(frames, ignore_index=True)
-    team_col = "recent_team" if "recent_team" in data.columns else "team"
     keys = ["player_id", "player_display_name", "position"]
+    data = _with_health_flags(pd.concat(frames, ignore_index=True), keys)
+    team_col = "recent_team" if "recent_team" in data.columns else "team"
     healthy_only = data[data["healthy"]].copy()
     healthy_only = _with_recency_weights(healthy_only, keys)
     grouped = _availability_rows(data, keys, team_col, seasons)
@@ -350,6 +351,28 @@ def _is_healthy_game(row: pd.Series) -> bool:
     if pd.notna(snaps) and float(snaps) >= SNAP_MIN:
         return True
     return pd.notna(pct) and float(pct) >= SNAP_PCT_MIN
+
+
+def _with_health_flags(data: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
+    flagged = data.copy()
+    flagged["healthy"] = flagged.apply(_is_healthy_game, axis=1)
+    if flagged.empty or "offense_pct" not in flagged.columns:
+        return flagged
+
+    flagged["_offense_pct_num"] = pd.to_numeric(flagged["offense_pct"], errors="coerce")
+    for _, group in flagged.groupby(keys, dropna=False):
+        pct = flagged.loc[group.index, "_offense_pct_num"]
+        baseline = pct[flagged.loc[group.index, "healthy"] & pct.notna()]
+        if len(baseline) < SNAP_PCT_BASELINE_MIN_GAMES:
+            continue
+        typical_pct = float(baseline.quantile(0.75))
+        if typical_pct <= 0:
+            continue
+        min_pct = max(SNAP_PCT_MIN, typical_pct * SNAP_PCT_RELATIVE_MIN)
+        low_snap_share = pct.notna() & (pct < min_pct)
+        flagged.loc[group.index[low_snap_share], "healthy"] = False
+
+    return flagged.drop(columns=["_offense_pct_num"])
 
 
 def _calibrate_worp_per_vor(

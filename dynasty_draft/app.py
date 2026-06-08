@@ -559,13 +559,19 @@ def _init_session() -> None:
         st.session_state.auto_refresh = True
     if "last_sync_at" not in st.session_state:
         st.session_state.last_sync_at = None
+    if "force_metric_refresh" not in st.session_state:
+        st.session_state.force_metric_refresh = False
 
 
 def _load_state(config: dict[str, Any]) -> DraftState | None:
     if not config.get("sleeper_username"):
         return None
     try:
-        state = build_state(config, exit_on_error=False)
+        runtime_config = dict(config)
+        if st.session_state.force_metric_refresh:
+            runtime_config["_force_metric_refresh"] = True
+            st.session_state.force_metric_refresh = False
+        state = build_state(runtime_config, exit_on_error=False)
         st.session_state.last_sync_at = datetime.now()
         return state
     except Exception as exc:
@@ -2021,7 +2027,7 @@ def main() -> None:
     ) or "Dynasty draft companion"
     subtitle = html.escape(draft_name)
 
-    header = st.columns([5, 1])
+    header = st.columns([4, 1, 1])
     with header[0]:
         st.markdown(
             f'<div class="app-header"><div><div class="app-title">Pickbook</div>'
@@ -2030,6 +2036,10 @@ def main() -> None:
         )
     with header[1]:
         if st.button("Sync", type="primary", use_container_width=True):
+            st.rerun()
+    with header[2]:
+        if st.button("Rebuild metrics", use_container_width=True):
+            st.session_state.force_metric_refresh = True
             st.rerun()
 
     if state is None:

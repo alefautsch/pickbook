@@ -14,6 +14,7 @@ class FreeAgentRow(BaseModel):
     ovr: int | None = None
     tier: str | None = None
     hppg: float | None = None
+    projected_ppg: float | None = None
     worp_ppg: float | None = None
     trade_value: float | None = None
     hppg_expected: bool = False

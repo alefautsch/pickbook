@@ -7,10 +7,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
 
-from backend.db.models import LeagueSnapshot, LeagueSnapshotHistory, PlayerSnapshot, Roster, RosterPlayer
+from backend.db.models import (
+    LeagueSnapshot,
+    LeagueSnapshotHistory,
+    PlayerSnapshot,
+    Roster,
+    RosterDraftPick,
+    RosterPlayer,
+)
 from backend.services.history_service import attach_team_ovr_to_history
 from backend.services.league_context import build_league_scoring_context
 from dynasty_draft.draft_context import _assign_lineup, _starter_metric
@@ -25,6 +33,10 @@ CONTENDER_WEIGHTS: dict[str, float] = {
 }
 TRADE_SURPLUS_TOP_N = 3
 TRADE_SURPLUS_BOTTOM_N = 3
+LINEUP_PPG_FIELDS = ("projected_ppg", "healthy_ppg", "trade_value")
+TEAM_CORE_BENCH_COUNT = 3
+TEAM_CORE_BENCH_WEIGHT = 0.8
+TEAM_DEPTH_WEIGHT = 0.2
 
 
 def _player_row_from_snapshot(snapshot: PlayerSnapshot, war: WarData) -> dict[str, Any]:
@@ -56,11 +68,71 @@ def _player_row_from_snapshot(snapshot: PlayerSnapshot, war: WarData) -> dict[st
     }
 
 
+def _weighted_rating(players: list[tuple[dict[str, Any], float]]) -> int:
+    total = 0.0
+    weight_total = 0.0
+    for player, weight in players:
+        rating = player.get("dynasty_rating")
+        if rating is None:
+            continue
+        total += float(rating) * weight
+        weight_total += weight
+    return round(total / weight_total) if weight_total else 0
+
+
+def _team_weighted_rating(
+    starters: list[dict[str, Any]],
+    bench: list[dict[str, Any]],
+) -> int:
+    starter_players = [
+        row["player"]
+        for row in starters
+        if row.get("player") and row["player"].get("dynasty_rating") is not None
+    ]
+    bench_players = [
+        player for player in bench if player.get("dynasty_rating") is not None
+    ]
+    bench_by_rating = sorted(
+        bench_players,
+        key=lambda player: float(player.get("dynasty_rating") or 0),
+        reverse=True,
+    )
+    core_bench = bench_by_rating[:TEAM_CORE_BENCH_COUNT]
+    depth = bench_by_rating[TEAM_CORE_BENCH_COUNT:]
+
+    weighted_players = (
+        [(player, 1.0) for player in starter_players]
+        + [(player, TEAM_CORE_BENCH_WEIGHT) for player in core_bench]
+        + [(player, TEAM_DEPTH_WEIGHT) for player in depth]
+    )
+    return _weighted_rating(weighted_players)
+
+
+def _draft_pick_values_by_roster(db: Session, league_id: str) -> dict[str, float]:
+    try:
+        rows = db.execute(
+            select(
+                RosterDraftPick.owner_roster_id,
+                func.coalesce(func.sum(RosterDraftPick.trade_value), 0.0),
+            )
+            .where(RosterDraftPick.league_id == league_id)
+            .group_by(RosterDraftPick.owner_roster_id)
+        ).all()
+    except ProgrammingError:
+        db.rollback()
+        return {}
+    return {str(roster_id): float(value or 0.0) for roster_id, value in rows}
+
+
 def _finalize_team_lineup(
     players: list[dict[str, Any]],
     roster_positions: list[str],
 ) -> dict[str, Any]:
-    starters, bench = _assign_lineup(players, roster_positions)
+    starters, bench = _assign_lineup(
+        players,
+        roster_positions,
+        sort_fields=LINEUP_PPG_FIELDS,
+    )
     bench = sorted(bench, key=lambda row: row.get("trade_value") or 0, reverse=True)
     all_players = [row["player"] for row in starters if row.get("player")] + bench
     total_tv = sum(player.get("trade_value") or 0 for player in all_players)
@@ -76,16 +148,16 @@ def _finalize_team_lineup(
         for row in starters
         if row.get("player") and row["player"].get("dynasty_rating") is not None
     ]
-    all_ratings = [
-        player.get("dynasty_rating")
-        for player in all_players
-        if player.get("dynasty_rating") is not None
-    ]
-    starter_ppg_values = [
-        float(row["player"]["healthy_ppg"])
-        for row in starters
-        if row.get("player") and row["player"].get("healthy_ppg") is not None
-    ]
+    starter_ppg_values: list[float] = []
+    for row in starters:
+        player = row.get("player")
+        if not player:
+            continue
+        ppg = player.get("projected_ppg")
+        if ppg is None:
+            ppg = player.get("healthy_ppg")
+        if ppg is not None:
+            starter_ppg_values.append(float(ppg))
 
     return {
         "starters": starters,
@@ -95,7 +167,7 @@ def _finalize_team_lineup(
         "starter_worp": starter_worp,
         "starter_porp": starter_porp,
         "win_now_score": win_now_score,
-        "avg_dynasty_rating": round(sum(all_ratings) / len(all_ratings)) if all_ratings else 0,
+        "avg_dynasty_rating": _team_weighted_rating(starters, bench),
         "starter_avg_dynasty_rating": (
             round(sum(starter_ratings) / len(starter_ratings)) if starter_ratings else 0
         ),
@@ -539,6 +611,7 @@ def _compact_team_row(team_meta: dict[str, Any], lineup: dict[str, Any]) -> dict
         "avg_dynasty_rating": lineup.get("avg_dynasty_rating"),
         "starter_avg_dynasty_rating": lineup.get("starter_avg_dynasty_rating"),
         "total_trade_value": lineup.get("total_trade_value"),
+        "draft_pick_value": lineup.get("draft_pick_value"),
         "win_now_score": lineup.get("win_now_score"),
         "starter_total_ppg": lineup.get("starter_total_ppg"),
         "starter_ppg_slots": lineup.get("starter_ppg_slots"),
@@ -563,6 +636,7 @@ def compute_league_rankings(db: Session, league_id: str, *, war_csv: str = "war.
             select(PlayerSnapshot).where(PlayerSnapshot.league_id == league_id)
         ).all()
     }
+    draft_pick_values = _draft_pick_values_by_roster(db, league_id)
 
     rosters = db.scalars(select(Roster).where(Roster.league_id == league_id)).all()
     teams: list[dict[str, Any]] = []
@@ -579,6 +653,7 @@ def compute_league_rankings(db: Session, league_id: str, *, war_csv: str = "war.
             player_rows.append(_player_row_from_snapshot(snap, war))
 
         lineup = _finalize_team_lineup(player_rows, roster_positions)
+        lineup["draft_pick_value"] = draft_pick_values.get(str(roster.sleeper_roster_id), 0.0)
         team_meta = {
             "sleeper_roster_id": roster.sleeper_roster_id,
             "team_name": roster.team_name or f"Team {roster.sleeper_roster_id}",

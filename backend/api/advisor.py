@@ -40,11 +40,18 @@ def advisor_chat(
                     prompt_id=body.prompt_id,
                     model_id=body.model_id,
                     messages=messages,
+                    focused_roster_id=body.focused_roster_id,
+                    page_context=(
+                        body.page_context.model_dump() if body.page_context else None
+                    ),
                 ):
                     yield f"data: {json.dumps({'text': chunk})}\n\n"
                 yield "data: [DONE]\n\n"
             except ValueError as exc:
                 yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+                yield "data: [DONE]\n\n"
+            except Exception as exc:
+                yield f"data: {json.dumps({'error': f'Advisor failed: {exc}'})}\n\n"
                 yield "data: [DONE]\n\n"
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")

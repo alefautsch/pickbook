@@ -5,6 +5,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 POSITIONS = ("QB", "RB", "WR", "TE")
@@ -64,6 +65,7 @@ class WarData:
         self.csv_path = csv_path
         self.players: list[PlayerValue] = []
         self.by_name: dict[str, PlayerValue] = {}
+        self.value_inputs_by_name: dict[str, dict[str, Any]] = {}
         self._load()
 
     def _load(self) -> None:
@@ -89,9 +91,38 @@ class WarData:
                 key = normalize_name(player.name)
                 if key not in self.by_name:
                     self.by_name[key] = player
+                    self.value_inputs_by_name[key] = {
+                        "dynasty_daddy": {
+                            "source": "war_csv",
+                            "trade_value": player.trade_value,
+                            "worp": player.worp,
+                            "porp": player.porp,
+                            "worp_tier": player.worp_tier,
+                        }
+                    }
 
     def lookup(self, name: str) -> PlayerValue | None:
         return self.by_name.get(normalize_name(name))
+
+    def lookup_value_inputs(self, name: str) -> dict[str, Any]:
+        return dict(self.value_inputs_by_name.get(normalize_name(name), {}))
+
+    def replace_players(
+        self,
+        players: list[PlayerValue],
+        *,
+        value_inputs_by_name: dict[str, dict[str, Any]] | None = None,
+    ) -> None:
+        self.players = players
+        self.by_name = {}
+        self.value_inputs_by_name = {}
+        provided_inputs = value_inputs_by_name or {}
+        for player in players:
+            key = normalize_name(player.name)
+            if not key or key in self.by_name:
+                continue
+            self.by_name[key] = player
+            self.value_inputs_by_name[key] = dict(provided_inputs.get(key, {}))
 
     def top_by_trade_value(self, n: int = 25) -> list[PlayerValue]:
         return sorted(self.players, key=lambda p: p.trade_value, reverse=True)[:n]

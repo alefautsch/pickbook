@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from backend.api.settings import _read_settings
 from backend.config import get_settings
 from backend.db.models import League, Roster, RosterPlayer, SyncRun
+from backend.services.pick_service import sync_league_draft_picks
 from dynasty_draft.sleeper_client import SleeperClient
 
 
@@ -150,10 +151,19 @@ def sync_league_from_sleeper(
         for stale_id in stale_ids:
             db.delete(existing_rosters[stale_id])
 
+        pick_count = sync_league_draft_picks(
+            db,
+            league_id,
+            client=client,
+            league_remote=remote,
+            rosters_remote=rosters,
+        )
+
         counts = {
             "rosters": roster_count,
             "roster_players": player_count,
             "users": len(users),
+            "draft_picks": pick_count,
         }
 
         sync_run.status = "success"

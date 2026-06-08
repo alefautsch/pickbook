@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from backend.db.session import get_db
-from backend.schemas.player import PlayerCard, PlayerHistorySeries
+from backend.schemas.player import PlayerCard, PlayerGameLog, PlayerHistorySeries
 from backend.schemas.portfolio import PlayerHoldings, PlayerSearchResults
 from backend.services.history_service import get_player_history
+from backend.services.player_game_log_service import get_player_game_log
 from backend.services.portfolio_service import get_player_holdings, search_players
 from backend.services.read_service import get_player_card
 
@@ -56,3 +57,21 @@ def read_player_history(
     if series is None:
         raise HTTPException(status_code=404, detail="No history for player in league")
     return series
+
+
+@router.get("/{player_id}/game-log", response_model=PlayerGameLog)
+def read_player_game_log(
+    player_id: str,
+    league_id: str = Query(..., description="League context for scoring settings"),
+    force_refresh: bool = Query(default=False, description="Bypass cached nflverse game logs"),
+    db: Session = Depends(get_db),
+) -> PlayerGameLog:
+    game_log = get_player_game_log(
+        db,
+        player_id,
+        league_id,
+        force_refresh=force_refresh,
+    )
+    if game_log is None:
+        raise HTTPException(status_code=404, detail="No game log for player")
+    return game_log

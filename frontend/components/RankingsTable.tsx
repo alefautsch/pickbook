@@ -20,7 +20,7 @@ type RankingsTableProps = {
 const sortOptions: { key: SortKey; label: string }[] = [
   { key: "dynasty", label: "By OVR" },
   { key: "ppg", label: "By Starter PPG" },
-  { key: "tv", label: "By Trade Value" },
+  { key: "tv", label: "By Player Value" },
   { key: "win", label: "By Win-Now" },
 ];
 
@@ -80,14 +80,15 @@ export function RankingsTable(props: RankingsTableProps) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[720px] text-left text-sm">
+        <table className="w-full min-w-[820px] text-left text-sm">
           <thead>
             <tr className="border-b border-bb-border/50 text-xs uppercase tracking-wide text-bb-muted">
               <th className="px-4 py-3 font-medium">Rank</th>
               <th className="px-4 py-3 font-medium">Team</th>
-              <th className="px-4 py-3 font-medium text-center">Roster OVR</th>
+              <th className="px-4 py-3 font-medium text-center">Team OVR</th>
               <th className="px-4 py-3 font-medium text-right">Starter Σ PPG</th>
-              <th className="px-4 py-3 font-medium text-right">Trade Value</th>
+              <th className="px-4 py-3 font-medium text-right">Player Value</th>
+              <th className="px-4 py-3 font-medium text-right">Pick Value</th>
               <th className="px-4 py-3 font-medium text-center">Contender</th>
             </tr>
           </thead>
@@ -95,8 +96,8 @@ export function RankingsTable(props: RankingsTableProps) {
             {rows.map((row) => (
               <tr
                 key={row.roster_id}
-                className={`border-b border-bb-border/30 transition hover:bg-white/[0.03] ${
-                  row.is_me ? "bg-bb-gold/[0.06]" : ""
+                className={`border-b border-bb-border/30 transition hover:bg-white/3 ${
+                  row.is_me ? "bg-bb-gold/6" : ""
                 }`}
               >
                 <td className="px-4 py-3">
@@ -142,6 +143,11 @@ export function RankingsTable(props: RankingsTableProps) {
                   {row.tv_rank ? (
                     <p className="text-xs text-bb-muted">{ordinal(row.tv_rank)}</p>
                   ) : null}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <p className="font-medium text-white">
+                    {formatTv(row.draft_pick_value)}
+                  </p>
                 </td>
                 <td className="px-4 py-3 text-center">
                   <div className="flex flex-col items-center gap-1">

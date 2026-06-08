@@ -107,6 +107,7 @@ def build_state(config: dict[str, Any], *, exit_on_error: bool = True) -> DraftS
             state.ktc = None
     state.trade_blend = TradeValueBlend.from_config(config, ktc_available=state.ktc is not None)
     state.worp_blend = WorpBlend.from_config(config)
+    force_metric_refresh = bool(config.get("_force_metric_refresh"))
     try:
         state.adp_store = AdpStore.load(config, superflex=state.is_superflex())
     except Exception:
@@ -123,6 +124,7 @@ def build_state(config: dict[str, Any], *, exit_on_error: bool = True) -> DraftS
             ppr=float(scoring.get("ppr", 0.5)),
             war=war,
             sleeper_players=players,
+            force_refresh=force_metric_refresh,
         )
     except Exception:
         state.projection_store = None
@@ -136,6 +138,7 @@ def build_state(config: dict[str, Any], *, exit_on_error: bool = True) -> DraftS
             roster_positions=state.roster_positions,
             superflex=state.is_superflex(),
             ppr=float(scoring.get("ppr", 0.5)),
+            force_refresh=force_metric_refresh,
         )
     except Exception:
         state.healthy_ppg_store = None

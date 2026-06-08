@@ -61,6 +61,10 @@ bb-sync league_id:
 bb-sync-all:
     uv run python -m backend.sync_cli
 
+# Sync all seeded leagues and bypass metric caches
+bb-sync-all-force:
+    uv run python -m backend.sync_cli --force-refresh
+
 # Run the same job the scheduler uses (starts Postgres, logs to .cache/bb-sync.log)
 bb-sync-cron:
     ./scripts/bb-sync-cron.sh

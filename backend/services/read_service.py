@@ -22,7 +22,16 @@ from backend.schemas.player import (
     PlayerRanks,
     StatisticalPercentiles,
 )
-from backend.schemas.team import DepthChartGroup, DepthChartPlayer, InjuryWatchItem, LineupSlot, TeamDetail, TeamTrait
+from backend.schemas.team import (
+    DepthChartGroup,
+    DepthChartPlayer,
+    DraftPickAsset,
+    InjuryWatchItem,
+    LineupSlot,
+    TeamDetail,
+    TeamTrait,
+)
+from backend.services.pick_service import get_roster_draft_picks
 
 SLEEPER_HEADSHOT = "https://sleepercdn.com/content/nfl/players/thumb/{player_id}.jpg"
 
@@ -158,6 +167,10 @@ def _rank_lookup(rankings: list[dict[str, Any]], roster_id: str, field: str) -> 
     return None
 
 
+def _sum_pick_value(picks: list[dict[str, Any]]) -> float:
+    return sum(float(pick.get("trade_value") or 0.0) for pick in picks)
+
+
 def _merge_team_summaries(snapshot: LeagueSnapshot) -> list[LeagueTeamSummary]:
     rankings = snapshot.rankings_json or {}
     by_dynasty = {str(r["roster_id"]): r for r in rankings.get("by_dynasty", [])}
@@ -178,6 +191,7 @@ def _merge_team_summaries(snapshot: LeagueSnapshot) -> list[LeagueTeamSummary]:
                 avg_dynasty_rating=base.get("avg_dynasty_rating"),
                 starter_total_ppg=base.get("starter_total_ppg"),
                 total_trade_value=base.get("total_trade_value"),
+                draft_pick_value=base.get("draft_pick_value"),
                 dynasty_rank=by_dynasty.get(roster_id, {}).get("dynasty_rank"),
                 starter_ppg_rank=by_ppg.get(roster_id, {}).get("starter_ppg_rank"),
                 tv_rank=by_tv.get(roster_id, {}).get("tv_rank"),
@@ -201,6 +215,7 @@ def list_league_tiles(db: Session) -> list[LeagueTile]:
         my_ovr = None
         my_ppg = None
         my_tv = None
+        my_pick_value = None
         my_ppg_rank = None
         my_tv_rank = None
         my_team_name = None
@@ -214,6 +229,7 @@ def list_league_tiles(db: Session) -> list[LeagueTile]:
                     my_ovr = row.get("avg_dynasty_rating")
                     my_ppg = row.get("starter_total_ppg")
                     my_tv = row.get("total_trade_value")
+                    my_pick_value = row.get("draft_pick_value")
                     my_team_name = row.get("team_name")
                     my_contender_tier = row.get("contender_tier")
                     my_contender_score = row.get("contender_score")
@@ -232,6 +248,14 @@ def list_league_tiles(db: Session) -> list[LeagueTile]:
         )
         if my_roster and not my_team_name:
             my_team_name = my_roster.team_name
+        if my_roster and my_pick_value is None:
+            my_pick_value = _sum_pick_value(
+                get_roster_draft_picks(
+                    db,
+                    league.sleeper_league_id,
+                    my_roster.sleeper_roster_id,
+                )
+            )
 
         ovr_delta = None
         if my_roster is not None and my_ovr is not None:
@@ -255,6 +279,7 @@ def list_league_tiles(db: Session) -> list[LeagueTile]:
                 my_roster_ovr=my_ovr,
                 my_starter_ppg=my_ppg,
                 my_total_trade_value=my_tv,
+                my_draft_pick_value=my_pick_value,
                 my_starter_ppg_rank=my_ppg_rank,
                 my_tv_rank=my_tv_rank,
                 my_contender_tier=my_contender_tier,
@@ -440,6 +465,10 @@ def get_team_detail(db: Session, league_id: str, roster_id: str) -> TeamDetail |
 
     breakdown_raw = team_meta.get("component_breakdown") or {}
     traits_raw = team_meta.get("traits") or []
+    draft_picks_raw = get_roster_draft_picks(db, league_id, roster_id)
+    draft_pick_value = dynasty_row.get("draft_pick_value")
+    if draft_pick_value is None:
+        draft_pick_value = _sum_pick_value(draft_picks_raw)
 
     return TeamDetail(
         league_id=league_id,
@@ -452,6 +481,7 @@ def get_team_detail(db: Session, league_id: str, roster_id: str) -> TeamDetail |
         starter_avg_dynasty_rating=dynasty_row.get("starter_avg_dynasty_rating"),
         starter_total_ppg=dynasty_row.get("starter_total_ppg"),
         total_trade_value=dynasty_row.get("total_trade_value"),
+        draft_pick_value=draft_pick_value,
         dynasty_rank=dynasty_row.get("dynasty_rank"),
         starter_ppg_rank=ppg_row.get("starter_ppg_rank"),
         tv_rank=tv_row.get("tv_rank"),
@@ -472,4 +502,5 @@ def get_team_detail(db: Session, league_id: str, roster_id: str) -> TeamDetail |
         roster=roster_players,
         depth_chart=_depth_chart_from_roster(roster_players),
         injuries=_injuries_from_roster(roster_players),
+        draft_picks=[DraftPickAsset(**row) for row in draft_picks_raw],
     )

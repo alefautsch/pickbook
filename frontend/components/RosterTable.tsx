@@ -48,16 +48,35 @@ function PlayerCell({ player }: { player: PlayerCard }) {
   );
 }
 
+function ProjectionCell({ player }: { player: PlayerCard }) {
+  const title = [
+    player.projection_source ? projectionSourceLabel(player.projection_source) : null,
+    player.hppg != null ? `HPPG ${formatPpg(player.hppg)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <td className="px-3 py-2.5" title={title}>
+      <span className="text-lg font-semibold tabular-nums text-white">
+        {formatPpg(player.projected_ppg)}
+      </span>
+      <p className="text-xs text-bb-muted">
+        HPPG {formatPpg(player.hppg)}
+        {player.hppg_expected ? <span className="ml-0.5 text-bb-gold">e</span> : null}
+      </p>
+    </td>
+  );
+}
+
 function StatRow({
   player,
   slot,
   full,
-  statsOnly,
 }: {
   player: PlayerCard;
   slot: string;
   full: boolean;
-  statsOnly: boolean;
 }) {
   return (
     <tr className="border-b border-bb-border/30 hover:bg-white/5">
@@ -76,24 +95,7 @@ function StatRow({
       <td className="px-3 py-2.5">
         <OvrBadge ovr={player.ovr} expected={player.hppg_expected} size="sm" />
       </td>
-      <td className="px-3 py-2.5 text-white">
-        {formatPpg(player.hppg)}
-        {player.hppg_expected ? (
-          <span className="ml-0.5 text-bb-gold">e</span>
-        ) : null}
-      </td>
-      {!statsOnly ? (
-        <td className="px-3 py-2.5">
-          <span className="font-medium text-white">
-            {formatPpg(player.projected_ppg)}
-          </span>
-          {player.projection_source ? (
-            <p className="text-xs text-bb-muted">
-              {projectionSourceLabel(player.projection_source)}
-            </p>
-          ) : null}
-        </td>
-      ) : null}
+      <ProjectionCell player={player} />
       <td className="px-3 py-2.5 text-white">
         {formatWorpPpg(player.worp_ppg)}
       </td>
@@ -127,11 +129,9 @@ function StatRow({
 function EmptyStatRow({
   slot,
   full,
-  statsOnly,
 }: {
   slot: string;
   full: boolean;
-  statsOnly: boolean;
 }) {
   return (
     <tr className="border-b border-bb-border/30">
@@ -149,7 +149,6 @@ function EmptyStatRow({
       ) : null}
       <td className="px-3 py-2.5 text-bb-muted">—</td>
       <td className="px-3 py-2.5 text-bb-muted">—</td>
-      {!statsOnly ? <td className="px-3 py-2.5 text-bb-muted">—</td> : null}
       <td className="px-3 py-2.5 text-bb-muted">—</td>
       {full ? <td className="px-3 py-2.5 text-bb-muted">—</td> : null}
       <td className="px-3 py-2.5 text-bb-muted">—</td>
@@ -170,7 +169,6 @@ export function RosterTable({
   bench,
   slotLabels,
   full = false,
-  statsOnly = false,
 }: RosterTableProps) {
   const starterSlots = starters ?? [];
   const benchPlayers = bench ?? [];
@@ -189,7 +187,7 @@ export function RosterTable({
     return null;
   }
 
-  const colSpan = full ? (statsOnly ? 12 : 13) : statsOnly ? 6 : 7;
+  const colSpan = full ? 12 : 6;
 
   return (
     <div className="bb-card overflow-x-auto">
@@ -205,10 +203,7 @@ export function RosterTable({
               </>
             ) : null}
             <th className="px-3 py-3 font-medium">OVR</th>
-            <th className="px-3 py-3 font-medium">HPPG</th>
-            {!statsOnly ? (
-              <th className="px-3 py-3 font-medium">Proj</th>
-            ) : null}
+            <th className="px-3 py-3 font-medium">Proj PPG</th>
             <th className="px-3 py-3 font-medium">W/G</th>
             {full ? <th className="px-3 py-3 font-medium">ACTV</th> : null}
             <th className="px-3 py-3 font-medium">Trade Value</th>
@@ -239,14 +234,12 @@ export function RosterTable({
                     player={slot.player}
                     slot={slot.slot}
                     full={full}
-                    statsOnly={statsOnly}
                   />
                 ) : (
                   <EmptyStatRow
                     key={`starter-empty-${slot.slot}-${index}`}
                     slot={slot.slot}
                     full={full}
-                    statsOnly={statsOnly}
                   />
                 ),
               )}
@@ -266,7 +259,6 @@ export function RosterTable({
                       player={player}
                       slot="BN"
                       full={full}
-                      statsOnly={statsOnly}
                     />
                   ))}
                 </>
@@ -288,7 +280,6 @@ export function RosterTable({
                   player={player}
                   slot="BN"
                   full={full}
-                  statsOnly={statsOnly}
                 />
               ))}
             </>
@@ -299,7 +290,6 @@ export function RosterTable({
                 player={player}
                 slot={slotLabels?.[player.player_id] ?? player.position ?? "BN"}
                 full={full}
-                statsOnly={statsOnly}
               />
             ))
           )}

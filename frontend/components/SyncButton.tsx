@@ -9,18 +9,18 @@ export function SyncButton() {
   const [status, setStatus] = useState<"idle" | "syncing" | "done" | "error">("idle");
   const [message, setMessage] = useState<string | null>(null);
 
-  async function handleSync() {
+  async function handleSync(forceRefresh = false) {
     setStatus("syncing");
     setMessage(null);
     try {
-      const result = await postSyncAll();
+      const result = await postSyncAll(forceRefresh);
       const failed = result.results.filter((r) => r.status !== "success");
       if (failed.length) {
         setStatus("error");
         setMessage(`${failed.length} league(s) failed`);
       } else {
         setStatus("done");
-        setMessage("Synced");
+        setMessage(forceRefresh ? "Metrics rebuilt" : "Synced");
         router.refresh();
         setTimeout(() => setStatus("idle"), 3000);
       }
@@ -34,11 +34,20 @@ export function SyncButton() {
     <div className="flex items-center gap-3">
       <button
         type="button"
-        onClick={handleSync}
+        onClick={() => handleSync(false)}
         disabled={status === "syncing"}
         className="rounded-lg border border-bb-gold/40 bg-bb-gold/10 px-3 py-1.5 text-sm font-medium text-bb-gold transition hover:bg-bb-gold/20 disabled:opacity-50"
       >
         {status === "syncing" ? "Syncing…" : "Sync Now"}
+      </button>
+      <button
+        type="button"
+        onClick={() => handleSync(true)}
+        disabled={status === "syncing"}
+        className="rounded-lg border border-bb-border/60 px-3 py-1.5 text-sm font-medium text-bb-muted transition hover:border-bb-gold/40 hover:text-white disabled:opacity-50"
+        title="Bypass projection/HPPG/opportunity caches and recompute snapshots"
+      >
+        Rebuild Metrics
       </button>
       {message ? (
         <span

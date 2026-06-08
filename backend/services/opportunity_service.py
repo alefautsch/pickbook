@@ -14,10 +14,8 @@ import requests
 from dynasty_draft.dynasty_score import _PEAK_AGE, DynastyRatingCurve, curved_composite_to_rating
 from dynasty_draft.healthy_ppg import (
     DEFAULT_SEASONS,
-    SNAP_MIN,
-    SNAP_PCT_MIN,
     _half_ppr_points,
-    _is_healthy_game,
+    _with_health_flags,
 )
 from dynasty_draft.projections import SleeperProjectionStore
 from dynasty_draft.sleeper_client import CACHE_DIR
@@ -26,8 +24,9 @@ from dynasty_draft.war_data import POSITIONS, normalize_name
 OPPORTUNITY_TTL_SECONDS = 7 * 24 * 60 * 60
 _NFLVERSE = "https://github.com/nflverse/nflverse-data/releases/download"
 _USER_AGENT = "blackbook/0.1 (dynasty portfolio tool)"
-RECENCY_DECAY = 0.9
-_CACHE_VERSION = "v2"
+RECENCY_DECAY = 0.97
+_CACHE_VERSION = "v6"
+_YOUNG_UPSIDE_TV_MIN = 3000.0
 
 
 @dataclass(frozen=True)
@@ -145,7 +144,6 @@ def _build_opportunity_metrics(
             on=["season", "week", "pfr_id"],
             how="left",
         )
-        merged["healthy"] = merged.apply(_is_healthy_game, axis=1)
         weekly_frames.append(merged)
 
         try:
@@ -160,6 +158,7 @@ def _build_opportunity_metrics(
 
     data = pd.concat(weekly_frames, ignore_index=True)
     player_team_col = "recent_team" if "recent_team" in data.columns else "team"
+    data = _with_health_flags(data, ["player_id", "player_display_name", "position"])
     healthy = data[data["healthy"]].copy()
 
     for col in ("targets", "carries", "attempts", "receptions"):
@@ -413,12 +412,16 @@ def _blend_projected_ppg(
     *,
     sample_games: int | None = None,
     dynasty_rookie: bool = False,
+    years_exp: int | None = None,
+    trade_value: float | None = None,
 ) -> tuple[float | None, str | None]:
     if nflverse_ppg is not None and sleeper_ppg is not None:
         sample_factor = min(max(float(sample_games or 0) / 12.0, 0.0), 1.0)
         nflverse_weight = 0.25 + 0.45 * sample_factor
         if dynasty_rookie:
             nflverse_weight *= 0.5
+        if _is_young_upside_profile(years_exp=years_exp, trade_value=trade_value):
+            nflverse_weight = min(nflverse_weight, 0.45)
         nflverse_weight = min(max(nflverse_weight, 0.15), 0.70)
         blended = round(
             nflverse_weight * nflverse_ppg + (1.0 - nflverse_weight) * sleeper_ppg,
@@ -430,6 +433,49 @@ def _blend_projected_ppg(
     if sleeper_ppg is not None:
         return sleeper_ppg, "sleeper"
     return None, None
+
+
+def _apply_historical_ppg_adjustment(
+    projected_ppg: float | None,
+    projection_source: str | None,
+    *,
+    hppg: float | None,
+    hppg_expected: bool,
+    sample_games: int | None,
+    dynasty_rookie: bool,
+    years_exp: int | None = None,
+    trade_value: float | None = None,
+) -> tuple[float | None, str | None]:
+    if (
+        projected_ppg is None
+        or hppg is None
+        or hppg_expected
+        or dynasty_rookie
+    ):
+        return projected_ppg, projection_source
+
+    sample_factor = min(max(float(sample_games or 0) / 12.0, 0.0), 1.0)
+    historical_weight = 0.15 + 0.15 * sample_factor
+    if (
+        _is_young_upside_profile(years_exp=years_exp, trade_value=trade_value)
+        and float(hppg) < projected_ppg
+    ):
+        historical_weight = min(historical_weight, 0.10)
+    adjusted = round(
+        historical_weight * float(hppg) + (1.0 - historical_weight) * projected_ppg,
+        2,
+    )
+    return adjusted, "historical_blend"
+
+
+def _is_young_upside_profile(
+    *,
+    years_exp: int | None,
+    trade_value: float | None,
+) -> bool:
+    if years_exp is None or trade_value is None:
+        return False
+    return years_exp <= 1 and trade_value >= _YOUNG_UPSIDE_TV_MIN
 
 
 def classify_archetype(
@@ -533,6 +579,8 @@ def compute_projection(
     dynasty_rookie: bool,
     opportunity_store: OpportunityStore | None,
     projections: SleeperProjectionStore | None,
+    years_exp: int | None = None,
+    hppg_expected: bool = False,
     percentile_row: dict[str, float | None] | None = None,
 ) -> ProjectionResult:
     opp = None
@@ -546,6 +594,18 @@ def compute_projection(
         sleeper_ppg,
         sample_games=opp.sample_games if opp else None,
         dynasty_rookie=dynasty_rookie,
+        years_exp=years_exp,
+        trade_value=trade_value,
+    )
+    projected_ppg, projection_source = _apply_historical_ppg_adjustment(
+        projected_ppg,
+        projection_source,
+        hppg=hppg,
+        hppg_expected=hppg_expected,
+        sample_games=opp.sample_games if opp else None,
+        dynasty_rookie=dynasty_rookie,
+        years_exp=years_exp,
+        trade_value=trade_value,
     )
 
     if projected_ppg is None and hppg is not None:

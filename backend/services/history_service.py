@@ -24,6 +24,7 @@ def _history_point(row: PlayerSnapshotHistory, current_formula: str) -> PlayerHi
     components_raw = row.components_json or {}
     return PlayerHistoryPoint(
         computed_at=row.computed_at,
+        snapshot_date=row.snapshot_date,
         ovr=_display_ovr(row, current_formula),
         ovr_original=row.dynasty_rating,
         ovr_recomputed=row.dynasty_rating_recomputed,
@@ -61,7 +62,7 @@ def get_player_history(
             PlayerSnapshotHistory.league_id == league_id,
             PlayerSnapshotHistory.sleeper_player_id == player_id,
         )
-        .order_by(PlayerSnapshotHistory.computed_at.asc())
+        .order_by(PlayerSnapshotHistory.snapshot_date.asc())
         .limit(limit)
     ).all()
 
@@ -168,7 +169,7 @@ def team_ovr_delta(
     rows = db.scalars(
         select(LeagueSnapshotHistory)
         .where(LeagueSnapshotHistory.league_id == league_id)
-        .order_by(desc(LeagueSnapshotHistory.computed_at))
+        .order_by(desc(LeagueSnapshotHistory.snapshot_date))
         .limit(2)
     ).all()
     if len(rows) < 2:

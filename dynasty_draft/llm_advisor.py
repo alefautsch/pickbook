@@ -533,12 +533,21 @@ def stream_advisor_reply(
 
 INSEASON_ADVISOR_PROMPTS: list[dict[str, str]] = [
     {
+        "id": "suggest_trade",
+        "label": "Suggest Trades",
+        "question": (
+            "Call suggest_trades first (use focused_team roster_id as target_roster_id when "
+            "viewing an opponent). Then explain the top 3–5 packages with manager names, "
+            "player OVR/TV, and TV math. Flag which deals are fairest and what each side gains."
+        ),
+    },
+    {
         "id": "trade_targets",
         "label": "Trade Targets",
         "question": (
-            "Who should I target in trades this week? Use trade_surplus, league_rankings, "
-            "and league_team_rosters to find realistic buy-low and sell-high paths. "
-            "Name specific managers and players with OVR context. Flag portfolio overlap risks."
+            "Who should I target in trades this week? Use get_league_rankings, get_team, and "
+            "suggest_trades to find realistic buy-low and sell-high paths. "
+            "Name specific managers and players with OVR context."
         ),
     },
     {
@@ -583,49 +592,67 @@ def _inseason_metric_definitions() -> dict[str, str]:
         "trade_surplus": "Positions where my depth ranks top/bottom of league — trade leverage.",
         "exposure_flag": "Portfolio tag: conviction, concentrated, risk across my leagues.",
         "hppg_expected": "True when HPPG is projected (rookie/no nflverse) — shown as e in UI.",
+        "draft_pick_tv": "Future pick trade value on same scale as player TV; tier from original owner's dynasty rank.",
     }
 
 
 def _inseason_system_prompt() -> str:
     return """You are an expert dynasty fantasy football in-season advisor for Dynasty Blackbook.
 
-Read `metric_definitions` in the context JSON. Grades are **league-relative** OVR snapshots — same player can grade differently across leagues.
+You receive a **small base context** (league name, scoring, page_context, focused_team summary).
+Pull detail on demand via tools — do not guess player grades or roster contents.
 
-IN-SEASON PRIORITY (follow this order):
-1. **`dynasty_rating` (OVR 50–99)** — primary lens for roster value and trade fairness.
-2. **`trade_surplus` + `league_rankings`** — where I have depth to sell vs holes to fill; name counterparties.
-3. **`my_roster` + `starter_needs`** — optimal lineup gaps and bench clutter.
-4. **`portfolio`** — cross-league exposure; avoid over-concentration unless conviction is intentional.
-5. **`free_agents`** — waiver adds that move dynasty needle, not just streamer points.
-6. **`rookie_draft`** (when present) — upcoming rookie draft prep with positional priorities.
+IN-SEASON PRIORITY:
+1. **dynasty_rating (OVR 50–99)** — primary lens for roster value and trade fairness.
+2. **trade_surplus + league_rankings** — depth to sell vs holes to fill; name counterparties.
+3. **my_team + starter_needs** — lineup gaps and bench clutter (use get_team).
+4. **free_agents** — waiver adds that move the dynasty needle.
+5. **draft_picks** — valued future picks (early/mid/late tier + TV on get_team).
 
-Use the full league context:
-- `league_rankings`: by_dynasty, by_starter_ppg, by_trade_value, by_win_now
-- `league_team_rosters`: every manager's top players — infer rebuild vs contend
-- `trade_surplus.surplus` / `.needs` / `.counterparties`: trade partner map
-- `age_profile`: my competitive window vs league average
-- `contender_index`: where I sit in the title race
+TOOLS:
+- get_team(roster_id) — roster, needs, surplus, draft picks
+- get_player(player_id) — OVR, TV, HPPG, injury, outlook
+- search_players(query, position?) — name search in league pool
+- get_league_rankings() — dynasty / win-now / TV standings
+- get_free_agents(position?, limit?) — top FA board
+- evaluate_trade(give, receive) — TV totals, net delta, fairness band (±5%)
+- suggest_trades(target_roster_id?) — deterministic packages; you narrate results
+- calculate(expression) — safe math for TV sums
+- web_search(query) — recent NFL injury updates, roster moves, beat reports (web only when configured)
 
-Account for:
-- Superflex / TE premium scoring in `scoring`
-- Injuries on my roster
-- Win-now vs rebuild stance (contender_tier + age window)
-- Portfolio overlap when recommending adds/trades
+TOOL CHOICE:
+- League stats, rosters, TV, trades → get_team, get_player, search_players, evaluate_trade, suggest_trades
+- Waiver adds → get_free_agents
+- Breaking injury/news, practice reports, signings, suspensions → web_search (then cross-check get_player injury fields)
+- Do not web_search for dynasty grades or trade values — those come from league tools
+
+TRADE SKILL:
+- For trade questions, call suggest_trades and/or evaluate_trade before recommending.
+- Show TV math (use calculate when summing). Name managers, not just roster ids.
+- `focused_team` may be an opponent — my_team in base context is always the user's assets.
+
+Account for superflex/TE premium in scoring, injuries, win-now vs rebuild (contender_tier).
 
 Required sections (adapt to the question):
 - **Bottom line** — 2–3 sentence verdict
 - **Top moves** — ranked actionable recommendations
 - **Trade paths** — specific managers/players when relevant
-- **Risks / watch-outs** — exposure, injury, aging cliffs
+- **Risks / watch-outs** — injury, aging cliffs
 
-On follow-ups, stay concise and reference prior advice. Format with clear headings. Keep under 700 words unless the decision is complex."""
+On follow-ups, stay concise. Format with clear headings. Keep under 700 words unless complex."""
 
 
 def build_inseason_advisor_context(raw: dict[str, Any]) -> dict[str, Any]:
-    """Wrap backend-assembled snapshot data with advisor metadata."""
+    """Minimal base context for tool-loop advisor (no full league dump)."""
     return {
-        **raw,
         "mode": "in_season",
+        "league_id": raw.get("league_id"),
+        "league_name": raw.get("league_name"),
+        "season": raw.get("season"),
+        "scoring": raw.get("scoring"),
+        "page_context": raw.get("page_context"),
+        "focused_team": raw.get("focused_team"),
+        "my_team": raw.get("my_team"),
         "metric_definitions": _inseason_metric_definitions(),
         "prompt_templates": INSEASON_ADVISOR_PROMPTS,
     }
@@ -634,11 +661,16 @@ def build_inseason_advisor_context(raw: dict[str, Any]) -> dict[str, Any]:
 def build_inseason_user_message(context: dict[str, Any], user_question: str) -> str:
     payload = json.dumps(context, indent=2, default=str)
     question = user_question.strip() or INSEASON_ADVISOR_PROMPTS[0]["question"]
-    return f"""League context (JSON):
+    return f"""Base context (JSON):
 {payload}
 
 Question:
 {question}"""
+
+
+def _chunk_text(text: str, size: int = 48) -> Iterator[str]:
+    for i in range(0, len(text), size):
+        yield text[i : i + size]
 
 
 def stream_inseason_advisor(
@@ -648,11 +680,28 @@ def stream_inseason_advisor(
     user_question: str = "",
     model: str = DEFAULT_MODEL,
     messages: list[dict[str, str]] | None = None,
+    tools: list[dict[str, Any]] | None = None,
+    tool_handler: Any | None = None,
+    max_tool_rounds: int = 8,
 ) -> Iterator[str]:
-    """Stream in-season advisor reply — first turn embeds full context JSON."""
+    """Stream in-season advisor reply with optional Anthropic tool-use loop."""
     row = advisor_model_by_id(model)
     advisor_context = build_inseason_advisor_context(context)
     system = _inseason_system_prompt()
+
+    if tools and tool_handler and row["provider"] == "anthropic":
+        yield from _stream_inseason_with_tools(
+            api_key=api_key,
+            model=row["model"],
+            system=system,
+            context=advisor_context,
+            user_question=user_question,
+            messages=messages,
+            tools=tools,
+            tool_handler=tool_handler,
+            max_tool_rounds=max_tool_rounds,
+        )
+        return
 
     if messages:
         yield from stream_advisor_reply(
@@ -676,6 +725,85 @@ def stream_inseason_advisor(
         ],
         system=system,
     )
+
+
+def _stream_inseason_with_tools(
+    *,
+    api_key: str,
+    model: str,
+    system: str,
+    context: dict[str, Any],
+    user_question: str,
+    messages: list[dict[str, str]] | None,
+    tools: list[dict[str, Any]],
+    tool_handler: Any,
+    max_tool_rounds: int,
+) -> Iterator[str]:
+    """Run tool loop; stream final assistant text after tools complete."""
+    client = anthropic.Anthropic(api_key=api_key.strip())
+    thread: list[dict[str, Any]] = list(messages or [])
+    if not thread:
+        thread.append(
+            {
+                "role": "user",
+                "content": build_inseason_user_message(context, user_question),
+            }
+        )
+    elif not any(
+        row.get("role") == "user" and "Base context (JSON):" in str(row.get("content", ""))
+        for row in thread
+    ):
+        payload = json.dumps(context, indent=2, default=str)
+        thread.insert(
+            0,
+            {
+                "role": "user",
+                "content": f"Base context (JSON):\n{payload}\n\n(Use tools for roster and trade detail.)",
+            },
+        )
+
+    for round_idx in range(max_tool_rounds):
+        if round_idx == 0:
+            yield "⏳ Running league tools…\n\n"
+
+        response = client.messages.create(
+            model=model,
+            max_tokens=2500,
+            system=system,
+            messages=thread,
+            tools=tools,
+        )
+
+        if response.stop_reason == "tool_use":
+            thread.append({"role": "assistant", "content": response.content})
+            tool_results: list[dict[str, Any]] = []
+            tool_names = [
+                block.name for block in response.content if block.type == "tool_use"
+            ]
+            if tool_names:
+                yield f"_Calling {', '.join(tool_names)}…_\n\n"
+            for block in response.content:
+                if block.type != "tool_use":
+                    continue
+                result = tool_handler(block.name, block.input)
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": json.dumps(result, default=str),
+                    }
+                )
+            thread.append({"role": "user", "content": tool_results})
+            continue
+
+        text_parts = [
+            block.text for block in response.content if getattr(block, "type", None) == "text"
+        ]
+        final_text = "".join(text_parts)
+        yield from _chunk_text(final_text)
+        return
+
+    yield "Advisor hit the tool-round limit — try a narrower question."
 
 
 def stream_evaluate_picks(

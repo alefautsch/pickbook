@@ -57,19 +57,14 @@ Set variables:
 
 ## 4. Configure scheduled sync
 
-Use Railway Cron or a small cron service to trigger one of:
+The API service runs the scheduled sync in-process. Set these variables on the API service:
 
-```bash
-curl -X POST "$API_PUBLIC_URL/sync"
+```
+SYNC_ENABLED=true
+SYNC_CRON=0 11 * * *
 ```
 
-or:
-
-```bash
-python -m backend.sync_cli
-```
-
-Daily is enough for portfolio/history. The app also has a manual Sync button.
+Railway uses UTC; `0 11 * * *` is 6 AM at UTC-5. The scheduler uses a Postgres advisory lock before running, so duplicate API processes skip overlapping runs. The app also has a manual Sync button.
 
 ## 5. Verify after deploy
 
@@ -79,7 +74,7 @@ Check:
 - `GET /leagues` returns the three seeded leagues.
 - The web service loads a league dashboard.
 - Manual Sync completes and `/sync/status` shows success.
-- Daily cron writes new `sync_runs` rows.
+- Scheduled sync writes new `sync_runs` rows after the next `SYNC_CRON` fire.
 
 ---
 

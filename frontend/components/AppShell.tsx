@@ -1,21 +1,30 @@
 import Link from "next/link";
 import type { LeagueTile as LeagueTileData } from "@/lib/api";
+import { AdvisorShell } from "./AdvisorShell";
+import type { AdvisorPageContext } from "./AdvisorContext";
 import { LeagueSwitcher } from "./LeagueSwitcher";
 import { PlayerSearch } from "./PlayerSearch";
 import { SidebarNav } from "./SidebarNav";
-import { AdvisorLauncher } from "./AdvisorLauncher";
 import { SyncButton } from "./SyncButton";
 import { SyncStatusBar } from "./SyncStatusBar";
 
 type AppShellProps = {
   leagues: LeagueTileData[];
   activeLeagueId?: string;
+  advisorContext?: AdvisorPageContext;
   children: React.ReactNode;
 };
 
-export function AppShell({ leagues, activeLeagueId, children }: AppShellProps) {
+export function AppShell({
+  leagues,
+  activeLeagueId,
+  advisorContext,
+  children,
+}: AppShellProps) {
   const resolvedLeagueId =
     activeLeagueId ?? leagues[0]?.league_id;
+  const myRosterId =
+    leagues.find((l) => l.league_id === resolvedLeagueId)?.my_roster_id ?? undefined;
 
   return (
     <div className="flex min-h-full">
@@ -26,11 +35,8 @@ export function AppShell({ leagues, activeLeagueId, children }: AppShellProps) {
           <div className="flex min-w-0 items-center justify-between gap-3">
             <LeagueSwitcher leagues={leagues} activeLeagueId={resolvedLeagueId} />
             <div className="flex shrink-0 items-center gap-2">
-              <div className="hidden 2xl:block">
+              <div className="hidden sm:block">
                 <PlayerSearch />
-              </div>
-              <div className="hidden 2xl:block">
-                <AdvisorLauncher leagueId={resolvedLeagueId} />
               </div>
               <div className="flex items-center gap-2 rounded-lg border border-bb-border/50 bg-black/20 px-2 py-1.5">
                 <SyncStatusBar />
@@ -48,6 +54,12 @@ export function AppShell({ leagues, activeLeagueId, children }: AppShellProps) {
         </header>
         <main className="flex flex-1 flex-col">{children}</main>
       </div>
+
+      <AdvisorShell
+        leagueId={resolvedLeagueId}
+        myRosterId={myRosterId ?? undefined}
+        pageContext={advisorContext}
+      />
     </div>
   );
 }

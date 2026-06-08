@@ -48,6 +48,10 @@ class SleeperClient:
     def get_draft_picks(self, draft_id: str) -> list[dict[str, Any]]:
         return self._get(f"/draft/{draft_id}/picks")
 
+    def get_traded_picks(self, league_id: str) -> list[dict[str, Any]]:
+        """Future and traded draft picks for a league."""
+        return self._get(f"/league/{league_id}/traded_picks")
+
     def get_players(self, force_refresh: bool = False) -> dict[str, dict[str, Any]]:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         if (

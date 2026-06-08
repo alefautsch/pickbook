@@ -41,6 +41,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "projected_weight": 0.3,
         "auto_adjust_by_experience": True,
     },
+    "dynasty_daddy": {
+        "enabled": True,
+        "market": 14,
+        "start_week": 1,
+        "end_week": 18,
+        "seasons": None,
+    },
     "war_csv": "war.csv",
     "strategy": {
         "draft_phase": "vets",

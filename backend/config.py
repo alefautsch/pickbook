@@ -17,11 +17,15 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://blackbook:blackbook@localhost:5444/blackbook"
     sleeper_username: str = "alefautsch"
     anthropic_api_key: str | None = None
+    # Moonshot API — Kimi models in the in-season advisor. Optional.
+    moonshot_api_key: str | None = None
+    # Brave Search API — advisor web_search tool (injury/news). Optional.
+    brave_api_key: str | None = None
 
     # Comma-separated list of allowed CORS origins for the frontend.
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
-    # Documented cron cadence for sync (external runner — §9.1). Not used in-process.
+    # In-process sync scheduler cadence. Cron expressions are evaluated in UTC.
     sync_cron: str = "0 6 * * *"
     sync_enabled: bool = True
 

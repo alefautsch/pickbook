@@ -31,6 +31,13 @@
     "projected_weight": 0.3,
     "auto_adjust_by_experience": true
   },
+  "dynasty_daddy": {
+    "enabled": true,
+    "market": 14,
+    "start_week": 1,
+    "end_week": 18,
+    "seasons": null
+  },
   "war_csv": "war.csv",
   "strategy": {
     "draft_phase": "vets",

@@ -236,6 +236,24 @@ class DraftState:
     def with_blended_tv(self, player: PlayerValue) -> PlayerValue:
         return self.trade_blend.apply(player, self.ktc_value(player.name))
 
+    def value_inputs(self, player: PlayerValue, blended: PlayerValue | None = None) -> dict[str, Any]:
+        ktc = self.ktc_value(player.name)
+        blended_value = (blended or self.with_blended_tv(player)).trade_value
+        inputs = self.war.lookup_value_inputs(player.name)
+        inputs["ktc"] = {
+            "enabled": self.ktc is not None,
+            "trade_value": ktc,
+            "format": "superflex" if self.is_superflex() else "standard",
+        }
+        inputs["blend"] = {
+            "dd_weight": self.trade_blend.dd_weight,
+            "ktc_weight": self.trade_blend.ktc_weight,
+            "dd_trade_value": player.trade_value,
+            "ktc_trade_value": ktc,
+            "trade_value": blended_value,
+        }
+        return inputs
+
     def blend_pool(self, pool: list[tuple[str, PlayerValue]]) -> list[tuple[str, PlayerValue]]:
         return [(player_id, self.with_blended_tv(player)) for player_id, player in pool]
 

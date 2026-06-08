@@ -14,14 +14,18 @@ from backend.services.sync_runner import run_full_league_sync, run_sync_all
 
 def main(argv: list[str] | None = None) -> int:
     args = list(argv or sys.argv[1:])
+    force_refresh = False
+    if "--force-refresh" in args:
+        force_refresh = True
+        args.remove("--force-refresh")
     db = SessionLocal()
     try:
         if len(args) == 1:
-            result = run_full_league_sync(db, args[0])
+            result = run_full_league_sync(db, args[0], force_refresh=force_refresh)
             print(json.dumps(result.model_dump(), indent=2, default=str))
             return 0 if result.status == "success" else 1
 
-        response = run_sync_all(db)
+        response = run_sync_all(db, force_refresh=force_refresh)
         print(json.dumps(response.model_dump(), indent=2, default=str))
         failed = [r for r in response.results if r.status != "success"]
         return 1 if failed else 0

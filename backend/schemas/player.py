@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -89,6 +89,7 @@ class PlayerCard(BaseModel):
 
 class PlayerHistoryPoint(BaseModel):
     computed_at: datetime
+    snapshot_date: date
     ovr: int | None = None
     ovr_original: int | None = None
     ovr_recomputed: int | None = None
@@ -107,3 +108,34 @@ class PlayerHistorySeries(BaseModel):
     league_id: str
     current_formula_version: str
     points: list[PlayerHistoryPoint] = Field(default_factory=list)
+
+
+class PlayerGameLogEntry(BaseModel):
+    season: int
+    week: int
+    team: str | None = None
+    opponent: str | None = None
+    points: float
+    healthy: bool
+    included: bool
+    offense_snaps: int | None = None
+    offense_pct: float | None = None
+    targets: int = 0
+    receptions: int = 0
+    receiving_yards: int = 0
+    receiving_tds: int = 0
+    carries: int = 0
+    rushing_yards: int = 0
+    rushing_tds: int = 0
+    attempts: int = 0
+    passing_yards: int = 0
+    passing_tds: int = 0
+    interceptions: int = 0
+
+
+class PlayerGameLog(BaseModel):
+    player_id: str
+    league_id: str
+    player_name: str | None = None
+    seasons: list[int] = Field(default_factory=list)
+    entries: list[PlayerGameLogEntry] = Field(default_factory=list)

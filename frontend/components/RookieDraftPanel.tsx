@@ -82,7 +82,7 @@ function TimelineRow({ row }: { row: RookieDraftTimelineRow }) {
         ) : null}
       </td>
       <td className="px-2 py-2 text-xs text-bb-muted">{row.round ?? "—"}</td>
-      <td className="max-w-[8rem] truncate px-2 py-2 text-xs text-white">
+      <td className="max-w-32 truncate px-2 py-2 text-xs text-white">
         {row.team_name ?? "—"}
       </td>
       <td className="px-2 py-2 text-sm text-white">
@@ -120,7 +120,7 @@ function BoardRow({
 }) {
   return (
     <tr
-      className={`border-b border-bb-border/30 transition hover:bg-white/[0.03] ${
+      className={`border-b border-bb-border/30 transition hover:bg-white/3 ${
         isTarget ? "bg-bb-gold/10 ring-1 ring-inset ring-bb-gold/25" : ""
       }`}
     >
@@ -197,13 +197,11 @@ function BoardRow({
 
 export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
   const [draft, setDraft] = useState(initial);
-  const [targets, setTargets] = useState<Set<string>>(() => new Set());
+  const [targets, setTargets] = useState<Set<string>>(() =>
+    loadTargets(leagueId, initial.draft_id),
+  );
   const [polling, setPolling] = useState(true);
   const [lastError, setLastError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setTargets(loadTargets(leagueId, initial.draft_id));
-  }, [leagueId, initial.draft_id]);
 
   const refresh = useCallback(async () => {
     try {
@@ -403,7 +401,7 @@ export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
 
       <section>
         <h2 className="mb-3 text-lg font-medium text-white">Draft board</h2>
-        <div className="max-h-[28rem] overflow-y-auto rounded-xl border border-bb-border/50">
+        <div className="max-h-112 overflow-y-auto rounded-xl border border-bb-border/50">
           <table className="w-full text-left">
             <thead className="sticky top-0 z-10 bg-[#0f1419]">
               <tr className="border-b border-bb-border/50 text-[10px] uppercase tracking-wider text-bb-muted">

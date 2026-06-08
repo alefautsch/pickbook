@@ -64,7 +64,7 @@ A shared glossary so the design, API, DB, and UI all use the same words.
 | **OVR / Dynasty Rating** | The headline 50–99 grade. League-relative dynasty value. |
 | **Dynasty Score** | The raw 0–1 composite before the display curve. Used for precise ordering. |
 | **Components** | The normalized 0–1 breakdown that produces the score: trade value, WORP (production), upside, age, trajectory. |
-| **TV (Trade Value)** | Blended market value (dynasty-daddy + KTC). The market's opinion. |
+| **TV (Trade Value)** | Blended market value (Dynasty Daddy + KTC). The market's opinion. |
 | **WORP** | Wins Over Replacement Player — production value vs a league-specific replacement baseline. |
 | **HPPG** | Healthy Points Per Game — half-PPR points averaged over weeks the player was actually active (snap-filtered). |
 | **W/g** | WORP per game — per-week value over replacement, the per-game production signal. |
@@ -105,7 +105,7 @@ OVR derives from a weighted 0–1 composite (current engine defaults; tunable in
 
 | Component | Weight | Meaning |
 |-----------|-------:|---------|
-| **Trade value** | 45% | Market dynasty capital (dynasty-daddy ⊕ KTC blend), normalized to the league's top player. |
+| **Trade value** | 45% | Market dynasty capital (Dynasty Daddy ⊕ KTC blend), normalized to the league's top player. |
 | **WORP / production** | 25% | Value over replacement — but **blended with per-game production** (see §5.4). |
 | **Upside / ceiling** | 15% | Spike-week / breakout potential. |
 | **Age** | 10% | Youth premium relative to positional peak age. |
@@ -269,7 +269,7 @@ backend (FastAPI)               ── sync orchestration, persistence, read API
         │  imports as library
 dynasty_draft/ (engine)         ── OVR, per-game metrics, projections, lineups, rankings
         │
-PostgreSQL  ·  Sleeper API  ·  war.csv + nflverse cache
+PostgreSQL  ·  Sleeper API  ·  Dynasty Daddy API / war.csv fallback + nflverse cache
 ```
 
 **Why a Python API instead of putting logic in the frontend:** the scoring engine is Python and stays Python. The frontend should never reimplement lineup assignment or OVR math. The API hands over fully-shaped DTOs.
@@ -282,16 +282,16 @@ PostgreSQL  ·  Sleeper API  ·  war.csv + nflverse cache
 
 ### 9.1 Sync scheduler
 
-OVR-over-time and honest staleness both require **regular syncs**, not just manual button clicks. The API stays stateless: something external triggers `POST /sync` on a cadence.
+OVR-over-time and honest staleness both require **regular syncs**, not just manual button clicks. The API runs a lightweight in-process scheduler from `SYNC_CRON`.
 
 | Piece | Intent |
 |-------|--------|
-| **Trigger** | Railway Cron, local `cron`, or GitHub Actions → `POST /sync` (or per-league). No in-process scheduler in the API process (avoids duplicate runs on redeploy / multi-instance). |
-| **Cadence** | In-season default: **daily** (`SYNC_CRON=0 6 * * *` in env). Trade season / weekly lineup churn: **2×/day**. Off-season / rookie-draft prep: **daily** + manual. `SYNC_ENABLED` documents intent; cron is external. |
+| **Trigger** | FastAPI lifespan starts an in-process cron loop. Each run takes a Postgres advisory lock before syncing, so accidental duplicate API processes do not overlap. External Railway Cron/local launchd remain optional fallback runners. |
+| **Cadence** | In-season default: **daily** (`SYNC_CRON=0 6 * * *` in env, UTC). Trade season / weekly lineup churn: **2×/day**. Off-season / rookie-draft prep: **daily** + manual. `SYNC_ENABLED=false` disables the in-process scheduler. |
 | **Observability** | `sync_runs` is the audit log. `GET /sync/status` exposes global last success/failure + per-league status. Hub header (`SyncStatusBar`) shows last sync age and failure state. |
 | **History dependency** | Scheduler is a **prerequisite** for meaningful OVR trend charts — without cadence, history is sparse noise. |
 
-Manual sync remains forever (draft night, "I just traded, refresh now"). **Local scheduler:** `just bb-scheduler-install` registers a macOS launchd job that runs `scripts/bb-sync-cron.sh` daily (hour/minute from `SYNC_CRON`); uses `python -m backend.sync_cli` so the API does not need to be running. Railway Cron deferred with deploy.
+Manual sync remains forever (draft night, "I just traded, refresh now"). **Optional local scheduler:** `just bb-scheduler-install` registers a macOS launchd job that runs `scripts/bb-sync-cron.sh` daily (hour/minute from `SYNC_CRON`); use this only when you want syncs while the API is not running.
 
 ---
 
@@ -302,8 +302,8 @@ The schema exists to serve the consistency contract and the cross-league portfol
 - **`leagues`** — identity + the raw Sleeper scoring/roster settings that define the Scoring Context. Source of truth for "what lens applies."
 - **`rosters` / `roster_players`** — who owns whom, per league, from Sleeper. The portfolio is built from this.
 - **`player_snapshots`** — the heart: per *(league, player)* computed grade — OVR, dynasty score, components, HPPG, W/g, availability, expected flag, TV, flex. **This is what the UI reads.** Latest-wins for current truth.
-- **`player_snapshot_history`** *(§15, Phase 4.5)* — append-only **input ledger** per sync: raw + normalized metrics that fed OVR, cached `dynasty_rating`, `formula_version`, and optional `dynasty_rating_recomputed` when formula changes. Powers trends and **retroactive re-grade**.
-- **`league_snapshot_history`** *(§15, Phase 4.5)* — league-level anchor state per sync (`context_hash`, `rating_bounds`, per-game maxes QB/flex, TV/WORP maxes, `team_ovr_json`) so historical OVR can be recomputed in context.
+- **`player_snapshot_history`** *(§15, Phase 4.5)* — daily **input ledger**: raw + normalized metrics that fed OVR, cached `dynasty_rating`, `formula_version`, and optional `dynasty_rating_recomputed` when formula changes. One row per *(league, player, date)*; same-day resyncs overwrite that date. Powers trends and **retroactive re-grade**.
+- **`league_snapshot_history`** *(§15, Phase 4.5)* — daily league-level anchor state (`context_hash`, `rating_bounds`, per-game maxes QB/flex, TV/WORP maxes, `team_ovr_json`) so historical OVR can be recomputed in context. One row per *(league, date)*.
 - **`league_snapshots`** — per-league precomputed rankings (the four power-ranking views + analysis outputs) so the hub is a single fast read. Team optimal-lineup slot assignments (player IDs only) live in `analysis_json.teams` so team pages are snapshot reads without re-running lineup math.
 - **`sync_runs`** — observability: when, status, errors, counts. So I can see "synced 6m ago" and debug failures.
 - **`user_settings`** — my global knobs (dynasty weights, per-game tilt, TV blend, Sleeper username), migrated out of `config.json`. Possibly per-league overrides later.
@@ -411,7 +411,7 @@ To resolve as the build progresses; capture decisions back into this book.
 3. **Lens prominence** — is win-now a toggle on the player card, or a persistent secondary number? Depends on how often I think win-now vs dynasty.
 4. **Contender index thresholds** — **Resolved (Phase 4, 2026-06-07):** weights and tier cutoffs documented in §14.4; calibrated against seeded 10-team leagues.
 5. **Sync trigger** — **Direction (2026-06-07):** manual + external scheduler (§9.1). Daily in-season default; 2×/day during trade season. API exposes `POST /sync`; Railway Cron or local cron is the runner.
-6. **Snapshot history** — **Resolved (Phase 4.5):** append-only `player_snapshot_history` + `league_snapshot_history` at each sync; store **OVR inputs**, not just the headline grade (§15). `player_snapshots` stays latest. Re-grade via `POST /admin/recompute-history`.
+6. **Snapshot history** — **Resolved (Phase 4.5):** daily `player_snapshot_history` + `league_snapshot_history`; store **OVR inputs**, not just the headline grade (§15). Same-day syncs overwrite that date; `player_snapshots` stays latest. Re-grade via `POST /admin/recompute-history`.
 7. **Projected PPG / opportunity** — **Direction (2026-06-07):** build a **custom** opportunity model (not outsource the answer to Sleeper alone). Bootstrap with Sleeper projections + nflverse volume; evolve toward offense context + role share → projected PPG. See §15.
 
 ### 14.4 Contender index calibration (Phase 4)
@@ -430,6 +430,33 @@ Composite score (0–100) blends three league-normalized inputs (min–max withi
 
 Rationale on seeded leagues: age depth breaks ties when starter OVR and PPG cluster (e.g. GLA teams with similar 88–89 starter OVR but different bench youth). PPG weight rewards weekly ceiling without letting it dominate dynasty OVR.
 
+**Team OVR:** `avg_dynasty_rating` is a weighted roster rating: starters at 100%, top 3 bench by OVR at 80%, remaining bench depth at 20%. Future picks are tracked separately and do not inflate Team OVR.
+
+**Dynasty Daddy values:** sync now pulls `player/all/today?market=14` for current standard and superflex trade values, then pulls `league/format` with the league's roster/scoring settings for scoring-specific WORP/PORP. Superflex leagues use `sf_trade_value`; 1QB leagues use `trade_value`. TEP is reflected in WORP/PORP through the league-format scoring payload, while trade value remains DD's standard-vs-SF market value. If the API is unavailable, `war.csv` remains the fallback. `player_snapshots.value_inputs_json` and `player_snapshot_history.value_inputs_json` store the raw DD/KTC/blend inputs used by OVR.
+
+### In-season draft picks (Phase 8.5)
+
+Future rookie picks are first-class trade assets:
+
+- **Sync:** `GET /league/{id}/traded_picks` reconstructs full pick inventory (default ownership + traded overrides). Stored in `roster_draft_picks`.
+- **Slot tier:** early / mid / late inferred from the **original owner's** current dynasty rank (worst team → early 1st).
+- **TV:** static round×tier chart on the same scale as player TV, discounted by seasons out (`dynasty_draft/inseason_pick_values.py`). KTC pick scrape is a future enhancement.
+- **UI/API:** team views expose player value and `draft_pick_value` separately; team sidebar shows valued picks; advisor context includes pick totals and `draft_picks` on `my_team` and `focused_roster`.
+
+Startup pick-position trades (Pickbook) use sim-based `pick_values.py`; in-season uses the static chart above.
+
+### Smart advisor widget (Phase 8.5)
+
+The in-season advisor is a **floating widget** (not a slide-over). Each page passes context through `AppShell`:
+
+| Field | Meaning |
+|-------|---------|
+| `page_context.page_type` | team, player, league, portfolio, rookie-draft |
+| `focused_roster_id` | roster being viewed (defaults to my team) |
+| `my_team` vs `focused_roster` | user assets vs subject of analysis (opponent team pages) |
+
+**Tool loop (8.5b/d/e):** Anthropic tool-use replaces embedding full league JSON on turn 1. Base context is league name, scoring, `page_context`, and focused/my team summaries; detail via `get_team`, `get_player`, `evaluate_trade`, `suggest_trades`, etc. SSE streams final text after the tool loop. `web_search` is a stub until 8.5f.
+
 ### Resolved (Phase 1)
 
 - **Startup-draft roster source:** When Sleeper `rosters[].players` is empty (league still in startup draft), sync falls back to grouping `draft_picks` by `roster_id`. In-season leagues use live Sleeper rosters.
@@ -440,6 +467,8 @@ Rationale on seeded leagues: age depth breaks ties when starter OVR and PPG clus
 ## 15. OVR trends & snapshot history
 
 **Intent:** see how a player's grade moves — and *why* — across syncs within a league. Also: when dynasty weights, per-game tilt, or the rating curve change, **recompute historical OVR from stored inputs** instead of losing the past.
+
+History is date-bounded: the persisted series has one point per calendar date. A manual resync or scheduled sync on the same date replaces that day's league/player history rows instead of adding another point.
 
 ### 15.1 Store inputs, not just outputs
 
@@ -465,7 +494,7 @@ History must persist the **inputs and intermediate state**, with the displayed O
 1. **Player changed** — HPPG/TV/age moved; inputs differ row-to-row; trend is real.
 2. **Formula changed** — inputs identical for a past sync; re-running curve changes OVR; UI can show "as of formula v2" vs "as originally synced."
 
-Do **not** silently rewrite cached grades in history rows; append a recomputed view or store `dynasty_rating_recomputed` when formula changes so audit trail stays honest.
+Do **not** silently rewrite prior-date cached grades in history rows; append a recomputed view or store `dynasty_rating_recomputed` when formula changes so audit trail stays honest. Same-date resyncs are allowed to overwrite because they represent a refreshed calculation for the same daily point.
 
 ### 15.2 Guarantees
 

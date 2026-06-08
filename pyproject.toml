@@ -16,6 +16,7 @@ dependencies = [
     "alembic>=1.18.4",
     "psycopg[binary]>=3.3.4",
     "pydantic-settings>=2.14.1",
+    "croniter>=6.2.2",
 ]
 
 [project.scripts]

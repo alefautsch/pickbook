@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from dynasty_draft.dynasty_score import DynastyRatingCurve, DynastyWeights
+from dynasty_draft.dynasty_daddy import DynastyDaddyStore
 from dynasty_draft.healthy_ppg import HealthyPpgStore
 from dynasty_draft.ktc_values import KtcStore
 from dynasty_draft.projections import SleeperProjectionStore
@@ -75,6 +76,7 @@ class LeagueScoringState(DraftState):
             settings, ktc_available=self.ktc is not None
         )
         self.worp_blend = WorpBlend.from_config(settings)
+        force_metric_refresh = bool(settings.get("_force_metric_refresh"))
 
         scoring = self._scoring_context
         season = str(settings.get("season", league_row.season))
@@ -88,6 +90,7 @@ class LeagueScoringState(DraftState):
                 ppr=scoring.ppr,
                 war=war,
                 sleeper_players=sleeper_players,
+                force_refresh=force_metric_refresh,
             )
         except Exception:
             self.projection_store = None
@@ -100,6 +103,7 @@ class LeagueScoringState(DraftState):
                 roster_positions=scoring.roster_positions,
                 superflex=scoring.superflex,
                 ppr=scoring.ppr,
+                force_refresh=force_metric_refresh,
             )
         except Exception:
             self.healthy_ppg_store = None
@@ -191,12 +195,28 @@ def build_league_scoring_state(
     client = client or SleeperClient()
     sleeper_players = client.get_players()
 
+    war = WarData(war_path)
+    scoring = build_league_scoring_context(league_row)
+    dd_config = settings.get("dynasty_daddy") or {}
+    if bool(dd_config.get("enabled", True)):
+        try:
+            dd_store = DynastyDaddyStore.load(
+                league_row=league_row,
+                superflex=scoring.superflex,
+                config=dd_config,
+                force_refresh=bool(settings.get("_force_metric_refresh")),
+            )
+            war = dd_store.overlay_war_data(war)
+        except Exception:
+            # Dynasty Daddy has no official contract; keep local CSV scoring available if it moves.
+            pass
+
     return LeagueScoringState(
         league_row=league_row,
         roster_player_ids=roster_player_ids,
         user_id=user_id,
         settings=settings,
-        war=WarData(war_path),
+        war=war,
         sleeper_players=sleeper_players,
         client=client,
     )

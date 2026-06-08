@@ -30,7 +30,9 @@ export function StarterLineupPanel({ starters, leagueId }: StarterLineupPanelPro
           <h2 className="text-sm font-semibold uppercase tracking-wider text-white">
             Starters
           </h2>
-          <p className="mt-0.5 text-xs text-bb-muted">Optimal lineup by Blackbook metrics</p>
+          <p className="mt-0.5 text-xs text-bb-muted">
+            Optimal lineup by projected PPG
+          </p>
         </div>
         <p className="text-xs text-bb-muted">
           Proj Σ{" "}
@@ -49,11 +51,8 @@ export function StarterLineupPanel({ starters, leagueId }: StarterLineupPanelPro
               <th className="hidden w-16 px-3 py-2 text-center font-medium sm:table-cell">
                 OVR
               </th>
-              <th className="hidden w-24 px-3 py-2 text-center font-medium sm:table-cell">
+              <th className="hidden w-28 px-3 py-2 text-center font-medium sm:table-cell">
                 Proj PPG
-              </th>
-              <th className="hidden w-20 px-3 py-2 text-center font-medium sm:table-cell">
-                HPPG
               </th>
               <th className="hidden w-16 px-3 py-2 text-center font-medium sm:table-cell">
                 W/g
@@ -109,18 +108,19 @@ export function StarterLineupPanel({ starters, leagueId }: StarterLineupPanelPro
                           />
                         </div>
                       </td>
-                      <td className="hidden px-3 py-2.5 text-center align-middle sm:table-cell">
+                      <td
+                        className="hidden px-3 py-2.5 text-center align-middle sm:table-cell"
+                        title={`HPPG ${formatPpg(player.hppg)}`}
+                      >
                         <span className="text-xl font-semibold tabular-nums text-white">
                           {formatPpg(player.projected_ppg)}
                         </span>
-                      </td>
-                      <td className="hidden px-3 py-2.5 text-center align-middle sm:table-cell">
-                        <span className="font-medium tabular-nums text-white/90">
-                          {formatPpg(player.hppg)}
-                        </span>
-                        {player.hppg_expected ? (
-                          <span className="ml-0.5 text-xs text-bb-gold">e</span>
-                        ) : null}
+                        <p className="text-[10px] text-bb-muted">
+                          HPPG {formatPpg(player.hppg)}
+                          {player.hppg_expected ? (
+                            <span className="ml-0.5 text-bb-gold">e</span>
+                          ) : null}
+                        </p>
                       </td>
                       <td className="hidden px-3 py-2.5 text-center align-middle sm:table-cell">
                         <span className="tabular-nums text-white/80">
@@ -130,7 +130,7 @@ export function StarterLineupPanel({ starters, leagueId }: StarterLineupPanelPro
                     </>
                   ) : (
                     <td
-                      colSpan={4}
+                      colSpan={3}
                       className="hidden px-3 py-2.5 sm:table-cell"
                     />
                   )}

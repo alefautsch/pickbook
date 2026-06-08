@@ -25,7 +25,11 @@ export default async function RookieDraftPage({ params }: PageProps) {
   }
 
   return (
-    <AppShell leagues={leagues} activeLeagueId={leagueId}>
+    <AppShell
+      leagues={leagues}
+      activeLeagueId={leagueId}
+      advisorContext={{ pageType: "rookie-draft", summary: "Rookie draft prep" }}
+    >
       <RookieDraftPanel leagueId={leagueId} initial={draft} />
     </AppShell>
   );

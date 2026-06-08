@@ -296,6 +296,7 @@ def get_free_agents(
                 ovr=snap.dynasty_rating,
                 tier=ovr_tier(snap.dynasty_rating),
                 hppg=snap.hppg,
+                projected_ppg=snap.projected_ppg,
                 worp_ppg=snap.worp_ppg,
                 trade_value=snap.trade_value,
                 hppg_expected=snap.hppg_expected,

@@ -20,6 +20,7 @@ def run_full_league_sync(
     league_id: str,
     *,
     client: SleeperClient | None = None,
+    force_refresh: bool = False,
 ) -> SyncLeagueResult:
     client = client or SleeperClient()
     started = time.perf_counter()
@@ -27,7 +28,11 @@ def run_full_league_sync(
     try:
         ingest = sync_league_from_sleeper(db, league_id, client=client)
         metrics = compute_player_snapshots(
-            db, league_id, client=client, sync_run_id=ingest.get("sync_run_id")
+            db,
+            league_id,
+            client=client,
+            sync_run_id=ingest.get("sync_run_id"),
+            force_refresh=force_refresh,
         )
         rankings = compute_league_rankings(db, league_id)
         duration_ms = int((time.perf_counter() - started) * 1000)
@@ -51,14 +56,19 @@ def run_full_league_sync(
         )
 
 
-def run_sync_all(db: Session, *, client: SleeperClient | None = None) -> SyncAllResponse:
+def run_sync_all(
+    db: Session,
+    *,
+    client: SleeperClient | None = None,
+    force_refresh: bool = False,
+) -> SyncAllResponse:
     client = client or SleeperClient()
     started = time.perf_counter()
 
     league_ids = list(db.scalars(select(League.sleeper_league_id).order_by(League.name)).all())
     results: list[SyncLeagueResult] = []
     for league_id in league_ids:
-        results.append(run_full_league_sync(db, league_id, client=client))
+        results.append(run_full_league_sync(db, league_id, client=client, force_refresh=force_refresh))
 
     return SyncAllResponse(
         results=results,

@@ -77,23 +77,23 @@ export function PlayerCard({
           ) : null}
 
           <dl
-            className={`mt-2 grid grid-cols-5 gap-2 text-xs ${
+            className={`mt-2 grid grid-cols-4 gap-2 text-xs ${
               isHero ? "text-sm" : ""
             }`}
           >
             <div>
-              <dt className="text-bb-muted">HPPG</dt>
-              <dd className="font-medium text-white">
-                {formatPpg(player.hppg)}
+              <dt className="text-bb-muted">Proj PPG</dt>
+              <dd
+                className="text-base font-semibold text-white"
+                title={projectionSourceLabel(player.projection_source)}
+              >
+                {formatPpg(player.projected_ppg)}
+              </dd>
+              <dd className="text-[10px] text-bb-muted">
+                HPPG {formatPpg(player.hppg)}
                 {player.hppg_expected ? (
                   <span className="ml-0.5 text-bb-gold">e</span>
                 ) : null}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-bb-muted">Proj</dt>
-              <dd className="font-medium text-white" title={projectionSourceLabel(player.projection_source)}>
-                {formatPpg(player.projected_ppg)}
               </dd>
             </div>
             <div>

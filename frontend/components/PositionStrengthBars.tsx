@@ -1,5 +1,22 @@
 import type { PositionStrengthMap } from "@/lib/api";
 import { ordinal } from "@/lib/format";
+import { slotColor } from "@/lib/positions";
+
+function ovrClass(ovr: number | null): string {
+  if (ovr == null) return "text-bb-muted";
+  if (ovr >= 90) return "text-emerald-400";
+  if (ovr >= 85) return "text-emerald-300/80";
+  if (ovr >= 80) return "text-white";
+  return "text-amber-300/80";
+}
+
+function rankClass(rank: number | null, numTeams: number): string {
+  if (rank == null) return "text-bb-muted";
+  if (rank <= 2) return "text-emerald-400 font-semibold";
+  if (rank <= Math.ceil(numTeams / 2)) return "text-bb-gold/90";
+  if (rank <= numTeams - 2) return "text-bb-muted";
+  return "text-red-400/80";
+}
 
 type PositionStrengthBarsProps = {
   data: PositionStrengthMap;
@@ -21,6 +38,8 @@ export function PositionStrengthBars({ data, myRosterId }: PositionStrengthBarsP
     return <p className="text-sm text-bb-muted">No position data yet.</p>;
   }
 
+  const numTeams = data.teams.filter((t) => t.by_position).length || data.teams.length;
+
   return (
     <section className="bb-panel">
       <h2 className="bb-panel-title px-4 pt-4">Position Strength</h2>
@@ -30,24 +49,40 @@ export function PositionStrengthBars({ data, myRosterId }: PositionStrengthBarsP
           const ovr = myTeam.by_position[pos] ?? null;
           const allOvrs = data.teams.map((t) => t.by_position[pos] ?? null);
           const rank = rankInLeague(allOvrs, ovr);
-          const maxOvr = Math.max(...allOvrs.filter((v): v is number => v != null), 1);
-          const width = ovr != null ? Math.round((ovr / maxOvr) * 100) : 0;
+          // Rank-based width: rank 1 = 100%, rank N = ~(1/N)*100%
+          const width =
+            rank != null && numTeams > 1
+              ? Math.round(((numTeams - rank) / (numTeams - 1)) * 100)
+              : ovr != null
+                ? 50
+                : 0;
+          const color = slotColor(pos);
 
           return (
             <li key={pos}>
               <div className="mb-1 flex items-center justify-between text-xs">
-                <span className="font-semibold uppercase text-bb-muted">{pos}</span>
-                <span className="text-white">
-                  {ovr ?? "—"}
+                <span className="font-semibold uppercase" style={{ color }}>
+                  {pos}
+                </span>
+                <span className="flex items-baseline gap-1">
+                  <span className={`font-bold tabular-nums ${ovrClass(ovr)}`}>
+                    {ovr ?? "—"}
+                  </span>
                   {rank ? (
-                    <span className="ml-1 text-bb-muted">({ordinal(rank)})</span>
+                    <span className={`text-[10px] ${rankClass(rank, numTeams)}`}>
+                      {ordinal(rank)}
+                    </span>
                   ) : null}
                 </span>
               </div>
-              <div className="h-2 overflow-hidden rounded-full bg-black/40">
+              <div className="h-1.5 overflow-hidden rounded-full bg-black/40">
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-emerald-600 to-emerald-400"
-                  style={{ width: `${width}%` }}
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{
+                    width: `${width}%`,
+                    backgroundColor: color,
+                    opacity: 0.85,
+                  }}
                 />
               </div>
             </li>

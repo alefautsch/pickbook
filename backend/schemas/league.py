@@ -18,6 +18,7 @@ class LeagueTile(BaseModel):
     my_roster_ovr: int | None = None
     my_starter_ppg: float | None = None
     my_total_trade_value: float | None = None
+    my_draft_pick_value: float | None = None
     my_starter_ppg_rank: int | None = None
     my_tv_rank: int | None = None
     my_contender_tier: str | None = None
@@ -34,6 +35,7 @@ class LeagueTeamSummary(BaseModel):
     avg_dynasty_rating: int | None = None
     starter_total_ppg: float | None = None
     total_trade_value: float | None = None
+    draft_pick_value: float | None = None
     dynasty_rank: int | None = None
     starter_ppg_rank: int | None = None
     tv_rank: int | None = None

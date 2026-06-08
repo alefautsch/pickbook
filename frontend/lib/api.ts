@@ -1,7 +1,14 @@
-const API_URL =
-  process.env.API_URL ??
-  process.env.NEXT_PUBLIC_API_URL ??
-  "http://localhost:8000";
+/** Browser uses same-origin proxy; server components hit the API directly. */
+export function getApiBaseUrl(): string {
+  if (typeof window !== "undefined") {
+    return "/api/blackbook";
+  }
+  return (
+    process.env.API_URL ??
+    process.env.NEXT_PUBLIC_API_URL ??
+    "http://127.0.0.1:8000"
+  );
+}
 
 export type HealthResponse = {
   status: string;
@@ -97,6 +104,7 @@ export type LeagueTile = {
   my_roster_ovr: number | null;
   my_starter_ppg: number | null;
   my_total_trade_value: number | null;
+  my_draft_pick_value: number | null;
   my_starter_ppg_rank: number | null;
   my_tv_rank: number | null;
   my_contender_tier: string | null;
@@ -107,6 +115,7 @@ export type LeagueTile = {
 
 export type PlayerHistoryPoint = {
   computed_at: string;
+  snapshot_date: string;
   ovr: number | null;
   ovr_original: number | null;
   ovr_recomputed: number | null;
@@ -125,6 +134,37 @@ export type PlayerHistorySeries = {
   league_id: string;
   current_formula_version: string;
   points: PlayerHistoryPoint[];
+};
+
+export type PlayerGameLogEntry = {
+  season: number;
+  week: number;
+  team: string | null;
+  opponent: string | null;
+  points: number;
+  healthy: boolean;
+  included: boolean;
+  offense_snaps: number | null;
+  offense_pct: number | null;
+  targets: number;
+  receptions: number;
+  receiving_yards: number;
+  receiving_tds: number;
+  carries: number;
+  rushing_yards: number;
+  rushing_tds: number;
+  attempts: number;
+  passing_yards: number;
+  passing_tds: number;
+  interceptions: number;
+};
+
+export type PlayerGameLog = {
+  player_id: string;
+  league_id: string;
+  player_name: string | null;
+  seasons: number[];
+  entries: PlayerGameLogEntry[];
 };
 
 export type SyncStatusResponse = {
@@ -149,6 +189,7 @@ export type LeagueTeamSummary = {
   avg_dynasty_rating: number | null;
   starter_total_ppg: number | null;
   total_trade_value: number | null;
+  draft_pick_value: number | null;
   dynasty_rank: number | null;
   starter_ppg_rank: number | null;
   tv_rank: number | null;
@@ -173,6 +214,7 @@ export type RankingRow = {
   avg_dynasty_rating: number | null;
   starter_total_ppg: number | null;
   total_trade_value: number | null;
+  draft_pick_value: number | null;
   win_now_score: number | null;
   dynasty_rank?: number;
   starter_ppg_rank?: number;
@@ -313,6 +355,17 @@ export type InjuryWatchItem = {
   injury_body_part: string | null;
 };
 
+export type DraftPickAsset = {
+  season: string;
+  round: number;
+  original_roster_id: string;
+  owner_roster_id: string;
+  slot_tier: string;
+  trade_value: number | null;
+  label: string | null;
+  is_own_slot: boolean;
+};
+
 export type TeamDetail = {
   league_id: string;
   league_name: string;
@@ -324,6 +377,7 @@ export type TeamDetail = {
   starter_avg_dynasty_rating: number | null;
   starter_total_ppg: number | null;
   total_trade_value: number | null;
+  draft_pick_value: number | null;
   dynasty_rank: number | null;
   starter_ppg_rank: number | null;
   tv_rank: number | null;
@@ -337,6 +391,7 @@ export type TeamDetail = {
   roster: PlayerCard[];
   depth_chart: DepthChartGroup[];
   injuries: InjuryWatchItem[];
+  draft_picks: DraftPickAsset[];
 };
 
 export type SyncLeagueResult = {
@@ -352,7 +407,7 @@ export type SyncAllResponse = {
 };
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
+  const response = await fetch(`${getApiBaseUrl()}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -407,12 +462,22 @@ export function getPlayerHistory(
   );
 }
 
+export function getPlayerGameLog(
+  playerId: string,
+  leagueId: string,
+): Promise<PlayerGameLog> {
+  return apiFetch<PlayerGameLog>(
+    `/players/${playerId}/game-log?league_id=${leagueId}`,
+  );
+}
+
 export function getSyncStatus(): Promise<SyncStatusResponse> {
   return apiFetch<SyncStatusResponse>("/sync/status");
 }
 
-export function postSyncAll(): Promise<SyncAllResponse> {
-  return apiFetch<SyncAllResponse>("/sync", { method: "POST" });
+export function postSyncAll(forceRefresh = false): Promise<SyncAllResponse> {
+  const query = forceRefresh ? "?force_refresh=true" : "";
+  return apiFetch<SyncAllResponse>(`/sync${query}`, { method: "POST" });
 }
 
 export type PortfolioLeagueHolding = {
@@ -487,6 +552,7 @@ export type FreeAgentRow = {
   ovr: number | null;
   tier: string | null;
   hppg: number | null;
+  projected_ppg: number | null;
   worp_ppg: number | null;
   trade_value: number | null;
   hppg_expected: boolean;
@@ -655,6 +721,8 @@ export type AdvisorModel = {
   id: string;
   label: string;
   provider: string;
+  available: boolean;
+  supports_tools: boolean;
 };
 
 export type AdvisorPrompt = {
@@ -675,34 +743,60 @@ export type AdvisorMessage = {
   content: string;
 };
 
+export type AdvisorPageContext = {
+  page_type: string;
+  path?: string | null;
+  roster_id?: string | null;
+  player_id?: string | null;
+  player_name?: string | null;
+  summary?: string | null;
+};
+
 export type AdvisorChatRequest = {
   league_id: string;
   question?: string;
   prompt_id?: string | null;
   model_id?: string;
   messages?: AdvisorMessage[];
+  focused_roster_id?: string | null;
+  page_context?: AdvisorPageContext | null;
 };
 
 export function getAdvisorStatus(): Promise<AdvisorStatus> {
   return apiFetch<AdvisorStatus>("/advisor/status");
 }
 
+function advisorNetworkError(cause?: unknown): Error {
+  const detail = cause instanceof Error ? cause.message : String(cause ?? "");
+  return new Error(
+    `Advisor request failed${detail ? `: ${detail}` : ""}. ` +
+      "Check that the API is running on :8000 (just bb-api).",
+  );
+}
+
 export async function streamAdvisorChat(
   body: AdvisorChatRequest,
   onChunk: (text: string) => void,
 ): Promise<void> {
-  const response = await fetch(`${API_URL}/advisor/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      league_id: body.league_id,
-      question: body.question ?? "",
-      prompt_id: body.prompt_id ?? null,
-      model_id: body.model_id ?? "claude-sonnet-4-6",
-      messages: body.messages ?? [],
-    }),
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${getApiBaseUrl()}/advisor/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        league_id: body.league_id,
+        question: body.question ?? "",
+        prompt_id: body.prompt_id ?? null,
+        model_id: body.model_id ?? "claude-sonnet-4-6",
+        messages: body.messages ?? [],
+        focused_roster_id: body.focused_roster_id ?? null,
+        page_context: body.page_context ?? null,
+      }),
+      cache: "no-store",
+    });
+  } catch (err) {
+    throw advisorNetworkError(err);
+  }
 
   if (!response.ok) {
     const text = await response.text();

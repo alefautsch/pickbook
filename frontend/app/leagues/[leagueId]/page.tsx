@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { AgeProfileSidebar } from "@/components/AgeProfileSidebar";
@@ -54,7 +53,15 @@ export default async function LeagueOverviewPage({ params }: PageProps) {
     analysis.contender_index?.teams.find((t) => t.is_me) ?? null;
 
   return (
-    <AppShell leagues={leagues} activeLeagueId={leagueId}>
+    <AppShell
+      leagues={leagues}
+      activeLeagueId={leagueId}
+      advisorContext={{
+        pageType: "league",
+        rosterId: leagueTile?.my_roster_id ?? undefined,
+        summary: league.name,
+      }}
+    >
       <HashScroll />
       <div className="flex flex-1 flex-col bg-[#0d1117]/40 px-5 py-6 sm:px-8">
         {leagueTile ? <SummaryCards league={leagueTile} /> : null}

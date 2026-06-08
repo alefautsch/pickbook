@@ -343,9 +343,9 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 **Status:** Complete locally (2026-06-07).
 
 ### Scheduler
-- [x] Document cadence in `BLACKBOOK.md` / env: `SYNC_CRON` or Railway Cron → `POST /sync`.
-- [x] Local scheduler: `just bb-scheduler-install` → macOS launchd (`scripts/install-bb-scheduler.sh`); `backend/sync_cli.py` runs headless (no API).
-- [ ] Railway Cron job when deployed → `POST /sync` or `python -m backend.sync_cli`.
+- [x] Document cadence in `BLACKBOOK.md` / env: `SYNC_CRON` drives the API in-process scheduler.
+- [x] Backend scheduler: FastAPI lifespan starts cron loop; Postgres advisory lock prevents duplicate overlapping runs.
+- [x] Optional local scheduler: `just bb-scheduler-install` → macOS launchd (`scripts/install-bb-scheduler.sh`); `backend/sync_cli.py` runs headless when the API is not running.
 - [x] `GET /sync/status` → last run per league + global success/failure from `sync_runs`.
 - [x] Hub header: global last-synced across leagues + failure indicator (`SyncStatusBar`).
 
@@ -469,9 +469,14 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 
 ## Phase 8 — AI advisor (optional)
 
-- [ ] Port `dynasty_draft/llm_advisor.py` as a backend endpoint with in-season context (roster, rankings, portfolio).
-- [ ] Slide-out advisor panel in UI.
-- [ ] In-season prompts: trade targets, drop candidates, rookie-pick prep.
+- [x] Port `dynasty_draft/llm_advisor.py` as a backend endpoint with in-season context (roster, rankings, portfolio).
+- [x] In-season prompts: trade targets, drop candidates, rookie-pick prep.
+- [x] **8.5a — Draft pick sync:** Sleeper `traded_picks` → `roster_draft_picks` table; static TV chart in `dynasty_draft/inseason_pick_values.py`; picks on team detail + advisor context.
+- [x] **8.5c — Widget + page context:** floating advisor widget; `page_context` + `focused_roster_id` on chat API; pages register context via `AppShell`.
+- [x] **8.5b — `evaluate_trade` tool:** player + pick packages, TV delta, fairness band.
+- [x] **8.5d — Tool-use loop:** replace full JSON dump with Anthropic tools (`get_team`, `get_player`, `calculate`, …).
+- [x] **8.5e — `suggest_trades` skill:** deterministic candidate generator + LLM packaging.
+- [ ] **8.5f — Web search tool:** injury/news via Brave or Tavily API key.
 
 ---
 
@@ -481,7 +486,7 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 - [ ] Shared variables: `DATABASE_URL` (from plugin), `SLEEPER_USERNAME`, `ANTHROPIC_API_KEY` (Phase 8).
 - [~] `api`: `Dockerfile.blackbook` runs alembic migrations, seeds leagues, then `uvicorn`.
 - [~] `web`: `frontend/Dockerfile` runs Next standalone; configure `API_URL` + `NEXT_PUBLIC_API_URL`.
-- [ ] **Scheduler:** Railway Cron service or cron job → `POST https://api…/sync` daily (§9.1, Phase 4.5).
+- [x] **Scheduler:** API service runs in-process cron from `SYNC_CRON`; confirm `SYNC_ENABLED=true` in Railway.
 - [ ] Verify internal networking (web → api) and DB connectivity post-deploy.
 - [ ] Confirm no Vercel involved (§9).
 
