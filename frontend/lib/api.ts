@@ -375,6 +375,8 @@ export type TeamDetail = {
   is_me: boolean;
   avg_dynasty_rating: number | null;
   starter_avg_dynasty_rating: number | null;
+  avg_win_now_rating: number | null;
+  starter_avg_win_now_rating: number | null;
   starter_total_ppg: number | null;
   total_trade_value: number | null;
   draft_pick_value: number | null;

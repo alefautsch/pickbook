@@ -55,6 +55,8 @@ class TeamDetail(BaseModel):
     is_me: bool = False
     avg_dynasty_rating: int | None = None
     starter_avg_dynasty_rating: int | None = None
+    avg_win_now_rating: int | None = None
+    starter_avg_win_now_rating: int | None = None
     starter_total_ppg: float | None = None
     total_trade_value: float | None = None
     draft_pick_value: float | None = None

@@ -33,7 +33,7 @@ CONTENDER_WEIGHTS: dict[str, float] = {
 }
 TRADE_SURPLUS_TOP_N = 3
 TRADE_SURPLUS_BOTTOM_N = 3
-LINEUP_PPG_FIELDS = ("projected_ppg", "healthy_ppg", "trade_value")
+LINEUP_PPG_FIELDS = ("dynasty_rating", "projected_ppg", "healthy_ppg", "trade_value")
 TEAM_CORE_BENCH_COUNT = 3
 TEAM_CORE_BENCH_WEIGHT = 0.8
 TEAM_DEPTH_WEIGHT = 0.2
@@ -58,6 +58,7 @@ def _player_row_from_snapshot(snapshot: PlayerSnapshot, war: WarData) -> dict[st
         "healthy_ppg": snapshot.hppg,
         "hppg_expected": snapshot.hppg_expected,
         "flex_rating": snapshot.flex_rating,
+        "win_now_rating": snapshot.win_now_rating,
         "projected_ppg": snapshot.projected_ppg,
         "availability": snapshot.availability,
         "healthy_games": snapshot.healthy_games,
@@ -148,6 +149,16 @@ def _finalize_team_lineup(
         for row in starters
         if row.get("player") and row["player"].get("dynasty_rating") is not None
     ]
+    starter_win_now_ratings = [
+        row["player"]["win_now_rating"]
+        for row in starters
+        if row.get("player") and row["player"].get("win_now_rating") is not None
+    ]
+    all_win_now_ratings = [
+        p.get("win_now_rating")
+        for p in all_players
+        if p.get("win_now_rating") is not None
+    ]
     starter_ppg_values: list[float] = []
     for row in starters:
         player = row.get("player")
@@ -170,6 +181,12 @@ def _finalize_team_lineup(
         "avg_dynasty_rating": _team_weighted_rating(starters, bench),
         "starter_avg_dynasty_rating": (
             round(sum(starter_ratings) / len(starter_ratings)) if starter_ratings else 0
+        ),
+        "avg_win_now_rating": (
+            round(sum(all_win_now_ratings) / len(all_win_now_ratings)) if all_win_now_ratings else None
+        ),
+        "starter_avg_win_now_rating": (
+            round(sum(starter_win_now_ratings) / len(starter_win_now_ratings)) if starter_win_now_ratings else None
         ),
         "starter_total_ppg": (
             round(sum(starter_ppg_values), 1) if starter_ppg_values else None

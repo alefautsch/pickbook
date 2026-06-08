@@ -479,6 +479,8 @@ def get_team_detail(db: Session, league_id: str, roster_id: str) -> TeamDetail |
         is_me=roster.is_me,
         avg_dynasty_rating=dynasty_row.get("avg_dynasty_rating"),
         starter_avg_dynasty_rating=dynasty_row.get("starter_avg_dynasty_rating"),
+        avg_win_now_rating=dynasty_row.get("avg_win_now_rating"),
+        starter_avg_win_now_rating=dynasty_row.get("starter_avg_win_now_rating"),
         starter_total_ppg=dynasty_row.get("starter_total_ppg"),
         total_trade_value=dynasty_row.get("total_trade_value"),
         draft_pick_value=draft_pick_value,
