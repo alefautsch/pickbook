@@ -20,8 +20,8 @@ from backend.services.portfolio_service import get_free_agents
 from backend.services.read_service import get_league_rankings, get_player_card, get_team_detail
 from backend.services.trade_engine import (
     FAIRNESS_BAND,
-    MIN_EXPENDABILITY_TO_SELL,
-    annotate_players_with_expendability,
+    annotate_picks_with_trade_tags,
+    annotate_players_with_trade_tags,
     asset_tv,
     effective_package_tv,
     evaluate_package_fairness,
@@ -285,14 +285,29 @@ def generate_trade_suggestions(
     my_need_positions = {row["position"] for row in trade_surplus.get("needs") or []}
     my_tier = (contender_tier_by_roster or {}).get(str(my_roster_id))
 
-    my_annotated = annotate_players_with_expendability(
+    my_annotated = annotate_players_with_trade_tags(
         my_players,
         surplus_positions=my_surplus_positions,
         contender_tier=my_tier,
     )
-    expendability_by_id = {
-        str(p["player_id"]): p.get("expendability_score") or 0 for p in my_annotated
+    tradability_by_id = {
+        str(p["player_id"]): (
+            0.85
+            if p.get("trade_tag") == "trade"
+            else 0.05
+            if p.get("trade_tag") == "core"
+            else 0.35
+        )
+        for p in my_annotated
     }
+    my_trade_picks = [
+        p
+        for p in annotate_picks_with_trade_tags(
+            picks_by_roster.get(str(my_roster_id), []),
+            contender_tier=my_tier,
+        )
+        if p.get("trade_tag") == "trade"
+    ]
 
     counterparties = trade_surplus.get("counterparties") or []
     if target_roster_id:
@@ -326,14 +341,9 @@ def generate_trade_suggestions(
         if direction == "sell":
             give_pool = sorted(
                 [p for p in my_annotated if p.get("position") == pos],
-                key=lambda p: p.get("expendability_score") or 0,
-                reverse=True,
+                key=lambda p: p.get("lineup_delta_ppg") or 0,
             )
-            give_pool = [
-                p
-                for p in give_pool
-                if (p.get("expendability_score") or 0) >= MIN_EXPENDABILITY_TO_SELL * 100
-            ][:3]
+            give_pool = [p for p in give_pool if p.get("trade_tag") == "trade"][:3]
             recv_pool = sorted(
                 [
                     p
@@ -370,19 +380,16 @@ def generate_trade_suggestions(
                     if p.get("position") in my_surplus_positions
                     and p.get("position") != pos
                 ],
-                key=lambda p: p.get("expendability_score") or 0,
-                reverse=True,
+                key=lambda p: p.get("lineup_delta_ppg") or 0,
             )
-            give_pool = [
-                p
-                for p in give_pool
-                if (p.get("expendability_score") or 0) >= MIN_EXPENDABILITY_TO_SELL * 100
-            ][:3]
+            give_pool = [p for p in give_pool if p.get("trade_tag") == "trade"][:3]
 
-        if not give_pool or not recv_pool:
+        if not give_pool and not my_trade_picks:
+            continue
+        if not recv_pool:
             continue
 
-        give_asset = give_pool[0]
+        give_asset = give_pool[0] if give_pool else my_trade_picks[0]
         recv_asset = recv_pool[0]
 
         give_list: list[dict[str, Any]] = [give_asset]
@@ -396,7 +403,7 @@ def generate_trade_suggestions(
         give_list, recv_list = _balance_with_pick(
             give_list,
             recv_list,
-            my_picks=picks_by_roster.get(str(my_roster_id), []),
+            my_picks=my_trade_picks or picks_by_roster.get(str(my_roster_id), []),
             their_picks=picks_by_roster.get(their_id, []),
         )
 
@@ -406,7 +413,8 @@ def generate_trade_suggestions(
         quality = package_quality_score(
             give_players=give_player_rows,
             recv_players=recv_player_rows,
-            expendability_by_id=expendability_by_id,
+            give_assets=give_list,
+            tradability_by_id=tradability_by_id,
             acquirer_need_positions=my_need_positions,
             acquirer_surplus_positions=my_surplus_positions,
             acquirer_tier=my_tier,
@@ -428,10 +436,12 @@ def generate_trade_suggestions(
             if recv_player_rows
             else 0.0
         )
-        avg_expend = (
-            sum(expendability_by_id.get(str(p.get("player_id")), 0) for p in give_player_rows)
+        avg_tradability = (
+            sum(tradability_by_id.get(str(p.get("player_id")), 0.35) for p in give_player_rows)
             / len(give_player_rows)
             if give_player_rows
+            else 0.85
+            if any(not p.get("player_id") for p in give_list)
             else 0.0
         )
 
@@ -454,7 +464,7 @@ def generate_trade_suggestions(
                 },
                 **fairness,
                 "package_quality": quality,
-                "avg_expendability": round(avg_expend, 1),
+                "avg_tradability": round(avg_tradability, 3),
                 "avg_trade_fit": round(avg_fit, 3),
                 "rationale": (
                     f"{'Sell' if direction == 'sell' else 'Buy'} {pos} leverage — "
@@ -595,17 +605,19 @@ class AdvisorTools:
                 "ovr": p.ovr,
                 "tv": p.trade_value,
                 "hppg": p.hppg,
+                "projected_ppg": p.projected_ppg,
                 "age": p.age,
             }
             for p in detail.roster[:TOP_ROSTER_PLAYERS]
         ]
-        players = annotate_players_with_expendability(
+        players = annotate_players_with_trade_tags(
             roster_rows,
             surplus_positions=surplus_positions,
             contender_tier=detail.contender_tier,
         )
         trade_candidates = top_trade_candidates(
             roster_rows,
+            picks=[p.model_dump() for p in detail.draft_picks],
             surplus_positions=surplus_positions,
             contender_tier=detail.contender_tier,
         )
@@ -646,7 +658,9 @@ class AdvisorTools:
             "outlook": card.outlook,
             "win_now_rating": card.lenses.win_now_rating if card.lenses else None,
             "age": card.age,
-            "expendability_score": card.expendability_score,
+            "trade_tag": card.trade_tag,
+            "lineup_delta_ppg": card.lineup_delta_ppg,
+            "tv_vs_production_gap": card.tv_vs_production_gap,
             "depth_rank": card.depth_rank,
         }
 

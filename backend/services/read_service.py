@@ -34,7 +34,8 @@ from backend.schemas.team import (
 )
 from backend.services.pick_service import get_roster_draft_picks
 from backend.services.trade_engine import (
-    annotate_players_with_expendability,
+    annotate_picks_with_trade_tags,
+    annotate_players_with_trade_tags,
     surplus_positions_for_roster,
     top_trade_candidates,
 )
@@ -151,7 +152,7 @@ def _player_card_from_snapshot(snapshot: PlayerSnapshot, league_name: str) -> Pl
     )
 
 
-def _expendability_rows_from_cards(players: list[PlayerCard]) -> list[dict[str, Any]]:
+def _trade_tag_rows_from_cards(players: list[PlayerCard]) -> list[dict[str, Any]]:
     return [
         {
             "player_id": p.player_id,
@@ -161,13 +162,14 @@ def _expendability_rows_from_cards(players: list[PlayerCard]) -> list[dict[str, 
             "ovr": p.ovr,
             "tv": p.trade_value,
             "hppg": p.hppg,
+            "projected_ppg": p.projected_ppg,
             "age": p.age,
         }
         for p in players
     ]
 
 
-def _expendability_map_for_roster(
+def _trade_tag_map_for_roster(
     db: Session,
     league_id: str,
     roster_id: str,
@@ -186,26 +188,29 @@ def _expendability_map_for_roster(
         {},
     )
     surplus_positions, _ = surplus_positions_for_roster(position_strength, roster_id)
-    annotated = annotate_players_with_expendability(
-        _expendability_rows_from_cards(players),
+    annotated = annotate_players_with_trade_tags(
+        _trade_tag_rows_from_cards(players),
         surplus_positions=surplus_positions,
         contender_tier=dynasty_row.get("contender_tier"),
     )
     return {str(row["player_id"]): row for row in annotated}
 
 
-def _apply_expendability(
+def _apply_trade_tags(
     card: PlayerCard | None,
-    expendability_map: dict[str, dict[str, Any]],
+    trade_tag_map: dict[str, dict[str, Any]],
 ) -> PlayerCard | None:
     if card is None:
         return None
-    row = expendability_map.get(card.player_id)
+    row = trade_tag_map.get(card.player_id)
     if row is None:
         return card
     return card.model_copy(
         update={
-            "expendability_score": row.get("expendability_score"),
+            "trade_tag": row.get("trade_tag"),
+            "lineup_delta_ppg": row.get("lineup_delta_ppg"),
+            "tv_vs_production_gap": row.get("tv_vs_production_gap"),
+            "production_ppg": row.get("production_ppg"),
             "depth_rank": row.get("depth_rank"),
         }
     )
@@ -266,8 +271,8 @@ def get_player_card(db: Session, player_id: str, league_id: str) -> PlayerCard |
         for pid in roster_player_ids
         if pid in snapshots
     ]
-    expend_map = _expendability_map_for_roster(db, league_id, owner_roster_id, roster_cards)
-    return _apply_expendability(card, expend_map)
+    expend_map = _trade_tag_map_for_roster(db, league_id, owner_roster_id, roster_cards)
+    return _apply_trade_tags(card, expend_map)
 
 
 def _rank_lookup(rankings: list[dict[str, Any]], roster_id: str, field: str) -> int | None:
@@ -555,15 +560,15 @@ def get_team_detail(db: Session, league_id: str, roster_id: str) -> TeamDetail |
     starter_players = [slot.player for slot in starters if slot.player]
     roster_players = starter_players + bench
 
-    expend_map = _expendability_map_for_roster(db, league_id, roster_id, roster_players)
+    trade_tag_map = _trade_tag_map_for_roster(db, league_id, roster_id, roster_players)
     starters = [
-        LineupSlot(slot=slot.slot, player=_apply_expendability(slot.player, expend_map))
+        LineupSlot(slot=slot.slot, player=_apply_trade_tags(slot.player, trade_tag_map))
         for slot in starters
     ]
-    bench = [_apply_expendability(card, expend_map) for card in bench]
+    bench = [_apply_trade_tags(card, trade_tag_map) for card in bench]
     bench = [card for card in bench if card is not None]
     roster_players = [
-        card for card in (_apply_expendability(p, expend_map) for p in roster_players) if card
+        card for card in (_apply_trade_tags(p, trade_tag_map) for p in roster_players) if card
     ]
 
     rankings = snap.rankings_json or {}
@@ -576,19 +581,32 @@ def get_team_detail(db: Session, league_id: str, roster_id: str) -> TeamDetail |
         (snap.analysis_json or {}).get("position_strength"),
         roster_id,
     )
+    draft_picks_raw = get_roster_draft_picks(db, league_id, roster_id)
+    draft_picks_tagged = annotate_picks_with_trade_tags(
+        draft_picks_raw,
+        contender_tier=dynasty_row.get("contender_tier"),
+    )
     trade_candidates_raw = top_trade_candidates(
-        _expendability_rows_from_cards(roster_players),
+        _trade_tag_rows_from_cards(roster_players),
+        picks=draft_picks_tagged,
         surplus_positions=surplus_positions,
         contender_tier=dynasty_row.get("contender_tier"),
     )
     trade_candidates = [
         TradeCandidate(
-            player_id=str(row["player_id"]),
+            asset_type=row.get("asset_type") or "player",
+            player_id=str(row["player_id"]) if row.get("player_id") else None,
             player_name=row.get("name"),
             position=row.get("position"),
             trade_value=row.get("tv"),
-            expendability_score=row.get("expendability_score"),
+            trade_tag=row.get("trade_tag"),
+            lineup_delta_ppg=row.get("lineup_delta_ppg"),
             depth_rank=row.get("depth_rank"),
+            season=row.get("season"),
+            round=row.get("round"),
+            original_roster_id=row.get("original_roster_id"),
+            slot_tier=row.get("slot_tier"),
+            is_own_slot=row.get("is_own_slot"),
         )
         for row in trade_candidates_raw
     ]
@@ -608,10 +626,9 @@ def get_team_detail(db: Session, league_id: str, roster_id: str) -> TeamDetail |
 
     breakdown_raw = team_meta.get("component_breakdown") or {}
     traits_raw = team_meta.get("traits") or []
-    draft_picks_raw = get_roster_draft_picks(db, league_id, roster_id)
     draft_pick_value = dynasty_row.get("draft_pick_value")
     if draft_pick_value is None:
-        draft_pick_value = _sum_pick_value(draft_picks_raw)
+        draft_pick_value = _sum_pick_value(draft_picks_tagged)
 
     return TeamDetail(
         league_id=league_id,
@@ -647,6 +664,6 @@ def get_team_detail(db: Session, league_id: str, roster_id: str) -> TeamDetail |
         roster=roster_players,
         depth_chart=_depth_chart_from_roster(roster_players),
         injuries=_injuries_from_roster(roster_players),
-        draft_picks=[DraftPickAsset(**row) for row in draft_picks_raw],
+        draft_picks=[DraftPickAsset(**row) for row in draft_picks_tagged],
         trade_candidates=trade_candidates,
     )

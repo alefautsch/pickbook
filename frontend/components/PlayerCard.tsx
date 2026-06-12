@@ -72,9 +72,9 @@ export function PlayerCard({
               <span className="text-xs text-bb-muted">Age {player.age}</span>
             ) : null}
             <ExpendabilityBadge
-              score={player.expendability_score}
+              tag={player.trade_tag}
+              lineupDelta={player.lineup_delta_ppg}
               size={isHero ? "md" : "sm"}
-              showScore={isHero}
             />
           </div>
 

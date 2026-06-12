@@ -4,12 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import delete, inspect, select
+from sqlalchemy import delete, desc, inspect, select
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
 
 from backend.db.models import League, LeagueSnapshot, RosterDraftPick
-from dynasty_draft.inseason_pick_values import infer_slot_tier, pick_label, seasons_until, value_pick
+from dynasty_draft.inseason_pick_values import (
+    infer_slot_tier,
+    pick_label,
+    seasons_until,
+    slot_in_round,
+    value_pick,
+)
 from dynasty_draft.sleeper_client import SleeperClient
 
 
@@ -19,8 +25,9 @@ def _draft_rounds(league_remote: dict[str, Any]) -> int:
 
 
 def _future_seasons(current_season: str | int, *, years: int = 3) -> list[str]:
+    """Include the current league season (upcoming rookie draft) plus future years."""
     base = int(current_season)
-    return [str(base + offset) for offset in range(1, years + 1)]
+    return [str(base + offset) for offset in range(years)]
 
 
 def build_league_pick_inventory(
@@ -117,8 +124,6 @@ def sync_league_draft_picks(
         traded_picks=traded,
     )
 
-    from sqlalchemy import desc
-
     snap = db.scalar(
         select(LeagueSnapshot)
         .where(LeagueSnapshot.league_id == league_id)
@@ -136,9 +141,20 @@ def sync_league_draft_picks(
         original_id = row["original_roster_id"]
         original_rank = rank_by_roster.get(original_id)
         slot_tier = infer_slot_tier(original_rank, league_size=league_size)
+        slot_no = slot_in_round(original_rank, league_size=league_size)
         seasons_out = seasons_until(current_season, row["season"])
-        tv = value_pick(round_no=row["round"], slot_tier=slot_tier, seasons_out=seasons_out)
-        label = pick_label(season=row["season"], round_no=row["round"], slot_tier=slot_tier)
+        tv = value_pick(
+            round_no=row["round"],
+            slot_tier=slot_tier,
+            seasons_out=seasons_out,
+            slot_in_round_no=slot_no,
+        )
+        label = pick_label(
+            season=row["season"],
+            round_no=row["round"],
+            slot_tier=slot_tier,
+            slot_in_round_no=slot_no,
+        )
 
         db.add(
             RosterDraftPick(
@@ -178,6 +194,18 @@ def get_roster_draft_picks(
     except ProgrammingError:
         db.rollback()
         return []
+
+    league_row = db.get(League, league_id)
+    league_size = (league_row.total_rosters if league_row else None) or 12
+
+    snap = db.scalar(
+        select(LeagueSnapshot)
+        .where(LeagueSnapshot.league_id == league_id)
+        .order_by(desc(LeagueSnapshot.computed_at))
+        .limit(1)
+    )
+    rank_by_roster = _dynasty_rank_by_roster(snap.rankings_json if snap else None)
+
     return [
         {
             "season": row.season,
@@ -185,6 +213,10 @@ def get_roster_draft_picks(
             "original_roster_id": row.original_roster_id,
             "owner_roster_id": row.owner_roster_id,
             "slot_tier": row.slot_tier,
+            "slot_in_round": slot_in_round(
+                rank_by_roster.get(row.original_roster_id),
+                league_size=league_size,
+            ),
             "trade_value": row.trade_value,
             "label": row.label,
             "is_own_slot": row.original_roster_id == row.owner_roster_id,

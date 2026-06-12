@@ -1,10 +1,14 @@
-"""Tests for trade expendability and package valuation."""
+"""Tests for trade tagging and package valuation."""
 
 from backend.services.trade_engine import (
-    annotate_players_with_expendability,
+    annotate_players_with_trade_tags,
+    assign_pick_trade_tag,
+    assign_player_trade_tag,
     effective_package_tv,
     evaluate_package_fairness,
-    expendability_fraction,
+    lineup_delta_ppg,
+    production_ppg,
+    top_trade_candidates,
     trade_fit_score,
 )
 
@@ -27,7 +31,6 @@ def test_effective_package_tv_depth_discount():
 
 
 def test_consolidation_premium_favors_stud_side():
-    """Two mid pieces for one stud — raw TV even, adjusted favors the stud acquirer."""
     give = [_player("a", "WR", 5000), _player("b", "WR", 5000)]
     recv = [_player("c", "WR", 10000)]
     result = evaluate_package_fairness(give, recv)
@@ -38,39 +41,107 @@ def test_consolidation_premium_favors_stud_side():
     assert result["fairness"] == "favors_counterparty"
 
 
-def test_expendability_protects_stud_wr1():
-    stud = expendability_fraction(
-        _player("1", "WR", 7000, age=25, ovr=90),
-        depth_rank=1,
-        position_is_surplus=True,
-        next_tv_at_position=4200,
-        contender_tier="contender",
-    )
-    depth = expendability_fraction(
-        _player("2", "WR", 4200, age=26, ovr=78),
-        depth_rank=3,
-        position_is_surplus=True,
-        next_tv_at_position=2000,
-        contender_tier="contender",
-    )
-    assert depth > stud
+def test_production_ppg_weights_recent():
+    blended = production_ppg(_player("1", "WR", 1000, hppg=18.0, projected_ppg=10.0))
+    assert blended > 14.0
+    assert blended < 18.0
 
 
-def test_annotate_players_depth_ranks():
+def test_lineup_delta_ppg_stud_vs_backup():
     roster = [
-        _player("w1", "WR", 7000),
-        _player("w2", "WR", 4200),
-        _player("r1", "RB", 3000),
+        _player("w1", "WR", 7000, hppg=18.0),
+        _player("w2", "WR", 4200, hppg=10.0),
     ]
-    annotated = annotate_players_with_expendability(
+    delta = lineup_delta_ppg(roster[0], roster)
+    assert delta == 8.0
+
+
+def test_core_tag_for_high_lineup_delta():
+    tag = assign_player_trade_tag(
+        _player("1", "WR", 7000, hppg=18.0),
+        depth_rank=2,
+        lineup_delta=8.0,
+        tv_vs_production=5.0,
+        position_is_surplus=True,
+        contender_tier="contender",
+    )
+    assert tag == "core"
+
+
+def test_trade_tag_for_replaceable_depth():
+    tag = assign_player_trade_tag(
+        _player("2", "WR", 2000, hppg=4.0, age=27),
+        depth_rank=6,
+        lineup_delta=1.0,
+        tv_vs_production=10.0,
+        position_is_surplus=True,
+        contender_tier="contender",
+    )
+    assert tag == "trade"
+
+
+def test_annotate_players_production_depth_ranks():
+    roster = [
+        _player("w1", "WR", 4200, hppg=18.0),
+        _player("w2", "WR", 7000, hppg=10.0),
+        _player("w3", "WR", 1000, hppg=5.5, age=27),
+        _player("w4", "WR", 800, hppg=5.0, age=28),
+    ]
+    annotated = annotate_players_with_trade_tags(
         roster,
         surplus_positions={"WR"},
-        contender_tier="competitive",
+        contender_tier="contender",
     )
     by_id = {p["player_id"]: p for p in annotated}
     assert by_id["w1"]["depth_rank"] == 1
-    assert by_id["w2"]["depth_rank"] == 2
-    assert by_id["w1"]["expendability_score"] < by_id["w2"]["expendability_score"]
+    assert by_id["w1"]["trade_tag"] == "core"
+    assert by_id["w2"]["trade_tag"] is None
+    assert by_id["w3"]["trade_tag"] == "trade"
+
+
+def test_contender_own_first_is_trade_pick():
+    pick = {
+        "round": 1,
+        "slot_tier": "late",
+        "is_own_slot": True,
+        "trade_value": 4200,
+    }
+    assert assign_pick_trade_tag(pick, contender_tier="contender") == "trade"
+
+
+def test_rebuild_early_first_is_core_pick():
+    pick = {
+        "round": 1,
+        "slot_tier": "early",
+        "is_own_slot": True,
+        "trade_value": 8500,
+    }
+    assert assign_pick_trade_tag(pick, contender_tier="rebuild") == "core"
+
+
+def test_top_trade_candidates_include_picks():
+    players = [
+        _player("w1", "WR", 7000, hppg=18.0),
+        _player("w8", "WR", 500, hppg=2.0, age=26),
+    ]
+    picks = [
+        {
+            "season": "2027",
+            "round": 1,
+            "slot_tier": "late",
+            "is_own_slot": True,
+            "trade_value": 4200,
+            "label": "2027 1.12",
+        }
+    ]
+    candidates = top_trade_candidates(
+        players,
+        picks=picks,
+        surplus_positions={"WR"},
+        contender_tier="contender",
+    )
+    types = {c["asset_type"] for c in candidates}
+    assert "pick" in types
 
 
 def test_trade_fit_need_position():

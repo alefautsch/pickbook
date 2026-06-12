@@ -41,18 +41,28 @@ class DraftPickAsset(BaseModel):
     original_roster_id: str
     owner_roster_id: str
     slot_tier: str
+    slot_in_round: int | None = None
     trade_value: float | None = None
     label: str | None = None
     is_own_slot: bool = False
+    trade_tag: str | None = None
 
 
 class TradeCandidate(BaseModel):
-    player_id: str
+    asset_type: str = "player"
+    player_id: str | None = None
     player_name: str | None = None
     position: str | None = None
     trade_value: float | None = None
     expendability_score: float | None = None
     depth_rank: int | None = None
+    trade_tag: str | None = None
+    lineup_delta_ppg: float | None = None
+    season: str | None = None
+    round: int | None = None
+    original_roster_id: str | None = None
+    slot_tier: str | None = None
+    is_own_slot: bool | None = None
 
 
 class TeamDetail(BaseModel):

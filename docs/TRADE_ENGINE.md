@@ -1,116 +1,72 @@
-# Trade engine — expendability & package valuation
+# Trade engine — lineup value, picks, and package valuation
 
-Design for in-season trade suggestions and `evaluate_trade`. Replaces naive `sum(TV)` fairness with roster-context scores and consolidation-aware package math.
+## Problem
 
-## Problems
+Linear TV and depth rank alone mis-tag players (e.g. WR2 with 18 PPG tagged "Move" while a 10 PPG backup sits behind him). Dynasty trades also run on **draft picks** — stable currency whose value differs by contender vs rebuild.
 
-1. **Position surplus ≠ player expendability** — `trade_surplus` is team-level (starter avg OVR rank). A WR1 on a WR-strong team should not surface as a sell candidate.
-2. **Strategy mismatch** — Contenders move vets; rebuilders move aging win-now pieces and hoard youth. `contender_tier` existed but was not used in deterministic trades.
-3. **Linear TV sums** — Ten 1k assets do not equal one 10k asset. Packages need depth discount + consolidation premium.
+## v2 tagging (2026-06)
 
-## Concepts
+Only **Core** and **Trade** tags surface in the UI. ~70–85% of roster has no tag.
 
-| Term | Meaning |
-|------|---------|
-| **Expendability** | 0–100 score: how movable is this player *on your roster*? High = depth/surplus/replaceable. Low = core piece. |
-| **Trade fit** | 0–1 score: how much does a *counterparty* want this player given their needs, surplus, and tier? |
-| **Raw TV** | `sum(asset.trade_value)` — market anchor, unchanged. |
-| **Effective TV** | Package value after depth discount + piece-count penalty. |
-| **Adjusted TV** | Effective TV × consolidation premium on the side acquiring fewer/higher assets. |
+### Player signals
 
-## Expendability (per player)
+| Field | Meaning |
+|-------|---------|
+| `production_ppg` | 65% HPPG + 35% projected PPG (recent results weighted) |
+| `lineup_delta_ppg` | Marginal PPG vs next backup at position (production order, not TV) |
+| `tv_vs_production_gap` | TV percentile − production percentile within position (sell-high when large) |
+| `trade_tag` | `core` \| `trade` \| null |
 
-Inputs (all available at sync):
+### Core (do not sell)
 
-| Signal | Weight | Rule |
-|--------|--------|------|
-| Depth rank | 45% | TV rank within position on roster: WR1 ≈ 0.05 … WR4+ ≈ 1.0 |
-| Surplus leverage | 35% | 1.0 if team `trade_surplus` lists position as surplus, else 0.35 |
-| Replaceability | 20% | `1 − (tv − next_best_tv) / tv` — small gap to backup = easier to move |
+- `lineup_delta_ppg` ≥ threshold (contender **6.0**, competitive **5.0**, rebuild **4.0**)
+- Or #1 by production with meaningful cliff
 
-**Strategy multiplier** (`contender_tier`):
+### Trade (sell chip)
 
-- **Contender** — boost sell score for age ≥ 28 with HPPG ≥ 10; penalize age ≤ 24 with OVR ≥ 82.
-- **Rebuild** — boost age ≥ 28; penalize age ≤ 23 with OVR ≥ 78.
-- **Competitive** — neutral.
+**Contenders** — consolidate depth, ship picks:
 
-Final: `expendability = clamp(weighted_sum × strategy_mult × 100, 0, 100)`.
+- Surplus position, depth ≥ 3, low marginal PPG
+- Sell-high: TV ≫ production, age 26+
+- Depth ≥ 4–6 with replaceable production
 
-Starters (depth rank 1) stay low unless rebuild + aging vet.
+**Rebuilders** — hoard picks, move vets:
 
-## Trade fit (pairwise)
+- Age 28+ with low marginal value
+- Surplus depth rank ≥ 4
+- Depth rank ≥ 5
 
-Base 0.5, then:
+### Draft picks
 
-- +0.35 if player position is in acquirer **needs**
-- −0.25 if in acquirer **surplus**
-- +0.15 contender + age ≥ 25 + HPPG ≥ 10 (win-now piece)
-- +0.15 rebuild + age ≤ 24 (youth)
-- +0.10 cross-tier: rebuild→contender vet, contender→rebuild youth
+Picks are first-class assets with slot-specific TV:
 
-Used to rank receive targets in `suggest_trades`.
+- **Season window** includes current league year (fixes missing 2026 picks mid-season)
+- **Slot notation**: `2026 1.01` from original owner's dynasty rank
+- **Premium**: top-3 round-1 early slots (1.01 ≈ elite rookie class) get +10–28% TV
 
-## Package valuation
+| Strategy | Pick tagging |
+|----------|----------------|
+| Rebuild | **Core**: early/mid 1sts, early 2nds · **Trade**: late 2nds+, round 3+ |
+| Contender | **Trade**: own-slot round 1–3 (ship for win-now) · acquired early 1sts untagged |
+| Competitive | Own late 2nds+ trade · acquired early 1sts core |
 
-### Depth discount + piece penalty
+`trade_candidates` on team page includes **players and picks** tagged Trade.
 
-```text
-effective = (top_tv + 0.70 × sum(other_tvs)) × 0.95^(n−1)
-```
+## Package valuation (unchanged)
 
-Single-asset packages: `effective = tv`.
-
-Picks count as assets (use `trade_value`).
-
-### Consolidation premium (12%)
-
-Side that **consolidates** (fewer player assets, or same count but higher max TV) must overpay in raw TV:
-
-```text
-consolidation_tax = receive_raw × 12%   (when you acquire the stud)
-net_adjusted = (receive_raw − give_raw) − consolidation_tax
-```
-
-Fairness band (±5%) applies to `net_adjusted`, not raw sum alone. Effective TV is still reported so the advisor can explain depth discount separately.
-
-`evaluate_trade` returns both raw and effective/adjusted columns so the advisor can narrate: “Fair on KTC totals, but you’re consolidating — need a bit more.”
-
-## `suggest_trades` flow
-
-1. Counterparties from `trade_surplus` (unchanged).
-2. **Give pool** — top expendability at hook position (not blind depth slice).
-3. **Receive pool** — rank by `fit × tv`.
-4. Build 1-for-1 or 2-for-2; balance with one pick using **effective** TV.
-5. Score package: `avg_expendability × avg_fit / (1 + |net_delta_adjusted_pct|/10)`.
-6. Return top 5 by quality (not closest raw TV).
+- `effective_package_tv` — depth discount (0.70) + piece penalty (0.95^n)
+- Consolidation tax — ~12% raw TV overpay to acquire the stud side
+- `suggest_trades` give pool = **Trade-tagged only** (players + picks)
 
 ## API surfaces
 
-| Surface | Fields added |
-|---------|----------------|
-| `get_team` | `expendability_score` per player; `trade_candidates` top 5 sell candidates |
-| `evaluate_trade` | `give_effective_tv`, `receive_effective_tv`, `consolidation_tax_tv`, `net_delta_adjusted_pct` |
-| `suggest_trades` | `package_quality`, `expendability`, `trade_fit`, effective fairness fields |
+| Endpoint / tool | Fields |
+|-----------------|--------|
+| `get_team` | `trade_tag`, `lineup_delta_ppg` per player; `trade_tag` per pick; `trade_candidates` |
+| `get_player` | `trade_tag`, `lineup_delta_ppg`, `tv_vs_production_gap` |
+| `suggest_trades` | Trade-tagged give assets; strategy-aware pick inclusion |
+| `evaluate_trade` | Raw + effective TV + consolidation tax |
 
-## Constants (tune in `trade_engine.py`)
+## Deprecated
 
-```python
-DEPTH_TV_DISCOUNT = 0.70
-PIECE_COUNT_PENALTY = 0.95
-CONSOLIDATION_PREMIUM = 0.12
-FAIRNESS_BAND = 0.05
-MIN_EXPENDABILITY_TO_SELL = 0.30  # fraction 0–1 before ×100 display
-```
-
-## Future (not in v1)
-
-- **Marginal lineup delta** — value trade via optimal-lineup before/after (replaces depth rank for expendability).
-- **Empirical calibration** — fit consolidation premium from logged real trades.
-- **UI** — expendability badge on roster table / player card (shipped 2026-06).
-
-## References
-
-- `backend/services/trade_engine.py` — pure functions
-- `backend/services/advisor_tools.py` — tool wiring
-- `backend/services/analysis_service.py` — `trade_surplus`, `contender_index`
-- Tests: `tests/test_trade_engine.py`, `tests/test_advisor_tools.py`
+`expendability_score` and Move/Depth labels are legacy; UI uses `trade_tag` only.

@@ -1,7 +1,12 @@
 """Tests for in-season draft pick inventory and valuation."""
 
 from backend.services.pick_service import build_league_pick_inventory
-from dynasty_draft.inseason_pick_values import infer_slot_tier, pick_label, value_pick
+from dynasty_draft.inseason_pick_values import (
+    infer_slot_tier,
+    pick_label,
+    slot_in_round,
+    value_pick,
+)
 
 
 def test_infer_slot_tier_worst_team_is_early():
@@ -16,8 +21,39 @@ def test_value_pick_discounts_future_seasons():
     assert y1 > y2
 
 
+def test_value_pick_premium_for_top_slot():
+    generic = value_pick(round_no=1, slot_tier="early", seasons_out=1)
+    top = value_pick(
+        round_no=1,
+        slot_tier="early",
+        seasons_out=1,
+        slot_in_round_no=1,
+    )
+    assert top > generic
+
+
+def test_slot_in_round_worst_team_is_first_pick():
+    assert slot_in_round(12, league_size=12) == 1
+    assert slot_in_round(1, league_size=12) == 12
+
+
+def test_pick_label_uses_slot_notation():
+    assert pick_label(
+        season="2026",
+        round_no=1,
+        slot_tier="early",
+        slot_in_round_no=1,
+    ) == "2026 1.01"
+
+
 def test_pick_label_includes_tier():
     assert "early" in pick_label(season="2027", round_no=1, slot_tier="early")
+
+
+def test_build_inventory_includes_current_season():
+    from backend.services.pick_service import _future_seasons
+
+    assert _future_seasons("2026") == ["2026", "2027", "2028"]
 
 
 def test_build_inventory_applies_traded_picks():

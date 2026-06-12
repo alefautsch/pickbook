@@ -7,22 +7,26 @@ from backend.services.advisor_tools import (
 )
 
 
-def _player(pid: str, name: str, pos: str, tv: float) -> dict:
+def _player(pid: str, name: str, pos: str, tv: float, **kwargs) -> dict:
     return {
         "player_id": pid,
         "name": name,
         "position": pos,
         "tv": tv,
+        **kwargs,
     }
 
 
-def _pick(season: str, round_no: int, original: str, tv: float) -> dict:
+def _pick(season: str, round_no: int, original: str, tv: float, **kwargs) -> dict:
     return {
         "season": season,
         "round": round_no,
         "original_roster_id": original,
         "trade_value": tv,
         "label": f"{season} {round_no}",
+        "is_own_slot": kwargs.get("is_own_slot", True),
+        "slot_tier": kwargs.get("slot_tier", "late"),
+        **kwargs,
     }
 
 
@@ -104,9 +108,9 @@ def test_generate_trade_suggestions_from_surplus():
     }
     roster_players = {
         "1": [
-            _player("w1", "Stud WR", "WR", 7000),
-            _player("w2", "Depth WR", "WR", 4200),
-            _player("r1", "Slim RB", "RB", 3000),
+            _player("w1", "Stud WR", "WR", 7000, hppg=16.0),
+            _player("w2", "Depth WR", "WR", 4200, hppg=5.0, age=27),
+            _player("r1", "Slim RB", "RB", 3000, hppg=4.0, age=28),
         ],
         "2": [
             _player("r2", "Needy RB", "RB", 5500),
@@ -166,9 +170,14 @@ def test_generate_trade_suggestions_target_roster_filter():
         ],
     }
     roster_players = {
-        "1": [_player("w1", "Stud WR", "WR", 7000)],
-        "2": [_player("r2", "RB", "RB", 5000)],
-        "9": [_player("r9", "RB9", "RB", 5100)],
+        "1": [
+            _player("w1", "Stud WR", "WR", 7000, hppg=16.0),
+            _player("w2", "Depth WR", "WR", 4200, hppg=5.5, age=27),
+            _player("w3", "Bench WR", "WR", 1200, hppg=5.0, age=28),
+            _player("w4", "Deep WR", "WR", 900, hppg=4.5, age=29),
+        ],
+        "2": [_player("r2", "RB", "RB", 5000, hppg=11.0, age=26)],
+        "9": [_player("r9", "RB9", "RB", 5100, hppg=11.0, age=26)],
     }
 
     packages = generate_trade_suggestions(
@@ -177,6 +186,7 @@ def test_generate_trade_suggestions_target_roster_filter():
         roster_players=roster_players,
         picks_by_roster={"1": [], "2": [], "9": []},
         target_roster_id="2",
+        contender_tier_by_roster={"1": "contender", "2": "rebuild", "9": "rebuild"},
     )
 
     assert packages

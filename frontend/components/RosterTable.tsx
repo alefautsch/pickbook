@@ -47,7 +47,10 @@ function PlayerCell({ player }: { player: PlayerCard }) {
             {player.position ?? "—"}
             {player.nfl_team ? ` · ${player.nfl_team}` : ""}
           </p>
-          <ExpendabilityBadge score={player.expendability_score} />
+          <ExpendabilityBadge
+            tag={player.trade_tag}
+            lineupDelta={player.lineup_delta_ppg}
+          />
         </div>
       </div>
     </div>

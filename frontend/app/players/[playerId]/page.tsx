@@ -133,11 +133,11 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
                 >
                   {player.position}
                 </span>
-                {player.expendability_score != null ? (
+                {player.trade_tag ? (
                   <ExpendabilityBadge
-                    score={player.expendability_score}
+                    tag={player.trade_tag}
+                    lineupDelta={player.lineup_delta_ppg}
                     size="md"
-                    showScore
                   />
                 ) : null}
               </div>

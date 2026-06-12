@@ -92,6 +92,10 @@ export type PlayerCard = {
   computed_at: string | null;
   expendability_score: number | null;
   depth_rank: number | null;
+  trade_tag: "core" | "trade" | null;
+  lineup_delta_ppg: number | null;
+  tv_vs_production_gap: number | null;
+  production_ppg: number | null;
 };
 
 export type LeagueTile = {
@@ -363,18 +367,28 @@ export type DraftPickAsset = {
   original_roster_id: string;
   owner_roster_id: string;
   slot_tier: string;
+  slot_in_round: number | null;
   trade_value: number | null;
   label: string | null;
   is_own_slot: boolean;
+  trade_tag: "core" | "trade" | null;
 };
 
 export type TradeCandidate = {
-  player_id: string;
+  asset_type: "player" | "pick" | string;
+  player_id: string | null;
   player_name: string | null;
   position: string | null;
   trade_value: number | null;
   expendability_score: number | null;
   depth_rank: number | null;
+  trade_tag: "core" | "trade" | null;
+  lineup_delta_ppg: number | null;
+  season: string | null;
+  round: number | null;
+  original_roster_id: string | null;
+  slot_tier: string | null;
+  is_own_slot: boolean | null;
 };
 
 export type TeamDetail = {

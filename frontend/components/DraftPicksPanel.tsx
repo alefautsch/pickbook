@@ -1,5 +1,6 @@
 import type { DraftPickAsset } from "@/lib/api";
 import { formatTv } from "@/lib/format";
+import { TradeTagBadge } from "@/components/ExpendabilityBadge";
 
 type DraftPicksPanelProps = {
   picks?: DraftPickAsset[];
@@ -44,9 +45,12 @@ export function DraftPicksPanel({ picks, compact = false }: DraftPicksPanelProps
                 <span className="ml-1 text-[10px] text-bb-muted">via trade</span>
               ) : null}
             </span>
-            <span className="shrink-0 tabular-nums text-bb-gold">
-              {formatTv(pick.trade_value)}
-            </span>
+            <div className="flex shrink-0 items-center gap-2">
+              <TradeTagBadge tag={pick.trade_tag} />
+              <span className="tabular-nums text-bb-gold">
+                {formatTv(pick.trade_value)}
+              </span>
+            </div>
           </li>
         ))}
       </ul>

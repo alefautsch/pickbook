@@ -83,6 +83,10 @@ class PlayerCard(BaseModel):
 
     expendability_score: float | None = None
     depth_rank: int | None = None
+    trade_tag: str | None = None
+    lineup_delta_ppg: float | None = None
+    tv_vs_production_gap: float | None = None
+    production_ppg: float | None = None
 
     headshot_url: str
     league_id: str

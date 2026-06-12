@@ -1,8 +1,8 @@
-"""Trade expendability, fit scoring, and consolidation-aware package valuation."""
+"""Trade tagging, fit scoring, and consolidation-aware package valuation."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from backend.services.analysis_service import TRADE_SURPLUS_BOTTOM_N, TRADE_SURPLUS_TOP_N
 
@@ -10,9 +10,27 @@ DEPTH_TV_DISCOUNT = 0.70
 PIECE_COUNT_PENALTY = 0.95
 CONSOLIDATION_PREMIUM = 0.12
 FAIRNESS_BAND = 0.05
-MIN_EXPENDABILITY_TO_SELL = 0.30
+
+TradeTag = Literal["core", "trade"]
 
 _DEPTH_RANK_SCORES = (0.05, 0.35, 0.65, 1.0)
+
+# Marginal PPG above next realistic backup → core piece.
+_CORE_DELTA_BY_TIER: dict[str, float] = {
+    "contender": 6.0,
+    "competitive": 5.0,
+    "rebuild": 4.0,
+}
+
+# Below this marginal PPG, depth is a trade chip (if not already core).
+_TRADE_DELTA_BY_TIER: dict[str, float] = {
+    "contender": 2.5,
+    "competitive": 2.0,
+    "rebuild": 1.5,
+}
+
+# TV percentile minus production percentile — sell-high signal.
+_SELL_HIGH_GAP = 22.0
 
 
 def surplus_positions_for_roster(
@@ -60,6 +78,19 @@ def asset_tv(asset: dict[str, Any]) -> float:
     return float(asset.get("tv") or asset.get("trade_value") or 0)
 
 
+def production_ppg(player: dict[str, Any]) -> float:
+    """Recent actuals weighted more than projection."""
+    hppg = player.get("hppg")
+    projected = player.get("projected_ppg")
+    if hppg is not None and projected is not None:
+        return round(0.65 * float(hppg) + 0.35 * float(projected), 2)
+    if hppg is not None:
+        return float(hppg)
+    if projected is not None:
+        return float(projected)
+    return 0.0
+
+
 def effective_package_tv(assets: list[dict[str, Any]]) -> float:
     """Discount depth pieces; penalize multi-asset packages vs a single stud."""
     if not assets:
@@ -104,7 +135,6 @@ def evaluate_package_fairness(
     give_consolidating = _side_consolidating(give_assets, recv_assets)
     recv_consolidating = _side_consolidating(recv_assets, give_assets)
 
-    # Tax acquiring a stud (fewer/higher assets): must overpay in raw TV.
     consolidation_tax = 0.0
     if recv_consolidating:
         consolidation_tax = recv_raw * CONSOLIDATION_PREMIUM
@@ -144,6 +174,263 @@ def evaluate_package_fairness(
     }
 
 
+def _position_groups_by_production(
+    players: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for player in players:
+        pos = player.get("position") or player.get("pos") or "?"
+        groups.setdefault(pos, []).append(player)
+    for pos in groups:
+        groups[pos].sort(key=production_ppg, reverse=True)
+    return groups
+
+
+def lineup_delta_ppg(player: dict[str, Any], pos_players: list[dict[str, Any]]) -> float:
+    """Marginal PPG vs the next realistic backup at the same position."""
+    sorted_players = sorted(pos_players, key=production_ppg, reverse=True)
+    pid = str(player.get("player_id") or "")
+    my_ppg = production_ppg(player)
+    for idx, row in enumerate(sorted_players):
+        if str(row.get("player_id") or "") != pid:
+            continue
+        if idx + 1 >= len(sorted_players):
+            return my_ppg
+        backup_ppg = production_ppg(sorted_players[idx + 1])
+        return round(my_ppg - backup_ppg, 2)
+    return my_ppg
+
+
+def _percentile_gap(
+    player: dict[str, Any],
+    pos_players: list[dict[str, Any]],
+) -> float:
+    """TV rank percentile minus production rank percentile within position (positive = sell-high)."""
+    if len(pos_players) < 2:
+        return 0.0
+    pid = str(player.get("player_id") or "")
+    by_tv = sorted(pos_players, key=asset_tv, reverse=True)
+    by_prod = sorted(pos_players, key=production_ppg, reverse=True)
+    n = len(pos_players)
+
+    def _pct_rank(ordered: list[dict[str, Any]]) -> float:
+        for idx, row in enumerate(ordered):
+            if str(row.get("player_id") or "") == pid:
+                return (n - idx) / n * 100.0
+        return 50.0
+
+    return round(_pct_rank(by_tv) - _pct_rank(by_prod), 1)
+
+
+def assign_player_trade_tag(
+    player: dict[str, Any],
+    *,
+    depth_rank: int,
+    lineup_delta: float,
+    tv_vs_production: float,
+    position_is_surplus: bool,
+    contender_tier: str | None = None,
+) -> TradeTag | None:
+    tier = contender_tier or "competitive"
+    core_delta = _CORE_DELTA_BY_TIER.get(tier, 5.0)
+    trade_delta = _TRADE_DELTA_BY_TIER.get(tier, 2.0)
+    age = player.get("age")
+
+    if lineup_delta >= core_delta:
+        return "core"
+    if depth_rank == 1 and lineup_delta >= core_delta * 0.55:
+        return "core"
+
+    if tier == "contender":
+        if (
+            position_is_surplus
+            and depth_rank >= 3
+            and lineup_delta < trade_delta
+        ):
+            return "trade"
+        if tv_vs_production >= _SELL_HIGH_GAP and age is not None and age >= 26:
+            return "trade"
+        if depth_rank >= 4 and lineup_delta < 3.5:
+            return "trade"
+        if depth_rank >= 6 and lineup_delta < 4.0:
+            return "trade"
+
+    elif tier == "rebuild":
+        if age is not None and age >= 28 and lineup_delta < 4.0:
+            return "trade"
+        if tv_vs_production >= _SELL_HIGH_GAP and age is not None and age >= 27:
+            return "trade"
+        if position_is_surplus and depth_rank >= 4 and lineup_delta < trade_delta:
+            return "trade"
+        if depth_rank >= 5:
+            return "trade"
+
+    else:
+        if position_is_surplus and depth_rank >= 4 and lineup_delta < trade_delta:
+            return "trade"
+        if depth_rank >= 5 and lineup_delta < 3.0:
+            return "trade"
+
+    return None
+
+
+def assign_pick_trade_tag(
+    pick: dict[str, Any],
+    *,
+    contender_tier: str | None = None,
+) -> TradeTag | None:
+    """Strategy-aware pick tradability — picks are stable currency."""
+    tier = contender_tier or "competitive"
+    round_no = int(pick.get("round") or 0)
+    slot_tier = pick.get("slot_tier") or "mid"
+    is_own = bool(pick.get("is_own_slot"))
+
+    if tier == "rebuild":
+        if round_no == 1 and slot_tier in ("early", "mid"):
+            return "core"
+        if round_no == 2 and slot_tier == "early":
+            return "core"
+        if slot_tier == "late" or round_no >= 3:
+            return "trade"
+        return None
+
+    if tier == "contender":
+        if is_own and round_no <= 2:
+            return "trade"
+        if is_own and round_no == 3:
+            return "trade"
+        if not is_own and slot_tier == "late":
+            return "trade"
+        return None
+
+    # competitive
+    if is_own and round_no >= 2 and slot_tier != "early":
+        return "trade"
+    if tier == "competitive" and not is_own and slot_tier == "early" and round_no == 1:
+        return "core"
+    return None
+
+
+def annotate_players_with_trade_tags(
+    players: list[dict[str, Any]],
+    *,
+    surplus_positions: set[str] | None = None,
+    contender_tier: str | None = None,
+) -> list[dict[str, Any]]:
+    surplus_positions = surplus_positions or set()
+    groups = _position_groups_by_production(players)
+    depth_rank: dict[str, int] = {}
+    for pos_players in groups.values():
+        for idx, player in enumerate(pos_players):
+            depth_rank[str(player.get("player_id") or "")] = idx + 1
+
+    annotated: list[dict[str, Any]] = []
+    for player in players:
+        pid = str(player.get("player_id") or "")
+        pos = player.get("position") or player.get("pos") or ""
+        pos_players = groups.get(pos, [player])
+        delta = lineup_delta_ppg(player, pos_players)
+        tv_gap = _percentile_gap(player, pos_players)
+        rank = depth_rank.get(pid, 99)
+        tag = assign_player_trade_tag(
+            player,
+            depth_rank=rank,
+            lineup_delta=delta,
+            tv_vs_production=tv_gap,
+            position_is_surplus=pos in surplus_positions,
+            contender_tier=contender_tier,
+        )
+        row = dict(player)
+        row["trade_tag"] = tag
+        row["lineup_delta_ppg"] = delta
+        row["production_ppg"] = production_ppg(player)
+        row["tv_vs_production_gap"] = tv_gap
+        row["depth_rank"] = rank
+        annotated.append(row)
+    return annotated
+
+
+def annotate_picks_with_trade_tags(
+    picks: list[dict[str, Any]],
+    *,
+    contender_tier: str | None = None,
+) -> list[dict[str, Any]]:
+    annotated: list[dict[str, Any]] = []
+    for pick in picks:
+        row = dict(pick)
+        row["tv"] = asset_tv(pick)
+        row["trade_tag"] = assign_pick_trade_tag(pick, contender_tier=contender_tier)
+        annotated.append(row)
+    return annotated
+
+
+def top_trade_candidates(
+    players: list[dict[str, Any]],
+    *,
+    picks: list[dict[str, Any]] | None = None,
+    surplus_positions: set[str] | None = None,
+    contender_tier: str | None = None,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    annotated = annotate_players_with_trade_tags(
+        players,
+        surplus_positions=surplus_positions,
+        contender_tier=contender_tier,
+    )
+    pick_rows = annotate_picks_with_trade_tags(
+        picks or [],
+        contender_tier=contender_tier,
+    )
+
+    candidates: list[dict[str, Any]] = []
+    for player in annotated:
+        if player.get("trade_tag") != "trade":
+            continue
+        candidates.append(
+            {
+                "asset_type": "player",
+                "player_id": player.get("player_id"),
+                "name": player.get("name"),
+                "position": player.get("position") or player.get("pos"),
+                "tv": player.get("tv"),
+                "trade_tag": "trade",
+                "lineup_delta_ppg": player.get("lineup_delta_ppg"),
+                "depth_rank": player.get("depth_rank"),
+            }
+        )
+
+    for pick in pick_rows:
+        if pick.get("trade_tag") != "trade":
+            continue
+        candidates.append(
+            {
+                "asset_type": "pick",
+                "season": pick.get("season"),
+                "round": pick.get("round"),
+                "original_roster_id": pick.get("original_roster_id"),
+                "name": pick.get("label"),
+                "tv": pick.get("trade_value") or pick.get("tv"),
+                "trade_tag": "trade",
+                "slot_tier": pick.get("slot_tier"),
+                "is_own_slot": pick.get("is_own_slot"),
+            }
+        )
+
+    candidates.sort(
+        key=lambda row: (
+            row.get("tv") or 0,
+            -(row.get("lineup_delta_ppg") or 99),
+        ),
+        reverse=True,
+    )
+    return candidates[:limit]
+
+
+# --- Legacy expendability (deprecated; kept for gradual migration) ---
+
+MIN_EXPENDABILITY_TO_SELL = 0.30
+
+
 def _depth_rank_score(rank: int) -> float:
     idx = min(rank - 1, len(_DEPTH_RANK_SCORES) - 1)
     return _DEPTH_RANK_SCORES[max(0, idx)]
@@ -156,29 +443,6 @@ def _replaceability_score(tv: float, next_tv: float | None) -> float:
         return 1.0
     gap = (tv - next_tv) / tv
     return max(0.0, min(1.0, 1.0 - gap))
-
-
-def _strategy_sell_multiplier(
-    *,
-    contender_tier: str | None,
-    age: int | None,
-    ovr: int | None,
-    hppg: float | None,
-) -> float:
-    tier = contender_tier or "competitive"
-    if age is None:
-        return 1.0
-    if tier == "contender":
-        if age >= 28 and (hppg or 0) >= 10:
-            return 1.25
-        if age <= 24 and (ovr or 0) >= 82:
-            return 0.45
-    elif tier == "rebuild":
-        if age >= 28:
-            return 1.3
-        if age <= 23 and (ovr or 0) >= 78:
-            return 0.4
-    return 1.0
 
 
 def expendability_fraction(
@@ -196,13 +460,44 @@ def expendability_fraction(
         next_tv_at_position,
     )
     base = 0.45 * depth + 0.35 * surplus + 0.20 * replaceability
-    mult = _strategy_sell_multiplier(
+    tag = assign_player_trade_tag(
+        player,
+        depth_rank=depth_rank,
+        lineup_delta=player.get("lineup_delta_ppg") or 0.0,
+        tv_vs_production=player.get("tv_vs_production_gap") or 0.0,
+        position_is_surplus=position_is_surplus,
         contender_tier=contender_tier,
-        age=player.get("age"),
-        ovr=player.get("ovr") or player.get("dynasty_rating"),
-        hppg=player.get("hppg"),
     )
-    return max(0.0, min(1.0, base * mult))
+    if tag == "trade":
+        return 0.75
+    if tag == "core":
+        return 0.05
+    return 0.35
+
+
+def annotate_players_with_expendability(
+    players: list[dict[str, Any]],
+    *,
+    surplus_positions: set[str] | None = None,
+    contender_tier: str | None = None,
+) -> list[dict[str, Any]]:
+    """Deprecated alias — returns trade-tag fields plus legacy expendability_score."""
+    tagged = annotate_players_with_trade_tags(
+        players,
+        surplus_positions=surplus_positions,
+        contender_tier=contender_tier,
+    )
+    for row in tagged:
+        frac = expendability_fraction(
+            row,
+            depth_rank=row.get("depth_rank") or 99,
+            position_is_surplus=(row.get("position") or row.get("pos") or "")
+            in (surplus_positions or set()),
+            next_tv_at_position=None,
+            contender_tier=contender_tier,
+        )
+        row["expendability_score"] = round(frac * 100, 1)
+    return tagged
 
 
 def trade_fit_score(
@@ -221,8 +516,8 @@ def trade_fit_score(
         score -= 0.25
 
     age = player.get("age")
-    hppg = player.get("hppg") or 0
-    if acquirer_tier == "contender" and age is not None and age >= 25 and hppg >= 10:
+    ppg = production_ppg(player)
+    if acquirer_tier == "contender" and age is not None and age >= 25 and ppg >= 10:
         score += 0.15
     if acquirer_tier == "rebuild" and age is not None and age <= 24:
         score += 0.15
@@ -233,96 +528,32 @@ def trade_fit_score(
     return max(0.1, min(1.0, score))
 
 
-def _position_groups(players: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    groups: dict[str, list[dict[str, Any]]] = {}
-    for player in players:
-        pos = player.get("position") or player.get("pos") or "?"
-        groups.setdefault(pos, []).append(player)
-    for pos in groups:
-        groups[pos].sort(key=lambda p: asset_tv(p), reverse=True)
-    return groups
-
-
-def annotate_players_with_expendability(
-    players: list[dict[str, Any]],
-    *,
-    surplus_positions: set[str] | None = None,
-    contender_tier: str | None = None,
-) -> list[dict[str, Any]]:
-    surplus_positions = surplus_positions or set()
-    groups = _position_groups(players)
-    depth_rank: dict[str, int] = {}
-    next_tv: dict[str, float | None] = {}
-    for pos_players in groups.values():
-        for idx, player in enumerate(pos_players):
-            pid = str(player.get("player_id") or "")
-            depth_rank[pid] = idx + 1
-            next_tv[pid] = asset_tv(pos_players[idx + 1]) if idx + 1 < len(pos_players) else None
-
-    annotated: list[dict[str, Any]] = []
-    for player in players:
-        pid = str(player.get("player_id") or "")
-        pos = player.get("position") or player.get("pos") or ""
-        frac = expendability_fraction(
-            player,
-            depth_rank=depth_rank.get(pid, 99),
-            position_is_surplus=pos in surplus_positions,
-            next_tv_at_position=next_tv.get(pid),
-            contender_tier=contender_tier,
-        )
-        row = dict(player)
-        row["expendability_score"] = round(frac * 100, 1)
-        row["depth_rank"] = depth_rank.get(pid)
-        annotated.append(row)
-    return annotated
-
-
-def top_trade_candidates(
-    players: list[dict[str, Any]],
-    *,
-    surplus_positions: set[str] | None = None,
-    contender_tier: str | None = None,
-    limit: int = 5,
-) -> list[dict[str, Any]]:
-    annotated = annotate_players_with_expendability(
-        players,
-        surplus_positions=surplus_positions,
-        contender_tier=contender_tier,
-    )
-    candidates = [
-        p
-        for p in annotated
-        if (p.get("expendability_score") or 0) >= MIN_EXPENDABILITY_TO_SELL * 100
-    ]
-    candidates.sort(key=lambda p: p.get("expendability_score") or 0, reverse=True)
-    return [
-        {
-            "player_id": p.get("player_id"),
-            "name": p.get("name"),
-            "position": p.get("position") or p.get("pos"),
-            "tv": p.get("tv"),
-            "expendability_score": p.get("expendability_score"),
-            "depth_rank": p.get("depth_rank"),
-        }
-        for p in candidates[:limit]
-    ]
+def _tradability_weight(asset: dict[str, Any], tradability_by_id: dict[str, float]) -> float:
+    if asset.get("player_id"):
+        return tradability_by_id.get(str(asset.get("player_id")), 0.35)
+    if asset.get("season") and asset.get("trade_tag") == "trade":
+        return 0.85
+    if asset.get("season"):
+        return 0.15
+    return 0.35
 
 
 def package_quality_score(
     *,
     give_players: list[dict[str, Any]],
     recv_players: list[dict[str, Any]],
-    expendability_by_id: dict[str, float],
+    give_assets: list[dict[str, Any]] | None = None,
+    expendability_by_id: dict[str, float] | None = None,
+    tradability_by_id: dict[str, float] | None = None,
     acquirer_need_positions: set[str],
     acquirer_surplus_positions: set[str],
     acquirer_tier: str | None,
     seller_tier: str | None,
     fairness: dict[str, Any],
 ) -> float:
-    exp_vals = [
-        expendability_by_id.get(str(p.get("player_id")), 0) / 100.0
-        for p in give_players
-    ]
+    tradability_by_id = tradability_by_id or expendability_by_id or {}
+    give_all = give_assets or give_players
+    exp_vals = [_tradability_weight(a, tradability_by_id) for a in give_all]
     fit_vals = [
         trade_fit_score(
             p,
