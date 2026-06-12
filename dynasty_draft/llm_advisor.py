@@ -537,8 +537,9 @@ INSEASON_ADVISOR_PROMPTS: list[dict[str, str]] = [
         "label": "Suggest Trades",
         "question": (
             "Call suggest_trades first (use focused_team roster_id as target_roster_id when "
-            "viewing an opponent). Then explain the top 3–5 packages with manager names, "
-            "player OVR/TV, and TV math. Flag which deals are fairest and what each side gains."
+            "viewing an opponent). For the top 1–2 packages, call validate_trade with the "
+            "counterparty roster_id. Then explain packages with manager names, TV math, and "
+            "whether the other side would likely accept."
         ),
     },
     {
@@ -597,6 +598,7 @@ def _inseason_metric_definitions() -> dict[str, str]:
         "exposure_flag": "Portfolio tag: conviction, concentrated, risk across my leagues.",
         "hppg_expected": "True when HPPG is projected (rookie/no nflverse) — shown as e in UI.",
         "draft_pick_tv": "Future pick trade value on same scale as player TV; tier from original owner's dynasty rank.",
+        "validate_trade": "Opt-in counterparty lens: accept_likelihood, blockers, suggested_tweak (after suggest_trades).",
     }
 
 
@@ -620,6 +622,7 @@ TOOLS:
 - get_league_rankings() — dynasty / win-now / TV standings
 - get_free_agents(position?, limit?) — top FA board
 - evaluate_trade(give, receive) — raw + effective TV, consolidation-adjusted fairness (±5%)
+- validate_trade(counterparty_roster_id, give, receive) — opt-in LLM check: would they accept?
 - suggest_trades(target_roster_id?) — Trade-tagged packages with fit and effective TV; narrate results
 - calculate(expression) — safe math for TV sums
 - web_search(query) — recent NFL injury updates, roster moves, beat reports (web only when configured)
@@ -632,6 +635,7 @@ TOOL CHOICE:
 
 TRADE SKILL:
 - For trade questions, call suggest_trades and/or evaluate_trade before recommending.
+- Call validate_trade on specific packages when judging acceptability or before urging an offer.
 - Show TV math (use calculate when summing). Name managers, not just roster ids.
 - `focused_team` may be an opponent — my_team in base context is always the user's assets.
 

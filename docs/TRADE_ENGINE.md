@@ -66,6 +66,7 @@ Picks are first-class assets with slot-specific TV:
 | `get_player` | `trade_tag`, `lineup_delta_ppg`, `tv_vs_production_gap` |
 | `suggest_trades` | Trade-tagged give assets; strategy-aware pick inclusion |
 | `evaluate_trade` | Raw + effective TV + consolidation tax |
+| `validate_trade` | Opt-in LLM counterparty accept/reject judgment |
 
 ## Deprecated
 

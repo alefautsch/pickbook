@@ -18,6 +18,10 @@ from backend.services.analysis_service import TRADE_SURPLUS_BOTTOM_N, TRADE_SURP
 from backend.services.pick_service import get_roster_draft_picks
 from backend.services.portfolio_service import get_free_agents
 from backend.services.read_service import get_league_rankings, get_player_card, get_team_detail
+from backend.services.trade_validation_service import (
+    build_validation_payload,
+    validate_trade_with_llm,
+)
 from backend.services.trade_engine import (
     FAIRNESS_BAND,
     annotate_picks_with_trade_tags,
@@ -766,6 +770,68 @@ class AdvisorTools:
             resolve_pick=self._resolve_pick,
         )
 
+    def validate_trade(
+        self,
+        counterparty_roster_id: str,
+        give: dict[str, Any],
+        receive: dict[str, Any],
+    ) -> dict[str, Any]:
+        """LLM validation from counterparty perspective (opt-in; requires Anthropic key)."""
+        eval_result = evaluate_trade_package(
+            give,
+            receive,
+            resolve_player=self._resolve_player,
+            resolve_pick=self._resolve_pick,
+        )
+        if eval_result.get("missing_assets"):
+            return {
+                "error": "Could not resolve all trade assets",
+                "missing_assets": eval_result["missing_assets"],
+            }
+
+        my_team = self.get_team(self.ctx.my_roster_id)
+        their_team = self.get_team(str(counterparty_roster_id))
+        if their_team.get("error"):
+            return their_team
+
+        payload = build_validation_payload(
+            proposer_roster_id=self.ctx.my_roster_id,
+            counterparty_roster_id=str(counterparty_roster_id),
+            proposer_team=my_team,
+            counterparty_team=their_team,
+            give=eval_result["give"],
+            receive=eval_result["receive"],
+            tv_evaluation=eval_result,
+        )
+        settings = get_settings()
+        validation = validate_trade_with_llm(
+            payload,
+            api_key=settings.anthropic_api_key,
+        )
+        tv_summary = {
+            key: eval_result.get(key)
+            for key in (
+                "give_total_tv",
+                "receive_total_tv",
+                "net_delta_adjusted_pct",
+                "fairness",
+                "within_band",
+                "consolidation_tax_tv",
+                "positional_notes",
+            )
+        }
+        return {
+            "counterparty_roster_id": str(counterparty_roster_id),
+            "counterparty_team_name": their_team.get("team_name"),
+            "proposer_roster_id": self.ctx.my_roster_id,
+            "tv_evaluation": tv_summary,
+            "resolved_trade": {
+                "give": eval_result["give"],
+                "receive": eval_result["receive"],
+            },
+            "validation": validation,
+        }
+
     def suggest_trades(self, target_roster_id: str | None = None) -> dict[str, Any]:
         trade_surplus = self._trade_surplus()
         snapshots = self._load_snapshots()
@@ -835,6 +901,12 @@ class AdvisorTools:
                 tool_input.get("give") or {},
                 tool_input.get("receive") or {},
             )
+        if name == "validate_trade":
+            return self.validate_trade(
+                str(tool_input.get("counterparty_roster_id", "")),
+                tool_input.get("give") or {},
+                tool_input.get("receive") or {},
+            )
         if name == "suggest_trades":
             tid = tool_input.get("target_roster_id")
             return self.suggest_trades(str(tid) if tid else None)
@@ -876,7 +948,7 @@ ADVISOR_TOOL_SPECS: list[dict[str, Any]] = [
     },
     {
         "name": "get_player",
-        "description": "Player card: OVR, TV, HPPG, expendability, injury, outlook, win-now lens.",
+        "description": "Player card: OVR, TV, HPPG, trade_tag, injury, outlook, win-now lens.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -964,10 +1036,67 @@ ADVISOR_TOOL_SPECS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "validate_trade",
+        "description": (
+            "Counterparty-perspective validation for a specific trade package. "
+            "Call after suggest_trades or evaluate_trade when you need to judge whether "
+            "the other manager would accept. Requires counterparty roster_id plus the "
+            "same give/receive shape as evaluate_trade. Returns accept_likelihood, "
+            "blockers, and suggested_tweak from their roster context."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "counterparty_roster_id": {
+                    "type": "string",
+                    "description": "Sleeper roster id of the other manager",
+                },
+                "give": {
+                    "type": "object",
+                    "properties": {
+                        "players": {"type": "array", "items": {"type": "string"}},
+                        "picks": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "season": {"type": "string"},
+                                    "round": {"type": "integer"},
+                                    "original_roster_id": {"type": "string"},
+                                },
+                                "required": ["season", "round", "original_roster_id"],
+                            },
+                        },
+                    },
+                },
+                "receive": {
+                    "type": "object",
+                    "properties": {
+                        "players": {"type": "array", "items": {"type": "string"}},
+                        "picks": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "season": {"type": "string"},
+                                    "round": {"type": "integer"},
+                                    "original_roster_id": {"type": "string"},
+                                },
+                                "required": ["season", "round", "original_roster_id"],
+                            },
+                        },
+                    },
+                },
+            },
+            "required": ["counterparty_roster_id", "give", "receive"],
+        },
+    },
+    {
         "name": "suggest_trades",
         "description": (
-            "Deterministic trade ideas using expendability, counterparty fit, and "
-            "consolidation-aware effective TV. Returns up to 5 packages ranked by quality."
+            "Deterministic trade ideas using trade tags, counterparty fit, and "
+            "consolidation-aware effective TV. Returns up to 5 packages ranked by quality. "
+            "Call validate_trade on promising packages before recommending."
         ),
         "input_schema": {
             "type": "object",
