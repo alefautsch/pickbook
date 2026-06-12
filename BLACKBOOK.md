@@ -428,6 +428,8 @@ Composite score (0–100) blends three league-normalized inputs (min–max withi
 
 **Trade surplus:** top-3 / bottom-3 by position-strength rank; counterparties are complementary top/bottom teams per position.
 
+**Trade engine (2026-06):** per-player `expendability_score`, consolidation-aware `effective_tv`, and fit-ranked `suggest_trades` — see `docs/TRADE_ENGINE.md`.
+
 Rationale on seeded leagues: age depth breaks ties when starter OVR and PPG cluster (e.g. GLA teams with similar 88–89 starter OVR but different bench youth). PPG weight rewards weekly ceiling without letting it dominate dynasty OVR.
 
 **Team OVR:** `avg_dynasty_rating` is a weighted roster rating: starters at 100%, top 3 bench by OVR at 80%, remaining bench depth at 20%. Future picks are tracked separately and do not inflate Team OVR.

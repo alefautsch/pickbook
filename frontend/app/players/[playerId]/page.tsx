@@ -17,6 +17,7 @@ import {
   getPlayerHoldings,
 } from "@/lib/api";
 import { OvrBadge } from "@/components/OvrBadge";
+import { ExpendabilityBadge } from "@/components/ExpendabilityBadge";
 import { projectionSourceLabel } from "@/lib/archetype";
 import {
   formatActvGames,
@@ -132,6 +133,13 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
                 >
                   {player.position}
                 </span>
+                {player.expendability_score != null ? (
+                  <ExpendabilityBadge
+                    score={player.expendability_score}
+                    size="md"
+                    showScore
+                  />
+                ) : null}
               </div>
               <p className="mt-1 text-sm font-medium text-bb-muted">
                 {player.nfl_team}

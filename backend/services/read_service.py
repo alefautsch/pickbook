@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from backend.db.models import League, LeagueSnapshot, PlayerSnapshot, Roster, SyncRun
+from backend.db.models import League, LeagueSnapshot, PlayerSnapshot, Roster, RosterPlayer, SyncRun
 from backend.services.history_service import team_ovr_delta
 from backend.schemas.analysis import LeagueAnalysis
 from backend.schemas.league import LeagueDetail, LeagueRankings, LeagueTeamSummary, LeagueTile
@@ -30,8 +30,14 @@ from backend.schemas.team import (
     LineupSlot,
     TeamDetail,
     TeamTrait,
+    TradeCandidate,
 )
 from backend.services.pick_service import get_roster_draft_picks
+from backend.services.trade_engine import (
+    annotate_players_with_expendability,
+    surplus_positions_for_roster,
+    top_trade_candidates,
+)
 
 SLEEPER_HEADSHOT = "https://sleepercdn.com/content/nfl/players/thumb/{player_id}.jpg"
 
@@ -145,6 +151,78 @@ def _player_card_from_snapshot(snapshot: PlayerSnapshot, league_name: str) -> Pl
     )
 
 
+def _expendability_rows_from_cards(players: list[PlayerCard]) -> list[dict[str, Any]]:
+    return [
+        {
+            "player_id": p.player_id,
+            "name": p.player_name,
+            "position": p.position,
+            "pos": p.position,
+            "ovr": p.ovr,
+            "tv": p.trade_value,
+            "hppg": p.hppg,
+            "age": p.age,
+        }
+        for p in players
+    ]
+
+
+def _expendability_map_for_roster(
+    db: Session,
+    league_id: str,
+    roster_id: str,
+    players: list[PlayerCard],
+) -> dict[str, dict[str, Any]]:
+    if not players:
+        return {}
+    snap = _latest_league_snapshot(db, league_id)
+    if snap is None:
+        return {}
+    analysis = snap.analysis_json or {}
+    position_strength = analysis.get("position_strength")
+    rankings = snap.rankings_json or {}
+    dynasty_row = next(
+        (r for r in rankings.get("by_dynasty", []) if str(r.get("roster_id")) == roster_id),
+        {},
+    )
+    surplus_positions, _ = surplus_positions_for_roster(position_strength, roster_id)
+    annotated = annotate_players_with_expendability(
+        _expendability_rows_from_cards(players),
+        surplus_positions=surplus_positions,
+        contender_tier=dynasty_row.get("contender_tier"),
+    )
+    return {str(row["player_id"]): row for row in annotated}
+
+
+def _apply_expendability(
+    card: PlayerCard | None,
+    expendability_map: dict[str, dict[str, Any]],
+) -> PlayerCard | None:
+    if card is None:
+        return None
+    row = expendability_map.get(card.player_id)
+    if row is None:
+        return card
+    return card.model_copy(
+        update={
+            "expendability_score": row.get("expendability_score"),
+            "depth_rank": row.get("depth_rank"),
+        }
+    )
+
+
+def _roster_id_for_player(db: Session, league_id: str, player_id: str) -> str | None:
+    roster = db.scalar(
+        select(Roster.sleeper_roster_id)
+        .join(RosterPlayer, RosterPlayer.roster_id == Roster.id)
+        .where(
+            Roster.league_id == league_id,
+            RosterPlayer.sleeper_player_id == player_id,
+        )
+    )
+    return str(roster) if roster is not None else None
+
+
 def get_player_card(db: Session, player_id: str, league_id: str) -> PlayerCard | None:
     league = db.get(League, league_id)
     if league is None:
@@ -157,7 +235,39 @@ def get_player_card(db: Session, player_id: str, league_id: str) -> PlayerCard |
     )
     if snapshot is None:
         return None
-    return _player_card_from_snapshot(snapshot, league.name)
+    card = _player_card_from_snapshot(snapshot, league.name)
+    owner_roster_id = _roster_id_for_player(db, league_id, player_id)
+    if owner_roster_id is None:
+        return card
+
+    roster = db.scalar(
+        select(Roster).where(
+            Roster.league_id == league_id,
+            Roster.sleeper_roster_id == owner_roster_id,
+        )
+    )
+    if roster is None:
+        return card
+
+    snapshots = {
+        row.sleeper_player_id: row
+        for row in db.scalars(
+            select(PlayerSnapshot).where(PlayerSnapshot.league_id == league_id)
+        ).all()
+    }
+    roster_player_ids = [
+        rp.sleeper_player_id
+        for rp in db.scalars(
+            select(RosterPlayer).where(RosterPlayer.roster_id == roster.id)
+        ).all()
+    ]
+    roster_cards = [
+        _player_card_from_snapshot(snapshots[pid], league.name)
+        for pid in roster_player_ids
+        if pid in snapshots
+    ]
+    expend_map = _expendability_map_for_roster(db, league_id, owner_roster_id, roster_cards)
+    return _apply_expendability(card, expend_map)
 
 
 def _rank_lookup(rankings: list[dict[str, Any]], roster_id: str, field: str) -> int | None:
@@ -445,11 +555,44 @@ def get_team_detail(db: Session, league_id: str, roster_id: str) -> TeamDetail |
     starter_players = [slot.player for slot in starters if slot.player]
     roster_players = starter_players + bench
 
+    expend_map = _expendability_map_for_roster(db, league_id, roster_id, roster_players)
+    starters = [
+        LineupSlot(slot=slot.slot, player=_apply_expendability(slot.player, expend_map))
+        for slot in starters
+    ]
+    bench = [_apply_expendability(card, expend_map) for card in bench]
+    bench = [card for card in bench if card is not None]
+    roster_players = [
+        card for card in (_apply_expendability(p, expend_map) for p in roster_players) if card
+    ]
+
     rankings = snap.rankings_json or {}
     dynasty_row = next(
         (r for r in rankings.get("by_dynasty", []) if str(r.get("roster_id")) == roster_id),
         {},
     )
+
+    surplus_positions, _ = surplus_positions_for_roster(
+        (snap.analysis_json or {}).get("position_strength"),
+        roster_id,
+    )
+    trade_candidates_raw = top_trade_candidates(
+        _expendability_rows_from_cards(roster_players),
+        surplus_positions=surplus_positions,
+        contender_tier=dynasty_row.get("contender_tier"),
+    )
+    trade_candidates = [
+        TradeCandidate(
+            player_id=str(row["player_id"]),
+            player_name=row.get("name"),
+            position=row.get("position"),
+            trade_value=row.get("tv"),
+            expendability_score=row.get("expendability_score"),
+            depth_rank=row.get("depth_rank"),
+        )
+        for row in trade_candidates_raw
+    ]
+
     ppg_row = next(
         (r for r in rankings.get("by_starter_ppg", []) if str(r.get("roster_id")) == roster_id),
         {},
@@ -505,4 +648,5 @@ def get_team_detail(db: Session, league_id: str, roster_id: str) -> TeamDetail |
         depth_chart=_depth_chart_from_roster(roster_players),
         injuries=_injuries_from_roster(roster_players),
         draft_picks=[DraftPickAsset(**row) for row in draft_picks_raw],
+        trade_candidates=trade_candidates,
     )

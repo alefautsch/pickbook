@@ -590,6 +590,8 @@ def _inseason_metric_definitions() -> dict[str, str]:
         "starter_total_ppg": "Sum of optimal-starter HPPG/expected PPG.",
         "contender_tier": "elite / contender / fringe / rebuild from contender_index.",
         "trade_surplus": "Positions where my depth ranks top/bottom of league — trade leverage.",
+        "expendability_score": "0–100 — how movable a player is on this roster (depth, surplus, replaceability).",
+        "effective_tv": "Package TV after depth discount + consolidation premium (see evaluate_trade).",
         "exposure_flag": "Portfolio tag: conviction, concentrated, risk across my leagues.",
         "hppg_expected": "True when HPPG is projected (rookie/no nflverse) — shown as e in UI.",
         "draft_pick_tv": "Future pick trade value on same scale as player TV; tier from original owner's dynasty rank.",
@@ -615,8 +617,8 @@ TOOLS:
 - search_players(query, position?) — name search in league pool
 - get_league_rankings() — dynasty / win-now / TV standings
 - get_free_agents(position?, limit?) — top FA board
-- evaluate_trade(give, receive) — TV totals, net delta, fairness band (±5%)
-- suggest_trades(target_roster_id?) — deterministic packages; you narrate results
+- evaluate_trade(give, receive) — raw + effective TV, consolidation-adjusted fairness (±5%)
+- suggest_trades(target_roster_id?) — expendability/fit-ranked packages; narrate results
 - calculate(expression) — safe math for TV sums
 - web_search(query) — recent NFL injury updates, roster moves, beat reports (web only when configured)
 

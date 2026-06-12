@@ -46,6 +46,15 @@ class DraftPickAsset(BaseModel):
     is_own_slot: bool = False
 
 
+class TradeCandidate(BaseModel):
+    player_id: str
+    player_name: str | None = None
+    position: str | None = None
+    trade_value: float | None = None
+    expendability_score: float | None = None
+    depth_rank: int | None = None
+
+
 class TeamDetail(BaseModel):
     league_id: str
     league_name: str
@@ -74,3 +83,4 @@ class TeamDetail(BaseModel):
     depth_chart: list[DepthChartGroup] = Field(default_factory=list)
     injuries: list[InjuryWatchItem] = Field(default_factory=list)
     draft_picks: list[DraftPickAsset] = Field(default_factory=list)
+    trade_candidates: list[TradeCandidate] = Field(default_factory=list)

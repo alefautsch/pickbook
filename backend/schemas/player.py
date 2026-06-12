@@ -81,6 +81,9 @@ class PlayerCard(BaseModel):
     projection_source: str | None = None
     outlook: PlayerOutlook = Field(default_factory=PlayerOutlook)
 
+    expendability_score: float | None = None
+    depth_rank: int | None = None
+
     headshot_url: str
     league_id: str
     league_name: str

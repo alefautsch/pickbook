@@ -4,6 +4,7 @@ import { projectionSourceLabel } from "@/lib/archetype";
 import { formatActv, formatPpg, formatTv, formatWorpPpg } from "@/lib/format";
 import { positionColor } from "@/lib/ovr";
 import { OvrBadge } from "./OvrBadge";
+import { ExpendabilityBadge } from "./ExpendabilityBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
 
 type PlayerCardProps = {
@@ -70,6 +71,11 @@ export function PlayerCard({
             {player.age != null ? (
               <span className="text-xs text-bb-muted">Age {player.age}</span>
             ) : null}
+            <ExpendabilityBadge
+              score={player.expendability_score}
+              size={isHero ? "md" : "sm"}
+              showScore={isHero}
+            />
           </div>
 
           {showLeague ? (

@@ -18,8 +18,17 @@ from backend.services.analysis_service import TRADE_SURPLUS_BOTTOM_N, TRADE_SURP
 from backend.services.pick_service import get_roster_draft_picks
 from backend.services.portfolio_service import get_free_agents
 from backend.services.read_service import get_league_rankings, get_player_card, get_team_detail
-
-FAIRNESS_BAND = 0.05
+from backend.services.trade_engine import (
+    FAIRNESS_BAND,
+    MIN_EXPENDABILITY_TO_SELL,
+    annotate_players_with_expendability,
+    asset_tv,
+    effective_package_tv,
+    evaluate_package_fairness,
+    package_quality_score,
+    top_trade_candidates,
+    trade_fit_score,
+)
 TOP_FA_DEFAULT = 24
 TOP_ROSTER_PLAYERS = 16
 
@@ -65,28 +74,6 @@ def safe_calculate(expression: str) -> float:
 
 def _pick_key(pick: dict[str, Any]) -> tuple[str, int, str]:
     return (str(pick["season"]), int(pick["round"]), str(pick["original_roster_id"]))
-
-
-def _fairness_band(give_total: float, receive_total: float) -> dict[str, Any]:
-    baseline = max(give_total, receive_total, 1.0)
-    net = receive_total - give_total
-    pct = net / baseline
-    within = abs(pct) <= FAIRNESS_BAND
-    if within:
-        label = "fair"
-    elif pct > 0:
-        label = "favors_you"
-    else:
-        label = "favors_counterparty"
-    return {
-        "give_total_tv": round(give_total, 2),
-        "receive_total_tv": round(receive_total, 2),
-        "net_delta_tv": round(net, 2),
-        "net_delta_pct": round(pct * 100, 2),
-        "fairness_band": f"±{int(FAIRNESS_BAND * 100)}%",
-        "fairness": label,
-        "within_band": within,
-    }
 
 
 def _positional_notes(
@@ -158,14 +145,9 @@ def evaluate_trade_package(
             continue
         recv_picks.append(row)
 
-    give_total = sum(p.get("tv") or 0 for p in give_players) + sum(
-        p.get("trade_value") or 0 for p in give_picks
-    )
-    receive_total = sum(p.get("tv") or 0 for p in recv_players) + sum(
-        p.get("trade_value") or 0 for p in recv_picks
-    )
-
-    fairness = _fairness_band(give_total, receive_total)
+    give_assets = give_players + give_picks
+    recv_assets = recv_players + recv_picks
+    fairness = evaluate_package_fairness(give_assets, recv_assets)
     return {
         **fairness,
         "give": {
@@ -249,6 +231,7 @@ def _players_for_roster(
                 "ovr": snap.dynasty_rating,
                 "tv": snap.trade_value,
                 "hppg": snap.hppg,
+                "age": snap.age,
             }
         )
     rows.sort(key=lambda r: r.get("tv") or 0, reverse=True)
@@ -263,21 +246,22 @@ def _balance_with_pick(
     their_picks: list[dict[str, Any]],
     target_delta: float = 0.0,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Add at most one pick to move TV delta toward target."""
-    give_tv = sum(a.get("tv") or a.get("trade_value") or 0 for a in give_assets)
-    recv_tv = sum(a.get("tv") or a.get("trade_value") or 0 for a in recv_assets)
-    delta = recv_tv - give_tv - target_delta
-    if abs(delta) <= max(recv_tv, give_tv, 1) * FAIRNESS_BAND:
+    """Add at most one pick to move effective TV delta toward target."""
+    give_eff = effective_package_tv(give_assets)
+    recv_eff = effective_package_tv(recv_assets)
+    delta = recv_eff - give_eff - target_delta
+    if abs(delta) <= max(recv_eff, give_eff, 1) * FAIRNESS_BAND:
         return give_assets, recv_assets
 
     if delta < 0:
-        # Need to add to receive side (or remove from give) — add their pick
         for pick in sorted(their_picks, key=lambda p: p.get("trade_value") or 0):
-            if abs((recv_tv + (pick.get("trade_value") or 0)) - give_tv) < abs(delta):
+            trial_recv = effective_package_tv(recv_assets + [pick])
+            if abs(trial_recv - give_eff) < abs(delta):
                 return give_assets, recv_assets + [pick]
     else:
         for pick in sorted(my_picks, key=lambda p: p.get("trade_value") or 0):
-            if abs(recv_tv - (give_tv + (pick.get("trade_value") or 0))) < abs(delta):
+            trial_give = effective_package_tv(give_assets + [pick])
+            if abs(recv_eff - trial_give) < abs(delta):
                 return give_assets + [pick], recv_assets
     return give_assets, recv_assets
 
@@ -290,14 +274,25 @@ def generate_trade_suggestions(
     picks_by_roster: dict[str, list[dict[str, Any]]],
     target_roster_id: str | None = None,
     max_suggestions: int = 5,
+    contender_tier_by_roster: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Deterministic trade packages from trade_surplus + rosters + pick TV."""
+    """Trade packages from trade_surplus, expendability, fit, and effective TV."""
     if not trade_surplus:
         return []
 
     my_players = roster_players.get(str(my_roster_id), [])
     my_surplus_positions = {row["position"] for row in trade_surplus.get("surplus") or []}
     my_need_positions = {row["position"] for row in trade_surplus.get("needs") or []}
+    my_tier = (contender_tier_by_roster or {}).get(str(my_roster_id))
+
+    my_annotated = annotate_players_with_expendability(
+        my_players,
+        surplus_positions=my_surplus_positions,
+        contender_tier=my_tier,
+    )
+    expendability_by_id = {
+        str(p["player_id"]): p.get("expendability_score") or 0 for p in my_annotated
+    }
 
     counterparties = trade_surplus.get("counterparties") or []
     if target_roster_id:
@@ -321,43 +316,82 @@ def generate_trade_suggestions(
         if not their_players:
             continue
 
+        their_tier = (contender_tier_by_roster or {}).get(their_id)
+
         if direction == "sell" and pos not in my_surplus_positions:
             continue
         if direction == "buy" and pos not in my_need_positions:
             continue
 
         if direction == "sell":
-            give_pool = [p for p in my_players if p.get("position") == pos][-3:]
-            recv_pool = [
-                p
-                for p in their_players
-                if p.get("position") in my_need_positions and p.get("position") != pos
-            ][:4]
-        else:
-            recv_pool = [p for p in their_players if p.get("position") == pos][:3]
+            give_pool = sorted(
+                [p for p in my_annotated if p.get("position") == pos],
+                key=lambda p: p.get("expendability_score") or 0,
+                reverse=True,
+            )
             give_pool = [
                 p
-                for p in my_players
-                if p.get("position") in my_surplus_positions and p.get("position") != pos
-            ][-3:]
+                for p in give_pool
+                if (p.get("expendability_score") or 0) >= MIN_EXPENDABILITY_TO_SELL * 100
+            ][:3]
+            recv_pool = sorted(
+                [
+                    p
+                    for p in their_players
+                    if p.get("position") in my_need_positions and p.get("position") != pos
+                ],
+                key=lambda p: trade_fit_score(
+                    p,
+                    acquirer_need_positions=my_need_positions,
+                    acquirer_surplus_positions=my_surplus_positions,
+                    acquirer_tier=my_tier,
+                    seller_tier=their_tier,
+                )
+                * asset_tv(p),
+                reverse=True,
+            )[:4]
+        else:
+            recv_pool = sorted(
+                [p for p in their_players if p.get("position") == pos],
+                key=lambda p: trade_fit_score(
+                    p,
+                    acquirer_need_positions=my_need_positions,
+                    acquirer_surplus_positions=my_surplus_positions,
+                    acquirer_tier=my_tier,
+                    seller_tier=their_tier,
+                )
+                * asset_tv(p),
+                reverse=True,
+            )[:3]
+            give_pool = sorted(
+                [
+                    p
+                    for p in my_annotated
+                    if p.get("position") in my_surplus_positions
+                    and p.get("position") != pos
+                ],
+                key=lambda p: p.get("expendability_score") or 0,
+                reverse=True,
+            )
+            give_pool = [
+                p
+                for p in give_pool
+                if (p.get("expendability_score") or 0) >= MIN_EXPENDABILITY_TO_SELL * 100
+            ][:3]
 
         if not give_pool or not recv_pool:
             continue
 
         give_asset = give_pool[0]
-        recv_asset = max(recv_pool, key=lambda p: p.get("tv") or 0)
+        recv_asset = recv_pool[0]
 
         give_list: list[dict[str, Any]] = [give_asset]
         recv_list: list[dict[str, Any]] = [recv_asset]
 
-        # Try 2-for-2 if single swap is lopsided
-        eval_single = _fairness_band(
-            give_asset.get("tv") or 0,
-            recv_asset.get("tv") or 0,
-        )
+        eval_single = evaluate_package_fairness(give_list, recv_list)
         if not eval_single["within_band"] and len(give_pool) > 1 and len(recv_pool) > 1:
             give_list = give_pool[:2]
-            recv_list = sorted(recv_pool, key=lambda p: p.get("tv") or 0, reverse=True)[:2]
+            recv_list = recv_pool[:2]
 
         give_list, recv_list = _balance_with_pick(
             give_list,
@@ -366,9 +400,40 @@ def generate_trade_suggestions(
             their_picks=picks_by_roster.get(their_id, []),
         )
 
-        give_tv = sum(a.get("tv") or a.get("trade_value") or 0 for a in give_list)
-        recv_tv = sum(a.get("tv") or a.get("trade_value") or 0 for a in recv_list)
-        fairness = _fairness_band(give_tv, recv_tv)
+        fairness = evaluate_package_fairness(give_list, recv_list)
+        give_player_rows = [p for p in give_list if p.get("player_id")]
+        recv_player_rows = [p for p in recv_list if p.get("player_id")]
+        quality = package_quality_score(
+            give_players=give_player_rows,
+            recv_players=recv_player_rows,
+            expendability_by_id=expendability_by_id,
+            acquirer_need_positions=my_need_positions,
+            acquirer_surplus_positions=my_surplus_positions,
+            acquirer_tier=my_tier,
+            seller_tier=their_tier,
+            fairness=fairness,
+        )
+        avg_fit = (
+            sum(
+                trade_fit_score(
+                    p,
+                    acquirer_need_positions=my_need_positions,
+                    acquirer_surplus_positions=my_surplus_positions,
+                    acquirer_tier=my_tier,
+                    seller_tier=their_tier,
+                )
+                for p in recv_player_rows
+            )
+            / len(recv_player_rows)
+            if recv_player_rows
+            else 0.0
+        )
+        avg_expend = (
+            sum(expendability_by_id.get(str(p.get("player_id")), 0) for p in give_player_rows)
+            / len(give_player_rows)
+            if give_player_rows
+            else 0.0
+        )
 
         suggestions.append(
             {
@@ -377,26 +442,28 @@ def generate_trade_suggestions(
                     "team_name": cp.get("team_name"),
                     "direction": direction,
                     "position_hook": pos,
+                    "contender_tier": their_tier,
                 },
                 "give": {
-                    "players": [p for p in give_list if p.get("player_id")],
+                    "players": give_player_rows,
                     "picks": [p for p in give_list if not p.get("player_id")],
                 },
                 "receive": {
-                    "players": [p for p in recv_list if p.get("player_id")],
+                    "players": recv_player_rows,
                     "picks": [p for p in recv_list if not p.get("player_id")],
                 },
                 **fairness,
+                "package_quality": quality,
+                "avg_expendability": round(avg_expend, 1),
+                "avg_trade_fit": round(avg_fit, 3),
                 "rationale": (
                     f"{'Sell' if direction == 'sell' else 'Buy'} {pos} leverage — "
                     f"they rank #{cp.get('their_rank')} at {pos}, you rank #{cp.get('my_rank')}"
                 ),
             }
         )
-        if len(suggestions) >= max_suggestions:
-            break
 
-    suggestions.sort(key=lambda s: abs(s.get("net_delta_pct") or 999))
+    suggestions.sort(key=lambda s: s.get("package_quality") or 0, reverse=True)
     return suggestions[:max_suggestions]
 
 
@@ -499,23 +566,49 @@ class AdvisorTools:
             return None
         return analysis.trade_surplus.model_dump()
 
+    def _contender_tier_by_roster(self) -> dict[str, str]:
+        from backend.services.read_service import get_league_analysis
+
+        analysis = get_league_analysis(self.ctx.db, self.ctx.league_id)
+        if analysis is None or analysis.contender_index is None:
+            return {}
+        return {
+            str(row.roster_id): row.tier
+            for row in analysis.contender_index.teams
+            if row.tier
+        }
+
     def get_team(self, roster_id: str) -> dict[str, Any]:
         detail = get_team_detail(self.ctx.db, self.ctx.league_id, str(roster_id))
         if detail is None:
             return {"error": f"Team {roster_id} not found"}
 
-        pos_info = _team_surplus_needs(self._position_strength(), str(roster_id))
-        players = [
+        pos_strength = self._position_strength()
+        pos_info = _team_surplus_needs(pos_strength, str(roster_id))
+        surplus_positions = {row["position"] for row in pos_info["surplus"]}
+        roster_rows = [
             {
                 "player_id": p.player_id,
                 "name": p.player_name,
+                "position": p.position,
                 "pos": p.position,
                 "ovr": p.ovr,
                 "tv": p.trade_value,
                 "hppg": p.hppg,
+                "age": p.age,
             }
             for p in detail.roster[:TOP_ROSTER_PLAYERS]
         ]
+        players = annotate_players_with_expendability(
+            roster_rows,
+            surplus_positions=surplus_positions,
+            contender_tier=detail.contender_tier,
+        )
+        trade_candidates = top_trade_candidates(
+            roster_rows,
+            surplus_positions=surplus_positions,
+            contender_tier=detail.contender_tier,
+        )
         return {
             "roster_id": detail.roster_id,
             "team_name": detail.team_name,
@@ -531,6 +624,7 @@ class AdvisorTools:
             "starter_needs": _starter_needs_from_detail(detail),
             "draft_picks": [p.model_dump() for p in detail.draft_picks],
             "players": players,
+            "trade_candidates": trade_candidates,
             "injuries": [i.model_dump() for i in detail.injuries],
         }
 
@@ -552,6 +646,8 @@ class AdvisorTools:
             "outlook": card.outlook,
             "win_now_rating": card.lenses.win_now_rating if card.lenses else None,
             "age": card.age,
+            "expendability_score": card.expendability_score,
+            "depth_rank": card.depth_rank,
         }
 
     def search_players(self, query: str, position: str | None = None) -> dict[str, Any]:
@@ -680,6 +776,7 @@ class AdvisorTools:
             roster_players=roster_players,
             picks_by_roster=picks_by_roster,
             target_roster_id=target_roster_id,
+            contender_tier_by_roster=self._contender_tier_by_roster(),
         )
         return {
             "my_roster_id": self.ctx.my_roster_id,
@@ -765,7 +862,7 @@ ADVISOR_TOOL_SPECS: list[dict[str, Any]] = [
     },
     {
         "name": "get_player",
-        "description": "Player card: OVR, TV, HPPG, injury, outlook, win-now lens.",
+        "description": "Player card: OVR, TV, HPPG, expendability, injury, outlook, win-now lens.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -806,7 +903,8 @@ ADVISOR_TOOL_SPECS: list[dict[str, Any]] = [
         "name": "evaluate_trade",
         "description": (
             "Evaluate a trade package. Players by sleeper_player_id; picks by "
-            "{season, round, original_roster_id}. Returns TV totals, net delta, fairness band."
+            "{season, round, original_roster_id}. Returns raw + effective TV, "
+            "consolidation-adjusted fairness (±5%), positional notes."
         ),
         "input_schema": {
             "type": "object",
@@ -854,8 +952,8 @@ ADVISOR_TOOL_SPECS: list[dict[str, Any]] = [
     {
         "name": "suggest_trades",
         "description": (
-            "Deterministic trade ideas from trade_surplus, league rosters, and pick TV. "
-            "Returns 3–5 balanced packages; narrate with manager names."
+            "Deterministic trade ideas using expendability, counterparty fit, and "
+            "consolidation-aware effective TV. Returns up to 5 packages ranked by quality."
         ),
         "input_schema": {
             "type": "object",

@@ -90,6 +90,8 @@ export type PlayerCard = {
   league_id: string;
   league_name: string;
   computed_at: string | null;
+  expendability_score: number | null;
+  depth_rank: number | null;
 };
 
 export type LeagueTile = {
@@ -366,6 +368,15 @@ export type DraftPickAsset = {
   is_own_slot: boolean;
 };
 
+export type TradeCandidate = {
+  player_id: string;
+  player_name: string | null;
+  position: string | null;
+  trade_value: number | null;
+  expendability_score: number | null;
+  depth_rank: number | null;
+};
+
 export type TeamDetail = {
   league_id: string;
   league_name: string;
@@ -394,6 +405,7 @@ export type TeamDetail = {
   depth_chart: DepthChartGroup[];
   injuries: InjuryWatchItem[];
   draft_picks: DraftPickAsset[];
+  trade_candidates: TradeCandidate[];
 };
 
 export type SyncLeagueResult = {

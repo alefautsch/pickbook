@@ -11,6 +11,7 @@ import {
 } from "@/lib/format";
 import { formatSlotLabel } from "@/lib/positions";
 import { OvrBadge } from "./OvrBadge";
+import { ExpendabilityBadge } from "./ExpendabilityBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
 import { PositionPill } from "./PositionPill";
 
@@ -41,10 +42,13 @@ function PlayerCell({ player }: { player: PlayerCard }) {
         >
           {player.player_name}
         </Link>
-        <p className="truncate text-xs text-bb-muted">
-          {player.position ?? "—"}
-          {player.nfl_team ? ` · ${player.nfl_team}` : ""}
-        </p>
+        <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+          <p className="truncate text-xs text-bb-muted">
+            {player.position ?? "—"}
+            {player.nfl_team ? ` · ${player.nfl_team}` : ""}
+          </p>
+          <ExpendabilityBadge score={player.expendability_score} />
+        </div>
       </div>
     </div>
   );

@@ -61,6 +61,8 @@ def test_evaluate_trade_players_and_picks():
     assert result["give_total_tv"] == 11200.0
     assert result["receive_total_tv"] == 8000.0
     assert result["net_delta_tv"] == -3200.0
+    assert result["give_effective_tv"] < result["give_total_tv"]
+    assert result["receive_effective_tv"] < result["receive_total_tv"]
     assert result["fairness"] == "favors_counterparty"
     assert result["within_band"] is False
     assert result["missing_assets"] == []
@@ -135,6 +137,8 @@ def test_generate_trade_suggestions_from_surplus():
     assert packages[0]["give"]["players"] or packages[0]["give"]["picks"]
     assert packages[0]["receive"]["players"] or packages[0]["receive"]["picks"]
     assert "give_total_tv" in packages[0]
+    assert "give_effective_tv" in packages[0]
+    assert "package_quality" in packages[0]
     assert "fairness" in packages[0]
 
 

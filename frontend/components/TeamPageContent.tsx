@@ -10,6 +10,7 @@ import { ContenderTag } from "@/components/ContenderTag";
 import { DepthChartPanel } from "@/components/DepthChartPanel";
 import { DraftPicksPanel } from "@/components/DraftPicksPanel";
 import { InjuryWatchPanel } from "@/components/InjuryWatchPanel";
+import { TradeCandidatesPanel } from "@/components/TradeCandidatesPanel";
 import { OvrGauge } from "@/components/OvrGauge";
 import { PositionStrengthBars } from "@/components/PositionStrengthBars";
 import { TeamTabs } from "@/components/TeamTabs";
@@ -224,6 +225,21 @@ export function TeamPageContent({
         </div>
 
         <aside className="space-y-4">
+          {team.trade_candidates.length > 0 ? (
+            <section className="bb-panel p-4">
+              <h2 className="bb-panel-title">Trade Chips</h2>
+              <p className="mt-1 text-xs text-bb-muted">
+                Most movable pieces on this roster
+              </p>
+              <div className="mt-3">
+                <TradeCandidatesPanel
+                  candidates={team.trade_candidates}
+                  leagueId={leagueId}
+                />
+              </div>
+            </section>
+          ) : null}
+
           <section className="bb-panel p-4">
             <h2 className="bb-panel-title">Depth Chart</h2>
             <div className="mt-3">
