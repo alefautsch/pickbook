@@ -176,8 +176,14 @@ def test_generate_trade_suggestions_target_roster_filter():
             _player("w3", "Bench WR", "WR", 1200, hppg=5.0, age=28),
             _player("w4", "Deep WR", "WR", 900, hppg=4.5, age=29),
         ],
-        "2": [_player("r2", "RB", "RB", 5000, hppg=11.0, age=26)],
-        "9": [_player("r9", "RB9", "RB", 5100, hppg=11.0, age=26)],
+        "2": [
+            _player("r2a", "Stud RB", "RB", 6200, hppg=14.0, age=25),
+            _player("r2", "Needy RB", "RB", 5000, hppg=8.0, age=26),
+        ],
+        "9": [
+            _player("r9a", "Stud RB9", "RB", 6400, hppg=14.0, age=25),
+            _player("r9", "RB9", "RB", 5100, hppg=8.0, age=26),
+        ],
     }
 
     packages = generate_trade_suggestions(

@@ -4,8 +4,10 @@ import json
 from unittest.mock import MagicMock, patch
 
 from backend.services.trade_validation_service import (
+    ACCEPT_LIKELIHOOD_SCORE,
     build_validation_payload,
     validate_trade_with_llm,
+    validation_accept_score,
     _parse_validation_json,
 )
 
@@ -73,6 +75,38 @@ def test_parse_validation_json_from_fenced_block():
     parsed = _parse_validation_json(raw)
     assert parsed["accept_likelihood"] == "low"
     assert parsed["blockers"] == ["gap"]
+
+
+def test_validation_accept_score_bonuses_and_penalties():
+    base = validation_accept_score(
+        {
+            "accept_likelihood": "medium",
+            "fairness_from_counterparty_view": "fair",
+            "would_improve_their_roster": False,
+        }
+    )
+    assert base == ACCEPT_LIKELIHOOD_SCORE["medium"]
+
+    improved = validation_accept_score(
+        {
+            "accept_likelihood": "high",
+            "fairness_from_counterparty_view": "favors_them",
+            "would_improve_their_roster": True,
+        }
+    )
+    assert improved == 1.0  # capped at 1.0
+
+    penalized = validation_accept_score(
+        {
+            "accept_likelihood": "low",
+            "fairness_from_counterparty_view": "favors_you",
+            "would_improve_their_roster": False,
+        }
+    )
+    assert penalized == 0.0  # 0 - 0.08 floored at 0
+
+    assert validation_accept_score({"skipped": True}) is None
+    assert validation_accept_score({"error": "x"}) is None
 
 
 def test_validate_trade_with_llm_skips_without_api_key():

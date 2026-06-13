@@ -535,13 +535,20 @@ def _league_avg_starter_age(teams: list[dict[str, Any]]) -> float | None:
 def _compute_trade_surplus(
     position_strength: dict[str, Any],
     *,
+    for_roster_id: str | None = None,
     top_n: int = TRADE_SURPLUS_TOP_N,
     bottom_n: int = TRADE_SURPLUS_BOTTOM_N,
 ) -> dict[str, Any] | None:
     teams = position_strength.get("teams", [])
     positions = position_strength.get("positions", [])
-    my_team = next((t for t in teams if t.get("is_me")), None)
-    if my_team is None:
+    if for_roster_id:
+        subject_team = next(
+            (t for t in teams if str(t.get("roster_id")) == str(for_roster_id)),
+            None,
+        )
+    else:
+        subject_team = next((t for t in teams if t.get("is_me")), None)
+    if subject_team is None:
         return None
 
     league_size = len(teams)
@@ -568,8 +575,8 @@ def _compute_trade_surplus(
             continue
 
         rank_by_roster = {row["roster_id"]: idx + 1 for idx, row in enumerate(ranked)}
-        my_rank = rank_by_roster.get(my_team["roster_id"])
-        my_ovr = (my_team.get("by_position") or {}).get(pos)
+        my_rank = rank_by_roster.get(subject_team["roster_id"])
+        my_ovr = (subject_team.get("by_position") or {}).get(pos)
         if my_rank is None:
             continue
 
@@ -582,7 +589,7 @@ def _compute_trade_surplus(
         if my_rank <= top_n:
             surplus.append(item)
             for other in ranked[-bottom_n:]:
-                if other["roster_id"] == my_team["roster_id"]:
+                if other["roster_id"] == subject_team["roster_id"]:
                     continue
                 counterparties.append(
                     {
@@ -598,7 +605,7 @@ def _compute_trade_surplus(
         if my_rank > len(ranked) - bottom_n:
             needs.append(item)
             for other in ranked[:top_n]:
-                if other["roster_id"] == my_team["roster_id"]:
+                if other["roster_id"] == subject_team["roster_id"]:
                     continue
                 counterparties.append(
                     {
@@ -613,12 +620,23 @@ def _compute_trade_surplus(
                 )
 
     return {
-        "roster_id": my_team["roster_id"],
-        "team_name": my_team.get("team_name"),
+        "roster_id": subject_team["roster_id"],
+        "team_name": subject_team.get("team_name"),
         "surplus": surplus,
         "needs": needs,
         "counterparties": counterparties,
     }
+
+
+def compute_trade_surplus_for_roster(
+    position_strength: dict[str, Any],
+    roster_id: str,
+    **kwargs: Any,
+) -> dict[str, Any] | None:
+    """Trade hooks for any roster (not only is_me) — used when advisor focus is pivoted."""
+    return _compute_trade_surplus(
+        position_strength, for_roster_id=str(roster_id), **kwargs
+    )
 
 
 def _compact_team_row(team_meta: dict[str, Any], lineup: dict[str, Any]) -> dict[str, Any]:

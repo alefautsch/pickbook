@@ -13,6 +13,29 @@ from dynasty_draft.llm_advisor import DEFAULT_MODEL
 AcceptLikelihood = Literal["low", "medium", "high"]
 FairnessView = Literal["favors_them", "fair", "favors_you"]
 
+ACCEPT_LIKELIHOOD_SCORE: dict[str, float] = {
+    "low": 0.0,
+    "medium": 0.55,
+    "high": 1.0,
+}
+
+
+def validation_accept_score(validation: dict[str, Any]) -> float | None:
+    """Scalar for ranking packages by counterparty accept likelihood."""
+    if validation.get("skipped") or validation.get("error"):
+        return None
+    likelihood = str(validation.get("accept_likelihood") or "medium").lower()
+    score = ACCEPT_LIKELIHOOD_SCORE.get(likelihood, 0.55)
+    if validation.get("would_improve_their_roster"):
+        score += 0.12
+    fairness = str(validation.get("fairness_from_counterparty_view") or "fair").lower()
+    if fairness == "favors_them":
+        score += 0.05
+    elif fairness == "favors_you":
+        score -= 0.08
+    return round(min(1.0, max(0.0, score)), 3)
+
+
 _VALIDATION_SYSTEM = """You are a dynasty fantasy football trade analyst.
 Evaluate whether a proposed trade would be ACCEPTED from the COUNTERPARTY manager's perspective.
 

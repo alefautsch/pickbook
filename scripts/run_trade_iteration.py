@@ -208,6 +208,17 @@ def _print_package(i: int, pkg: dict[str, Any]) -> None:
         )
     if pkg.get("rationale"):
         print(f"  Rationale: {pkg['rationale']}")
+    cv = pkg.get("counterparty_validation")
+    if cv and not cv.get("error") and not cv.get("skipped"):
+        score = pkg.get("validation_accept_score")
+        score_s = f" ({score:.2f})" if score is not None else ""
+        print(
+            f"  Validation: accept={cv.get('accept_likelihood')}{score_s} | "
+            f"fairness={cv.get('fairness_from_counterparty_view')} | "
+            f"improves them={cv.get('would_improve_their_roster')}"
+        )
+        if cv.get("blockers"):
+            print(f"  Blockers: {', '.join(cv['blockers'][:3])}")
 
 
 def _print_trade_tags(roster: list[dict[str, Any]], label: str) -> None:
@@ -235,6 +246,12 @@ def main() -> None:
     parser.add_argument("--swap", action="store_true", help="Need-swap mode: surplus + depth for stud + depth")
     parser.add_argument("--need", help="Need position for --swap (RB, WR, TE)")
     parser.add_argument("--validate", action="store_true", help="Run validate_trade on package 1")
+    parser.add_argument(
+        "--rank-validation",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Re-rank packages by counterparty accept_likelihood (default on; needs ANTHROPIC_API_KEY)",
+    )
     parser.add_argument("--json", action="store_true", help="Dump raw JSON")
     args = parser.parse_args()
 
@@ -260,9 +277,11 @@ def main() -> None:
         return
 
     from backend.services.advisor_tools import (
+        evaluate_trade_package,
         generate_need_swap_packages,
         generate_position_acquisition_packages,
         generate_trade_suggestions,
+        rank_packages_by_counterparty_validation,
     )
 
     if args.db:
@@ -328,6 +347,77 @@ def main() -> None:
             keep_current_first=keep_first,
             lubricant_mode=lubricant,
         )
+
+    if args.rank_validation and packages:
+        from backend.config import get_settings
+
+        def resolve_player(pid: str):
+            for rows in roster_players.values():
+                for row in rows:
+                    if str(row.get("player_id")) == str(pid):
+                        return row
+            return None
+
+        def resolve_pick(pick: dict):
+            owner = picks_by_roster.get(str(args.roster), [])
+            key = (str(pick["season"]), int(pick["round"]), str(pick["original_roster_id"]))
+            for row in owner:
+                rk = (str(row["season"]), int(row["round"]), str(row["original_roster_id"]))
+                if rk == key:
+                    return row
+            cp_id = str(pick.get("counterparty_roster_id") or "")
+            for row in picks_by_roster.get(cp_id, []):
+                rk = (str(row["season"]), int(row["round"]), str(row["original_roster_id"]))
+                if rk == key:
+                    return row
+            for rows in picks_by_roster.values():
+                for row in rows:
+                    rk = (str(row["season"]), int(row["round"]), str(row["original_roster_id"]))
+                    if rk == key:
+                        return row
+            return None
+
+        def load_team(rid: str) -> dict[str, Any]:
+            if args.db:
+                from sqlalchemy import select
+
+                from backend.db.models import LeagueSnapshot, Roster
+                from backend.db.session import SessionLocal
+                from backend.services.advisor_tools import AdvisorTools, AdvisorToolContext
+
+                with SessionLocal() as db:
+                    ctx = AdvisorToolContext(
+                        db=db,
+                        league_id=args.league,
+                        my_roster_id=str(args.roster),
+                        focused_roster_id=str(args.roster),
+                    )
+                    return AdvisorTools(ctx).get_team(rid)
+            team = _api_get(args.api, f"/leagues/{args.league}/teams/{rid}")
+            return {
+                "team_name": team.get("team_name"),
+                "contender_tier": team.get("contender_tier"),
+                "dynasty_rank": team.get("dynasty_rank"),
+                "surplus": [],
+                "needs": [],
+                "draft_picks": team.get("draft_picks"),
+                "players": [_player_row(p) for p in team.get("roster", [])],
+            }
+
+        settings = get_settings()
+        if settings.anthropic_api_key:
+            print("\nRanking top packages by counterparty validation…")
+            packages = rank_packages_by_counterparty_validation(
+                packages,
+                my_roster_id=str(args.roster),
+                resolve_player=resolve_player,
+                resolve_pick=resolve_pick,
+                load_team=load_team,
+                trade_surplus=trade_surplus,
+                api_key=settings.anthropic_api_key,
+            )
+        else:
+            print("\nSkipping validation ranking (ANTHROPIC_API_KEY not set)")
 
     mode = (
         f"NEED SWAP{f' ({args.need})' if args.need else ''}"
