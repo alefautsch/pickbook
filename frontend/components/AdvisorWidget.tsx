@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getAdvisorStatus,
+  getLeagueRankings,
   streamAdvisorChat,
   type AdvisorMessage,
   type AdvisorPrompt,
   type AdvisorStatus,
+  type RankingRow,
 } from "@/lib/api";
 import { AdvisorMarkdown } from "./AdvisorMarkdown";
 import { useAdvisorContext } from "./AdvisorContext";
@@ -43,9 +45,16 @@ type AdvisorWidgetProps = {
 };
 
 export function AdvisorWidget({ open, onOpenChange }: AdvisorWidgetProps) {
-  const { leagueId, focusedRosterId, pageContext } = useAdvisorContext();
+  const {
+    leagueId,
+    myRosterId,
+    focusedRosterId,
+    setTradePerspectiveRosterId,
+    pageContext,
+  } = useAdvisorContext();
   const [status, setStatus] = useState<AdvisorStatus | null>(null);
   const [modelId, setModelId] = useState<string>("claude-sonnet-4-6");
+  const [leagueTeams, setLeagueTeams] = useState<RankingRow[]>([]);
   const [messages, setMessages] = useState<AdvisorMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -61,6 +70,36 @@ export function AdvisorWidget({ open, onOpenChange }: AdvisorWidgetProps) {
       threadKeyRef.current = threadKey;
     }
   }, [threadKey]);
+
+  useEffect(() => {
+    if (!leagueId) {
+      setLeagueTeams([]);
+      return;
+    }
+    getLeagueRankings(leagueId)
+      .then((rankings) => setLeagueTeams(rankings.by_dynasty ?? []))
+      .catch(() => setLeagueTeams([]));
+  }, [leagueId]);
+
+  useEffect(() => {
+    if (!leagueTeams.length || !focusedRosterId) return;
+    const known = leagueTeams.some((t) => t.roster_id === focusedRosterId);
+    if (!known && myRosterId) {
+      setTradePerspectiveRosterId(myRosterId);
+    }
+  }, [
+    leagueTeams,
+    focusedRosterId,
+    myRosterId,
+    setTradePerspectiveRosterId,
+  ]);
+
+  const perspectiveTeam = leagueTeams.find((t) => t.roster_id === focusedRosterId);
+  const perspectiveLabel =
+    focusedRosterId && focusedRosterId === myRosterId
+      ? "My team"
+      : perspectiveTeam?.team_name ??
+        (focusedRosterId ? `Roster ${focusedRosterId}` : "My team");
 
   useEffect(() => {
     getAdvisorStatus()
@@ -126,7 +165,7 @@ export function AdvisorWidget({ open, onOpenChange }: AdvisorWidgetProps) {
             page_context: {
               page_type: pageContext.pageType,
               path: pageContext.path ?? null,
-              roster_id: pageContext.rosterId ?? focusedRosterId ?? null,
+              roster_id: pageContext.rosterId ?? null,
               player_id: pageContext.playerId ?? null,
               player_name: pageContext.playerName ?? null,
               summary: pageContext.summary ?? null,
@@ -193,7 +232,7 @@ export function AdvisorWidget({ open, onOpenChange }: AdvisorWidgetProps) {
 
       {open ? (
         <aside
-          className="fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-50 flex h-[min(640px,calc(100dvh-1.5rem))] flex-col overflow-hidden rounded-2xl border border-bb-border/60 bg-[#0a0e14]/98 shadow-2xl shadow-black/50 backdrop-blur sm:inset-x-auto sm:bottom-5 sm:right-5 sm:h-[min(640px,calc(100vh-2.5rem))] sm:w-[min(420px,calc(100vw-2rem))]"
+          className="fixed inset-0 z-50 flex flex-col overflow-hidden border-bb-border/60 bg-[#0a0e14]/98 pt-[env(safe-area-inset-top)] shadow-2xl shadow-black/50 backdrop-blur sm:inset-x-auto sm:inset-y-auto sm:bottom-5 sm:right-5 sm:left-auto sm:top-auto sm:h-[min(640px,calc(100vh-2.5rem))] sm:w-[min(420px,calc(100vw-2rem))] sm:rounded-2xl sm:border sm:pt-0"
           role="dialog"
           aria-label="Dynasty advisor"
         >
@@ -204,7 +243,7 @@ export function AdvisorWidget({ open, onOpenChange }: AdvisorWidgetProps) {
               </p>
               <p className="truncate text-sm text-white">{contextLabel}</p>
               <p className="truncate text-xs text-bb-muted">
-                {focusedRosterId ? `Focus roster ${focusedRosterId}` : "My team"}
+                Trades from: {perspectiveLabel}
               </p>
             </div>
             <button
@@ -228,6 +267,27 @@ export function AdvisorWidget({ open, onOpenChange }: AdvisorWidgetProps) {
           ) : (
             <>
               <div className="border-b border-bb-border/40 px-3 py-2 space-y-2">
+                {leagueTeams.length > 0 ? (
+                  <label className="flex items-center gap-2 text-[11px] text-bb-muted">
+                    <span className="shrink-0 uppercase tracking-wide">From</span>
+                    <select
+                      value={focusedRosterId ?? ""}
+                      disabled={streaming}
+                      onChange={(e) =>
+                        setTradePerspectiveRosterId(e.target.value || undefined)
+                      }
+                      className="min-w-0 flex-1 rounded-md border border-bb-border/60 bg-black/30 px-2 py-1 text-xs text-white focus:border-bb-gold/50 focus:outline-none disabled:opacity-50"
+                      title="Trade suggestions use this team's surplus and assets"
+                    >
+                      {leagueTeams.map((team) => (
+                        <option key={team.roster_id} value={team.roster_id}>
+                          {team.team_name ?? `Roster ${team.roster_id}`}
+                          {team.roster_id === myRosterId ? " (me)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
                 <label className="flex items-center gap-2 text-[11px] text-bb-muted">
                   <span className="shrink-0 uppercase tracking-wide">Model</span>
                   <select
@@ -272,8 +332,9 @@ export function AdvisorWidget({ open, onOpenChange }: AdvisorWidgetProps) {
               <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-3 py-3">
                 {messages.length === 0 ? (
                   <p className="text-center text-sm text-bb-muted">
-                    Ask about trades, drops, or draft picks — context follows the page
-                    you&apos;re on.
+                    Ask about trades, drops, or draft picks. Use{" "}
+                    <span className="text-bb-gold">From</span> to explore what another
+                    team in this league might trade.
                   </p>
                 ) : null}
                 {messages.map((msg, idx) => (
@@ -291,7 +352,7 @@ export function AdvisorWidget({ open, onOpenChange }: AdvisorWidgetProps) {
               </div>
 
               <form
-                className="border-t border-bb-border/50 p-3"
+                className="border-t border-bb-border/50 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3"
                 onSubmit={(e) => {
                   e.preventDefault();
                   void send({});

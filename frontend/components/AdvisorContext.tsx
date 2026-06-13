@@ -20,13 +20,20 @@ export type AdvisorPageContext = {
 
 type AdvisorContextValue = {
   leagueId: string | undefined;
+  myRosterId: string | undefined;
+  /** Trade-tool proposer (suggest_trades / validate_trade). Defaults to my team. */
+  tradePerspectiveRosterId: string | undefined;
+  setTradePerspectiveRosterId: (rosterId: string | undefined) => void;
+  /** Sent as focused_roster_id — drives trade surplus + packages. */
   focusedRosterId: string | undefined;
   pageContext: AdvisorPageContext;
   setPageContext: (ctx: AdvisorPageContext) => void;
-  setFocusedRosterId: (rosterId: string | undefined) => void;
 };
 
 const AdvisorContext = createContext<AdvisorContextValue | null>(null);
+
+const perspectiveStorageKey = (leagueId: string) =>
+  `bb-advisor-trade-perspective:${leagueId}`;
 
 type AdvisorProviderProps = {
   leagueId?: string;
@@ -44,19 +51,49 @@ export function AdvisorProvider({
   const [pageContext, setPageContext] = useState<AdvisorPageContext>(
     initialPageContext ?? { pageType: "unknown" },
   );
-  const [focusedRosterId, setFocusedRosterId] = useState<string | undefined>(
-    initialPageContext?.rosterId ?? myRosterId,
-  );
+  const [tradePerspectiveRosterId, setTradePerspectiveRosterId] = useState<
+    string | undefined
+  >(undefined);
+
+  useEffect(() => {
+    if (!leagueId || typeof window === "undefined") {
+      setTradePerspectiveRosterId(undefined);
+      return;
+    }
+    const stored = window.localStorage.getItem(perspectiveStorageKey(leagueId));
+    if (stored) {
+      setTradePerspectiveRosterId(stored);
+      return;
+    }
+    setTradePerspectiveRosterId(myRosterId);
+  }, [leagueId, myRosterId]);
+
+  useEffect(() => {
+    if (!leagueId || typeof window === "undefined") return;
+    const id = tradePerspectiveRosterId ?? myRosterId;
+    if (!id) return;
+    window.localStorage.setItem(perspectiveStorageKey(leagueId), id);
+  }, [leagueId, myRosterId, tradePerspectiveRosterId]);
+
+  const focusedRosterId = tradePerspectiveRosterId ?? myRosterId;
 
   const value = useMemo(
     () => ({
       leagueId,
-      focusedRosterId: focusedRosterId ?? myRosterId,
+      myRosterId,
+      tradePerspectiveRosterId,
+      setTradePerspectiveRosterId,
+      focusedRosterId,
       pageContext,
       setPageContext,
-      setFocusedRosterId,
     }),
-    [leagueId, focusedRosterId, myRosterId, pageContext],
+    [
+      leagueId,
+      myRosterId,
+      tradePerspectiveRosterId,
+      focusedRosterId,
+      pageContext,
+    ],
   );
 
   return (
@@ -75,17 +112,16 @@ export function useAdvisorContext() {
 /** Sync page-level advisor context from a client child (optional pattern). */
 export function AdvisorPageBinder({
   pageContext,
-  focusedRosterId,
 }: {
   pageContext: AdvisorPageContext;
+  /** @deprecated Trade perspective is chosen in the advisor dropdown, not from navigation. */
   focusedRosterId?: string;
 }) {
-  const { setPageContext, setFocusedRosterId } = useAdvisorContext();
+  const { setPageContext } = useAdvisorContext();
 
   useEffect(() => {
     setPageContext(pageContext);
-    if (focusedRosterId) setFocusedRosterId(focusedRosterId);
-  }, [pageContext, focusedRosterId, setPageContext, setFocusedRosterId]);
+  }, [pageContext, setPageContext]);
 
   return null;
 }

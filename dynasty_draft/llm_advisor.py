@@ -637,7 +637,7 @@ TRADE SKILL:
 - For trade questions, call suggest_trades and/or evaluate_trade before recommending.
 - Call validate_trade on specific packages when judging acceptability or before urging an offer.
 - Show TV math (use calculate when summing). Name managers, not just roster ids.
-- `focused_team` may be an opponent — trade tools (`suggest_trades`, `validate_trade`) use **focused_team** as proposer when you are on their page; `my_team` in base context is the logged-in owner's roster.
+- Trade perspective: `focused_roster_id` is the manager the user picked in the **From** dropdown (defaults to their team). Use that roster for `suggest_trades` surplus/hooks — not `my_team` when they differ.
 
 Account for superflex/TE premium in scoring, injuries, win-now vs rebuild (contender_tier).
 
