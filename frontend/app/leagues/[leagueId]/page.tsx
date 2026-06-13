@@ -67,7 +67,7 @@ export default async function LeagueOverviewPage({ params }: PageProps) {
         {leagueTile ? <SummaryCards league={leagueTile} /> : null}
 
         <div className="flex flex-col gap-6 xl:grid xl:grid-cols-[minmax(0,1fr)_300px] xl:gap-6">
-          <div className="min-w-0 space-y-6">
+          <div className="order-1 min-w-0 space-y-6">
             <div id="rankings" className="scroll-mt-6">
               <RankingsTable
                 leagueId={leagueId}
@@ -83,7 +83,7 @@ export default async function LeagueOverviewPage({ params }: PageProps) {
             ) : null}
           </div>
 
-          <aside className="space-y-4">
+          <aside className="order-2 space-y-4">
             {myTeam ? (
               <OptimalStartersSidebar
                 starters={myTeam.starters}

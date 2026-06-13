@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
 import { OvrBadge } from "@/components/OvrBadge";
+import { PortfolioHoldingsMobile } from "@/components/PortfolioHoldingsMobile";
 import { PlayerHeadshot } from "@/components/PlayerHeadshot";
 import { getLeagues, getPortfolio } from "@/lib/api";
 
@@ -34,14 +35,14 @@ export default async function PortfolioPage() {
           </p>
         </header>
 
-        <section className="mb-10">
+        <section className="mb-8 md:mb-10">
           <h2 className="mb-3 text-sm uppercase tracking-wider text-bb-muted">
             Exposure by position
           </h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
             {portfolio.by_position.map((row) => (
-              <div key={row.position} className="bb-card p-4">
-                <p className="text-2xl font-semibold text-white">
+              <div key={row.position} className="bb-card p-3 sm:p-4">
+                <p className="text-xl font-semibold text-white sm:text-2xl">
                   {row.holding_count}
                 </p>
                 <p className="text-sm text-bb-muted">
@@ -114,9 +115,12 @@ export default async function PortfolioPage() {
         ) : null}
 
         <section>
-          <h2 className="mb-4 text-lg font-medium text-white">All holdings</h2>
+          <h2 className="mb-3 text-base font-medium text-white md:mb-4 md:text-lg">
+            All holdings
+          </h2>
           <div className="bb-card overflow-hidden">
-            <table className="w-full text-sm">
+            <PortfolioHoldingsMobile holdings={portfolio.holdings} />
+            <table className="hidden w-full text-sm md:table">
               <thead>
                 <tr className="border-b border-bb-border/80 text-left text-xs uppercase tracking-wider text-bb-muted">
                   <th className="px-4 py-3">Player</th>

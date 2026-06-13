@@ -6,6 +6,7 @@ import { getFreeAgents, type FreeAgentBoard as FreeAgentBoardData } from "@/lib/
 import { formatPpg, formatTv } from "@/lib/format";
 import { OvrBadge } from "./OvrBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
+import { PositionTag } from "./PositionPill";
 
 type FreeAgentBoardProps = {
   leagueId: string;
@@ -84,7 +85,62 @@ export function FreeAgentBoard({
       </div>
 
       <div className="bb-card overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="divide-y divide-bb-border/30 md:hidden">
+          {activeBoard.players.length === 0 ? (
+            <p className="px-4 py-6 text-center text-sm text-bb-muted">
+              {loading ? "Loading…" : "No free agents in this filter."}
+            </p>
+          ) : (
+            activeBoard.players.map((player) => (
+              <Link
+                key={player.player_id}
+                href={`/players/${player.player_id}?league_id=${leagueId}`}
+                className="flex items-center gap-2 px-3 py-2.5 transition hover:bg-white/3"
+              >
+                <PlayerHeadshot
+                  src={player.headshot_url}
+                  alt={player.player_name ?? "Player"}
+                  position={player.position}
+                  className="h-9 w-9 shrink-0 rounded-full"
+                  sizes="36px"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-white">
+                    {player.player_name}
+                  </p>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                    {player.position ? <PositionTag position={player.position} /> : null}
+                    <span className="text-[11px] text-bb-muted">
+                      {[player.nfl_team, player.age != null ? String(player.age) : null]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2 pr-1">
+                  <div className="text-center">
+                    <p className="text-[9px] uppercase tracking-wide text-bb-muted">OVR</p>
+                    <div className="mt-0.5 flex justify-center">
+                      <OvrBadge
+                        ovr={player.ovr}
+                        expected={player.hppg_expected}
+                        size="sm"
+                      />
+                    </div>
+                  </div>
+                  <div className="w-10 text-center">
+                    <p className="text-[9px] uppercase tracking-wide text-bb-muted">PPG</p>
+                    <p className="mt-0.5 text-sm font-semibold tabular-nums text-white">
+                      {formatPpg(player.projected_ppg)}
+                    </p>
+                  </div>
+                </div>
+              </Link>
+            ))
+          )}
+        </div>
+
+        <table className="hidden w-full text-sm md:table">
           <thead>
             <tr className="border-b border-bb-border/80 text-left text-xs uppercase tracking-wider text-bb-muted">
               <th className="px-4 py-3">Player</th>
