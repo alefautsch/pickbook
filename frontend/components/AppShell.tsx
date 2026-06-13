@@ -26,6 +26,7 @@ export function AppShell({
   children,
 }: AppShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const resolvedLeagueId =
     activeLeagueId ?? leagues[0]?.league_id;
   const myRosterId =
@@ -56,6 +57,19 @@ export function AppShell({
             <div className="min-w-0 flex-1">
               <LeagueSwitcher leagues={leagues} activeLeagueId={resolvedLeagueId} />
             </div>
+            <button
+              type="button"
+              aria-label="Search players"
+              aria-expanded={mobileSearchOpen}
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border text-sm transition ${
+                mobileSearchOpen
+                  ? "border-bb-gold/50 bg-bb-gold/10 text-bb-gold"
+                  : "border-bb-border/60 text-bb-muted hover:border-bb-gold/40 hover:text-white"
+              }`}
+              onClick={() => setMobileSearchOpen((open) => !open)}
+            >
+              ⌕
+            </button>
             <Link
               href="/settings"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-bb-border/60 text-sm text-bb-muted transition hover:border-bb-gold/40 hover:text-white"
@@ -64,6 +78,16 @@ export function AppShell({
               ⚙
             </Link>
           </div>
+
+          {mobileSearchOpen ? (
+            <div className="border-t border-bb-border/30 px-2 py-2 lg:hidden">
+              <PlayerSearch
+                className="max-w-none"
+                dropdownPlacement="overlay"
+                onNavigate={() => setMobileSearchOpen(false)}
+              />
+            </div>
+          ) : null}
 
           <div className="flex items-center justify-between gap-2 border-t border-bb-border/30 px-3 py-1.5 lg:hidden">
             <SyncStatusBar compact />

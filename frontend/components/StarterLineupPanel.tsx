@@ -42,7 +42,58 @@ export function StarterLineupPanel({ starters, leagueId }: StarterLineupPanelPro
         </p>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="divide-y divide-bb-border/30 md:hidden">
+        {starters.map((slot, index) => {
+          const player = slot.player;
+          return (
+            <div
+              key={`${slot.slot}-${index}`}
+              className="flex items-center gap-3 px-3 py-2.5"
+            >
+              <PositionPill slot={slot.slot} className="shrink-0" />
+              {player ? (
+                <>
+                  <PlayerHeadshot
+                    src={player.headshot_url}
+                    alt={player.player_name ?? "Player"}
+                    position={player.position}
+                    className="h-9 w-9 shrink-0 rounded-full"
+                    sizes="36px"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <Link
+                      href={`/players/${player.player_id}?league_id=${leagueId}`}
+                      className="block truncate text-sm font-medium text-white hover:text-bb-gold"
+                    >
+                      {player.player_name}
+                    </Link>
+                    <p className="text-xs text-bb-muted">{playerMeta(player)}</p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <OvrBadge
+                      ovr={player.ovr}
+                      expected={player.hppg_expected}
+                      size="sm"
+                    />
+                    <div className="text-right">
+                      <p className="text-sm font-semibold tabular-nums text-white">
+                        {formatPpg(player.projected_ppg)}
+                      </p>
+                      <p className="text-[10px] text-bb-muted">PPG</p>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-bb-muted">
+                  Empty {formatSlotLabel(slot.slot)} slot
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full min-w-[520px] text-sm">
           <thead>
             <tr className="border-b border-bb-border/30 text-[10px] uppercase tracking-wide text-bb-muted">

@@ -109,7 +109,7 @@ export function MobileNav({
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-bb-muted">
             Search
           </p>
-          <PlayerSearch />
+          <PlayerSearch dropdownPlacement="up" onNavigate={() => onOpenChange(false)} />
         </div>
 
         <div className="border-t border-bb-border/40 px-4 py-3">

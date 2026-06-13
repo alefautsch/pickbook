@@ -30,10 +30,10 @@ export function InjuryWatchPanel({ injuries, leagueId, compact }: InjuryWatchPan
             key={item.player_id}
             className="flex items-start justify-between gap-2 rounded-lg bg-red-950/20 px-3 py-2"
           >
-            <div>
+            <div className="min-w-0 flex-1">
               <Link
                 href={`/players/${item.player_id}?league_id=${leagueId}`}
-                className="text-sm font-medium text-white hover:text-bb-gold"
+                className="block truncate text-sm font-medium text-white hover:text-bb-gold"
               >
                 {item.player_name}
               </Link>

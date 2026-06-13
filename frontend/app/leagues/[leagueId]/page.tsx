@@ -1,11 +1,8 @@
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
-import { AgeProfileSidebar } from "@/components/AgeProfileSidebar";
-import { ContenderBreakdown } from "@/components/ContenderBreakdown";
-import { OptimalStartersSidebar } from "@/components/OptimalStartersSidebar";
 import { HashScroll } from "@/components/HashScroll";
+import { LeagueOverviewAside } from "@/components/LeagueOverviewAside";
 import { PortfolioOverviewRow } from "@/components/PortfolioOverviewRow";
-import { PositionStrengthBars } from "@/components/PositionStrengthBars";
 import { RankingsTable } from "@/components/RankingsTable";
 import { SummaryCards } from "@/components/SummaryCards";
 import {
@@ -67,8 +64,8 @@ export default async function LeagueOverviewPage({ params }: PageProps) {
         {leagueTile ? <SummaryCards league={leagueTile} /> : null}
 
         <div className="flex flex-col gap-6 xl:grid xl:grid-cols-[minmax(0,1fr)_300px] xl:gap-6">
-          <div className="order-2 min-w-0 space-y-6 xl:order-1">
-            <div id="rankings" className="scroll-mt-6">
+          <div className="order-1 min-w-0 space-y-6 xl:order-1">
+            <div id="rankings" className="scroll-mt-24 sm:scroll-mt-28">
               <RankingsTable
                 leagueId={leagueId}
                 byDynasty={rankings.by_dynasty}
@@ -83,22 +80,14 @@ export default async function LeagueOverviewPage({ params }: PageProps) {
             ) : null}
           </div>
 
-          <aside className="order-1 space-y-4 xl:order-2">
-            {myTeam ? (
-              <OptimalStartersSidebar
-                starters={myTeam.starters}
-                leagueId={leagueId}
-              />
-            ) : null}
-            {analysis.position_strength ? (
-              <PositionStrengthBars
-                data={analysis.position_strength}
-                myRosterId={leagueTile?.my_roster_id}
-              />
-            ) : null}
-            <AgeProfileSidebar profiles={analysis.age_profiles} />
-            <ContenderBreakdown team={myContender} />
-          </aside>
+          <LeagueOverviewAside
+            myTeam={myTeam}
+            leagueId={leagueId}
+            myRosterId={leagueTile?.my_roster_id}
+            positionStrength={analysis.position_strength}
+            ageProfiles={analysis.age_profiles}
+            myContender={myContender}
+          />
         </div>
       </div>
     </AppShell>

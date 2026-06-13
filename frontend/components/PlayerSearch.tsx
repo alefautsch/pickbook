@@ -1,17 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { searchPlayers, type PlayerSearchHit } from "@/lib/api";
 import { OvrBadge } from "./OvrBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
 
-export function PlayerSearch() {
+type PlayerSearchProps = {
+  dropdownPlacement?: "down" | "up" | "overlay";
+  className?: string;
+  onNavigate?: () => void;
+};
+
+export function PlayerSearch({
+  dropdownPlacement = "down",
+  className,
+  onNavigate,
+}: PlayerSearchProps) {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<PlayerSearchHit[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputId = useId();
 
   const runSearch = useCallback(async (value: string) => {
     const trimmed = value.trim();
@@ -50,13 +61,20 @@ export function PlayerSearch() {
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
+  const dropdownClass =
+    dropdownPlacement === "overlay"
+      ? "fixed left-3 right-3 top-[calc(env(safe-area-inset-top)+5.75rem)] z-[60] max-h-[min(20rem,calc(100dvh-7rem))]"
+      : dropdownPlacement === "up"
+        ? "absolute bottom-full z-50 mb-2 max-h-64"
+        : "absolute top-full z-50 mt-2 max-h-80";
+
   return (
-    <div ref={containerRef} className="relative w-full max-w-xs">
-      <label className="sr-only" htmlFor="player-search">
+    <div ref={containerRef} className={`relative w-full max-w-xs ${className ?? ""}`}>
+      <label className="sr-only" htmlFor={inputId}>
         Search players
       </label>
       <input
-        id="player-search"
+        id={inputId}
         type="search"
         placeholder="Search players…"
         value={query}
@@ -69,7 +87,9 @@ export function PlayerSearch() {
       />
 
       {open && query.trim().length >= 2 ? (
-        <div className="absolute top-full z-50 mt-2 max-h-80 w-full overflow-y-auto rounded-lg border border-bb-border bg-bb-surface shadow-xl">
+        <div
+          className={`${dropdownClass} w-full overflow-y-auto rounded-lg border border-bb-border bg-bb-surface shadow-xl`}
+        >
           {loading ? (
             <p className="px-3 py-2 text-sm text-bb-muted">Searching…</p>
           ) : hits.length === 0 ? (
@@ -86,6 +106,7 @@ export function PlayerSearch() {
                       onClick={() => {
                         setOpen(false);
                         setQuery("");
+                        onNavigate?.();
                       }}
                     >
                       <PlayerHeadshot
