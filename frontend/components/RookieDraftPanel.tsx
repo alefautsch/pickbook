@@ -107,6 +107,112 @@ function TimelineRow({ row }: { row: RookieDraftTimelineRow }) {
   );
 }
 
+function BoardRowMobile({
+  leagueId,
+  row,
+  isTarget,
+  onToggleTarget,
+}: {
+  leagueId: string;
+  row: RookieBoardRow;
+  isTarget: boolean;
+  onToggleTarget: (playerId: string) => void;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-2 px-3 py-2.5 ${
+        isTarget ? "bg-bb-gold/10" : ""
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => onToggleTarget(row.player_id)}
+        className={`shrink-0 text-base ${isTarget ? "text-bb-gold" : "text-bb-muted"}`}
+        title={isTarget ? "Remove target" : "Add target"}
+      >
+        {isTarget ? "★" : "☆"}
+      </button>
+      <span className="w-5 shrink-0 text-center text-xs text-bb-muted">{row.bpa_rank}</span>
+      <PlayerHeadshot
+        src={row.headshot_url}
+        alt={row.player_name ?? "Player"}
+        position={row.position}
+        className="h-9 w-9 shrink-0"
+        sizes="36px"
+      />
+      <div className="min-w-0 flex-1">
+        <Link
+          href={`/players/${row.player_id}?league_id=${encodeURIComponent(leagueId)}`}
+          className="truncate text-sm font-medium text-white hover:text-bb-gold"
+        >
+          {row.player_name}
+          {row.dynasty_rookie ? <span className="text-bb-muted">*</span> : null}
+        </Link>
+        <div className="mt-0.5 flex items-center gap-1.5">
+          {row.position ? <PositionPill slot={row.position} /> : null}
+          <span className="text-[10px] text-bb-muted">{row.nfl_team}</span>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2 pr-1">
+        <OvrBadge
+          ovr={row.ovr}
+          size="sm"
+          expected={row.dynasty_rookie || row.hppg_expected}
+        />
+        <div className="w-10 text-right">
+          <p className="text-[9px] uppercase text-bb-muted">Proj</p>
+          <p className="text-xs font-semibold tabular-nums text-white">
+            {formatPpg(row.projected_ppg ?? row.hppg)}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TimelineRowMobile({ row }: { row: RookieDraftTimelineRow }) {
+  const statusClass =
+    row.status === "on_clock"
+      ? "border-bb-gold/40 bg-bb-gold/10"
+      : row.is_me
+        ? "border-blue-500/30 bg-blue-500/10"
+        : "border-bb-border/30 bg-black/15";
+
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${statusClass}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs text-bb-muted">
+            Pick #{row.pick_no}
+            {row.round != null ? ` · Rd ${row.round}` : ""}
+            {row.status === "on_clock" ? (
+              <span className="ml-1 text-bb-gold">● on clock</span>
+            ) : null}
+          </p>
+          <p className="truncate text-sm font-medium text-white">
+            {row.team_name ?? "—"}
+          </p>
+        </div>
+        {row.ovr != null ? <OvrBadge ovr={row.ovr} size="sm" /> : null}
+      </div>
+      <p className="mt-1 text-sm text-white">
+        {row.player_name ? (
+          <>
+            {row.player_name}
+            {row.position ? (
+              <span className="text-bb-muted"> · {row.position}</span>
+            ) : null}
+          </>
+        ) : row.status === "on_clock" ? (
+          <span className="text-bb-gold">On the clock</span>
+        ) : (
+          <span className="text-bb-muted">—</span>
+        )}
+      </p>
+    </div>
+  );
+}
+
 function BoardRow({
   leagueId,
   row,
@@ -242,10 +348,10 @@ export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
       : "Waiting for next pick";
 
   return (
-    <div className="flex flex-col gap-6 p-5 sm:p-8">
+    <div className="flex flex-col gap-5 px-3 py-4 sm:gap-6 sm:p-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Rookie Draft</h1>
+          <h1 className="text-xl font-semibold text-white sm:text-2xl">Rookie Draft</h1>
           <p className="mt-1 text-sm text-bb-muted">
             {draft.league_name} · draft {draft.draft_id.slice(-6)} ·{" "}
             {draft.picks_made}/{draft.total_picks} picks ·{" "}
@@ -305,15 +411,26 @@ export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
-        <section className="min-w-0">
+      <div className="flex flex-col gap-5 xl:grid xl:grid-cols-[1fr_320px] xl:gap-6">
+        <section className="order-1 min-w-0">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-lg font-medium text-white">BPA Board</h2>
             <span className="text-xs text-bb-muted">
               {draft.board.length} rookies · ☆ = my target
             </span>
           </div>
-          <div className="overflow-x-auto rounded-xl border border-bb-border/50">
+          <div className="divide-y divide-bb-border/30 overflow-hidden rounded-xl border border-bb-border/50 md:hidden">
+            {draft.board.map((row) => (
+              <BoardRowMobile
+                key={row.player_id}
+                leagueId={leagueId}
+                row={row}
+                isTarget={targets.has(row.player_id)}
+                onToggleTarget={toggleTarget}
+              />
+            ))}
+          </div>
+          <div className="hidden overflow-x-auto rounded-xl border border-bb-border/50 md:block">
             <table className="w-full min-w-[640px] text-left">
               <thead>
                 <tr className="border-b border-bb-border/50 bg-black/30 text-[10px] uppercase tracking-wider text-bb-muted">
@@ -341,7 +458,7 @@ export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
           </div>
         </section>
 
-        <aside className="flex flex-col gap-4">
+        <aside className="order-2 flex flex-col gap-4">
           <section className="rounded-xl border border-bb-border/50 bg-black/20 p-4">
             <h3 className="text-sm font-medium text-white">Positional needs</h3>
             <p className="mb-3 text-xs text-bb-muted">
@@ -401,7 +518,12 @@ export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
 
       <section>
         <h2 className="mb-3 text-lg font-medium text-white">Draft board</h2>
-        <div className="max-h-112 overflow-y-auto rounded-xl border border-bb-border/50">
+        <div className="space-y-2 md:hidden">
+          {draft.timeline.map((row) => (
+            <TimelineRowMobile key={row.pick_no} row={row} />
+          ))}
+        </div>
+        <div className="hidden max-h-112 overflow-y-auto rounded-xl border border-bb-border/50 md:block">
           <table className="w-full text-left">
             <thead className="sticky top-0 z-10 bg-[#0f1419]">
               <tr className="border-b border-bb-border/50 text-[10px] uppercase tracking-wider text-bb-muted">

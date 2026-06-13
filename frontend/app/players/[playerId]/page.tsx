@@ -18,6 +18,7 @@ import {
 } from "@/lib/api";
 import { OvrBadge } from "@/components/OvrBadge";
 import { ExpendabilityBadge } from "@/components/ExpendabilityBadge";
+import { GameLogMobile } from "@/components/GameLogMobile";
 import { projectionSourceLabel } from "@/lib/archetype";
 import {
   formatActvGames,
@@ -280,7 +281,7 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
           </div>
         </section>
 
-        <div className="grid gap-8 lg:grid-cols-[1.2fr_1fr]">
+        <div className="grid gap-4 md:gap-8 lg:grid-cols-[1.2fr_1fr]">
           {/* Row 1: Stats percentiles | Dynasty breakdown */}
           <StatisticalProfile player={player} />
 
@@ -350,7 +351,7 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
           </section>
 
           {/* Game log — full width, last */}
-          <section className="bb-card overflow-hidden p-5 lg:col-span-2">
+          <section className="bb-card overflow-hidden p-4 md:p-5 lg:col-span-2">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
                 <h2 className="text-lg font-medium text-white">Game log</h2>
@@ -365,8 +366,11 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
                 </p>
               ) : null}
             </div>
-            <div className="mt-4 overflow-x-auto">
+            <div className="mt-4">
               {gameLog && gameLog.entries.length > 0 ? (
+                <>
+                  <GameLogMobile entries={gameLog.entries} />
+                  <div className="hidden overflow-x-auto md:block">
                 <table className="min-w-full text-left text-sm">
                   <thead className="border-b border-bb-border/60 text-xs uppercase tracking-wide text-bb-muted">
                     <tr>
@@ -446,6 +450,8 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
                     })}
                   </tbody>
                 </table>
+                  </div>
+                </>
               ) : (
                 <p className="text-sm text-bb-muted">No nflverse game log found.</p>
               )}

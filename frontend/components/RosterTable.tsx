@@ -22,7 +22,6 @@ type RosterTableProps = {
   bench?: PlayerCard[];
   slotLabels?: Record<string, string>;
   full?: boolean;
-  statsOnly?: boolean;
   ratingMode?: RatingMode;
 };
 

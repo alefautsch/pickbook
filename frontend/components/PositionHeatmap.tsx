@@ -22,8 +22,49 @@ export function PositionHeatmap({ data, leagueId }: PositionHeatmapProps) {
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[32rem] border-collapse text-sm">
+    <>
+      <div className="space-y-2 md:hidden">
+        {teams.map((team) => (
+          <article
+            key={team.roster_id}
+            className={`rounded-lg border border-bb-border/40 bg-black/20 p-3 ${
+              team.is_me ? "border-bb-gold/40 bg-bb-gold/5" : ""
+            }`}
+          >
+            <Link
+              href={`/leagues/${leagueId}/teams/${team.roster_id}`}
+              className={`block truncate text-sm font-medium hover:text-bb-gold ${
+                team.is_me ? "text-bb-gold" : "text-white"
+              }`}
+            >
+              {team.team_name ?? "Team"}
+            </Link>
+            <div className="mt-2 grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+              {positions.map((pos) => {
+                const ovr = team.by_position[pos] ?? null;
+                return (
+                  <div
+                    key={pos}
+                    className="rounded-md bg-black/25 px-2 py-1.5 text-center"
+                  >
+                    <p className="text-[9px] font-semibold uppercase tracking-wide text-bb-muted">
+                      {pos}
+                    </p>
+                    <span
+                      className={`mt-0.5 inline-block min-w-[2rem] rounded px-1 py-0.5 text-xs font-semibold ${ovrColor(ovr)}`}
+                    >
+                      {ovr ?? "—"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full min-w-[32rem] border-collapse text-sm">
         <thead>
           <tr>
             <th className="sticky left-0 z-10 bg-bb-surface/95 px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-bb-muted">
@@ -72,6 +113,7 @@ export function PositionHeatmap({ data, leagueId }: PositionHeatmapProps) {
           ))}
         </tbody>
       </table>
-    </div>
+      </div>
+    </>
   );
 }

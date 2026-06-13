@@ -50,6 +50,23 @@ function MobileStat({ label, value }: { label: string; value: string }) {
   );
 }
 
+function ChevronIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`}
+      aria-hidden
+    >
+      <path
+        fillRule="evenodd"
+        d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
 function MobilePlayerRow({
   player,
   slot,
@@ -73,52 +90,63 @@ function MobilePlayerRow({
 
   return (
     <div className="border-b border-bb-border/25">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center gap-2 px-2 py-2 text-left transition hover:bg-white/4 active:bg-white/6"
-        aria-expanded={expanded}
-      >
-        <div
-          className="w-1 shrink-0 self-stretch rounded-full"
-          style={{ backgroundColor: accent }}
-          title={formatSlotLabel(slot)}
-        />
-        <PlayerHeadshot
-          src={player.headshot_url}
-          alt={player.player_name ?? "Player"}
-          position={player.position}
-          className="h-9 w-9 shrink-0 rounded-full"
-          sizes="36px"
-        />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-white">{player.player_name}</p>
-          <div className="mt-0.5 flex flex-wrap items-center gap-1">
-            {player.position ? <PositionTag position={player.position} /> : null}
-            {metaParts.length > 0 ? (
-              <span className="text-[11px] text-bb-muted">{metaParts.join(" · ")}</span>
-            ) : null}
-            <ExpendabilityBadge
-              tag={player.trade_tag}
-              lineupDelta={player.lineup_delta_ppg}
-            />
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2 pr-1">
-          <div className="text-center">
-            <p className="text-[9px] uppercase tracking-wide text-bb-muted">OVR</p>
-            <div className="mt-0.5 flex justify-center">
-              <OvrBadge ovr={ovr} expected={player.hppg_expected} size="sm" />
+      <div className="flex w-full items-center gap-1 px-1 py-1">
+        <Link
+          href={`/players/${player.player_id}?league_id=${player.league_id}`}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1 py-1.5 transition hover:bg-white/4 active:bg-white/6"
+        >
+          <div
+            className="w-1 shrink-0 self-stretch rounded-full"
+            style={{ backgroundColor: accent }}
+            title={formatSlotLabel(slot)}
+          />
+          <PlayerHeadshot
+            src={player.headshot_url}
+            alt={player.player_name ?? "Player"}
+            position={player.position}
+            className="h-9 w-9 shrink-0 rounded-full"
+            sizes="36px"
+          />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-white">{player.player_name}</p>
+            <div className="mt-0.5 flex flex-wrap items-center gap-1">
+              {player.position ? <PositionTag position={player.position} /> : null}
+              {metaParts.length > 0 ? (
+                <span className="text-[11px] text-bb-muted">{metaParts.join(" · ")}</span>
+              ) : null}
+              <ExpendabilityBadge
+                tag={player.trade_tag}
+                lineupDelta={player.lineup_delta_ppg}
+              />
             </div>
           </div>
-          <div className="w-11 text-center">
-            <p className="text-[9px] uppercase tracking-wide text-bb-muted">PPG</p>
-            <p className="mt-0.5 text-sm font-semibold tabular-nums text-white">
-              {formatPpg(player.projected_ppg)}
-            </p>
+          <div className="flex shrink-0 items-center gap-2 pr-1">
+            <div className="text-center">
+              <p className="text-[9px] uppercase tracking-wide text-bb-muted">OVR</p>
+              <div className="mt-0.5 flex justify-center">
+                <OvrBadge ovr={ovr} expected={player.hppg_expected} size="sm" />
+              </div>
+            </div>
+            <div className="w-11 text-center">
+              <p className="text-[9px] uppercase tracking-wide text-bb-muted">PPG</p>
+              <p className="mt-0.5 text-sm font-semibold tabular-nums text-white">
+                {formatPpg(player.projected_ppg)}
+              </p>
+            </div>
           </div>
-        </div>
-      </button>
+        </Link>
+        {full ? (
+          <button
+            type="button"
+            onClick={onToggle}
+            className="shrink-0 rounded-lg p-2 text-bb-muted transition hover:bg-white/5 hover:text-white"
+            aria-expanded={expanded}
+            aria-label={expanded ? "Hide extra stats" : "Show extra stats"}
+          >
+            <ChevronIcon expanded={expanded} />
+          </button>
+        ) : null}
+      </div>
 
       {expanded ? (
         <div className="space-y-2 border-t border-bb-border/20 bg-black/15 px-3 py-2.5">
@@ -165,12 +193,6 @@ function MobilePlayerRow({
               />
             </div>
           ) : null}
-          <Link
-            href={`/players/${player.player_id}?league_id=${player.league_id}`}
-            className="block text-center text-xs font-medium text-bb-gold hover:underline"
-          >
-            View player profile →
-          </Link>
         </div>
       ) : null}
     </div>

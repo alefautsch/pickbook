@@ -12,7 +12,7 @@ export function PortfolioOverviewRow({ portfolio, leagueId }: PortfolioOverviewR
   const topExposure = portfolio.holdings[0];
 
   return (
-      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-3 lg:gap-4">
+    <div className="flex flex-col gap-4 lg:grid lg:grid-cols-3 lg:gap-4">
       <section className="bb-panel p-4">
         <h2 className="bb-panel-title">Portfolio Overview</h2>
         <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">

@@ -11,12 +11,11 @@ type TeamTabsProps = {
   ratingMode?: RatingMode;
 };
 
-type TabKey = "roster" | "depth" | "stats";
+type TabKey = "roster" | "depth";
 
 const tabs: { key: TabKey; label: string }[] = [
   { key: "roster", label: "Roster" },
   { key: "depth", label: "Depth" },
-  { key: "stats", label: "Stats" },
 ];
 
 export function TeamTabs({ team, ratingMode = "dynasty" }: TeamTabsProps) {
@@ -24,7 +23,7 @@ export function TeamTabs({ team, ratingMode = "dynasty" }: TeamTabsProps) {
 
   return (
     <div>
-      <div className="mb-3 grid grid-cols-3 gap-1 rounded-xl bg-black/25 p-1 ring-1 ring-inset ring-white/[0.06] md:mb-4 md:flex md:w-fit md:gap-2 md:rounded-none md:bg-transparent md:p-0 md:ring-0">
+      <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-black/25 p-1 ring-1 ring-inset ring-white/[0.06] md:mb-4 md:flex md:w-fit md:gap-2 md:rounded-none md:bg-transparent md:p-0 md:ring-0">
         {tabs.map((t) => (
           <button
             key={t.key}
@@ -46,15 +45,6 @@ export function TeamTabs({ team, ratingMode = "dynasty" }: TeamTabsProps) {
       ) : null}
       {tab === "depth" ? (
         <DepthChartPanel depthChart={team.depth_chart} leagueId={team.league_id} />
-      ) : null}
-      {tab === "stats" ? (
-        <RosterTable
-          starters={team.starters}
-          bench={team.bench}
-          full
-          statsOnly
-          ratingMode={ratingMode}
-        />
       ) : null}
     </div>
   );
