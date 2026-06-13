@@ -37,8 +37,10 @@ def test_consolidation_premium_favors_stud_side():
     assert result["give_total_tv"] == 10000.0
     assert result["receive_total_tv"] == 10000.0
     assert result["receive_consolidating"] is True
+    assert result["receive_value_adjustment"] > 0
     assert result["consolidation_tax_tv"] > 0
-    assert result["fairness"] == "favors_counterparty"
+    # KTC stud adjustment makes the consolidated side more expensive to acquire.
+    assert result["fairness"] == "favors_you"
 
 
 def test_production_ppg_weights_recent():
@@ -54,6 +56,30 @@ def test_lineup_delta_ppg_stud_vs_backup():
     ]
     delta = lineup_delta_ppg(roster[0], roster)
     assert delta == 8.0
+
+
+def test_lineup_delta_ppg_last_on_depth_chart_not_inflated():
+    """QB3 with no backup behind should not get full PPG as marginal value."""
+    roster = [
+        _player("qb1", "QB", 7000, hppg=18.0),
+        _player("qb2", "QB", 4000, hppg=15.0),
+        _player("qb3", "QB", 3000, hppg=14.0),
+    ]
+    assert lineup_delta_ppg(roster[2], roster) == 0.0
+    tag = assign_player_trade_tag(
+        roster[2],
+        depth_rank=3,
+        lineup_delta=0.0,
+        tv_vs_production=0.0,
+        position_is_surplus=False,
+        contender_tier="contender",
+    )
+    assert tag is None
+
+
+def test_lineup_delta_ppg_sole_position_player():
+    roster = [_player("qb1", "QB", 5000, hppg=16.0)]
+    assert lineup_delta_ppg(roster[0], roster) == 16.0
 
 
 def test_core_tag_for_high_lineup_delta():

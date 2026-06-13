@@ -108,6 +108,35 @@ def _player_assets(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [a for a in assets if a.get("player_id")]
 
 
+def stud_value_adjustment(assets: list[dict[str, Any]]) -> float:
+    """KTC-style value bump for stud consolidation; penalty for depth volume."""
+    players = _player_assets(assets)
+    if not players:
+        return 0.0
+    raw = sum(asset_tv(a) for a in assets)
+    if len(players) == 1:
+        tv = asset_tv(players[0])
+        if tv >= 7500:
+            return round(tv * 0.28, 1)
+        if tv >= 6000:
+            return round(tv * 0.20, 1)
+        if tv >= 5000:
+            return round(tv * 0.12, 1)
+    if len(assets) >= 3:
+        return round(-raw * 0.08, 1)
+    if len(players) == 2:
+        tvs = sorted((asset_tv(p) for p in players), reverse=True)
+        if tvs[0] > 0 and (tvs[0] - tvs[1]) / tvs[0] < 0.35:
+            return round(raw * 0.05, 1)
+    return 0.0
+
+
+def package_adjusted_tv(assets: list[dict[str, Any]]) -> tuple[float, float]:
+    """Return (raw_total, raw_total + stud adjustment)."""
+    raw = sum(asset_tv(a) for a in assets)
+    return raw, raw + stud_value_adjustment(assets)
+
+
 def _side_consolidating(assets: list[dict[str, Any]], other: list[dict[str, Any]]) -> bool:
     mine = _player_assets(assets)
     theirs = _player_assets(other)
@@ -126,9 +155,13 @@ def evaluate_package_fairness(
     *,
     fairness_band: float = FAIRNESS_BAND,
 ) -> dict[str, Any]:
-    """Fairness: raw TV + consolidation tax; effective TV reported for depth context."""
+    """Fairness: raw TV + KTC stud adjustment + consolidation tax."""
     give_raw = sum(asset_tv(a) for a in give_assets)
     recv_raw = sum(asset_tv(a) for a in recv_assets)
+    give_adj = stud_value_adjustment(give_assets)
+    recv_adj = stud_value_adjustment(recv_assets)
+    give_total_adj = give_raw + give_adj
+    recv_total_adj = recv_raw + recv_adj
     give_eff = effective_package_tv(give_assets)
     recv_eff = effective_package_tv(recv_assets)
 
@@ -137,19 +170,19 @@ def evaluate_package_fairness(
 
     consolidation_tax = 0.0
     if recv_consolidating:
-        consolidation_tax = recv_raw * CONSOLIDATION_PREMIUM
+        consolidation_tax = recv_total_adj * CONSOLIDATION_PREMIUM
     elif give_consolidating:
-        consolidation_tax = -give_raw * CONSOLIDATION_PREMIUM
+        consolidation_tax = -give_total_adj * CONSOLIDATION_PREMIUM
 
-    raw_baseline = max(give_raw, recv_raw, 1.0)
+    raw_baseline = max(give_total_adj, recv_total_adj, 1.0)
     net_raw = recv_raw - give_raw
-    net_adj = net_raw - consolidation_tax
-    pct_adj = net_adj / raw_baseline
+    net_adj_total = recv_total_adj - give_total_adj - consolidation_tax
+    pct_adj = net_adj_total / raw_baseline
     within = abs(pct_adj) <= fairness_band
 
     if within:
         label = "fair"
-    elif net_adj > 0:
+    elif net_adj_total > 0:
         label = "favors_you"
     else:
         label = "favors_counterparty"
@@ -157,6 +190,10 @@ def evaluate_package_fairness(
     return {
         "give_total_tv": round(give_raw, 2),
         "receive_total_tv": round(recv_raw, 2),
+        "give_value_adjustment": round(give_adj, 2),
+        "receive_value_adjustment": round(recv_adj, 2),
+        "give_adjusted_tv": round(give_total_adj, 2),
+        "receive_adjusted_tv": round(recv_total_adj, 2),
         "give_effective_tv": round(give_eff, 2),
         "receive_effective_tv": round(recv_eff, 2),
         "consolidation_tax_tv": round(consolidation_tax, 2),
@@ -164,9 +201,10 @@ def evaluate_package_fairness(
         "give_consolidating": give_consolidating,
         "receive_consolidating": recv_consolidating,
         "net_delta_tv": round(net_raw, 2),
+        "net_delta_adjusted_tv": round(recv_total_adj - give_total_adj, 2),
         "net_delta_effective_tv": round(recv_eff - give_eff, 2),
-        "net_delta_adjusted_tv": round(net_adj, 2),
-        "net_delta_pct": round(net_raw / raw_baseline * 100, 2),
+        "net_delta_adjusted_total_tv": round(net_adj_total, 2),
+        "net_delta_pct": round(net_raw / max(give_raw, recv_raw, 1.0) * 100, 2),
         "net_delta_adjusted_pct": round(pct_adj * 100, 2),
         "fairness_band": f"±{int(fairness_band * 100)}%",
         "within_band": within,
@@ -195,7 +233,11 @@ def lineup_delta_ppg(player: dict[str, Any], pos_players: list[dict[str, Any]]) 
         if str(row.get("player_id") or "") != pid:
             continue
         if idx + 1 >= len(sorted_players):
-            return my_ppg
+            # Last on the depth chart: no backup below — not a lineup cliff.
+            # Sole player at the position is still irreplaceable.
+            if len(sorted_players) == 1:
+                return round(my_ppg, 2)
+            return 0.0
         backup_ppg = production_ppg(sorted_players[idx + 1])
         return round(my_ppg - backup_ppg, 2)
     return my_ppg

@@ -52,6 +52,18 @@ Picks are first-class assets with slot-specific TV:
 
 `trade_candidates` on team page includes **players and picks** tagged Trade.
 
+## Trade patterns (v3 — 2026-06)
+
+The engine builds packages from a few dynasty-native patterns:
+
+| Pattern | Shape | Example |
+|---------|--------|---------|
+| `same_position_upgrade` | ~90% player + pick sweeteners | Kraft + 2.01 + 3.01 → Loveland |
+| `need_swap_with_depth` | surplus + depth @ their need → stud + depth @ your surplus | McMillan + Etienne → Hampton + Brian Thomas |
+| `pick_lubricant` | future/current picks without 1.01 | 2.01 + 2027 1st → Hampton |
+
+CLI: `uv run python scripts/run_trade_iteration.py --db --swap --need RB --player 12507`
+
 ## Package valuation (unchanged)
 
 - `effective_package_tv` — depth discount (0.70) + piece penalty (0.95^n)

@@ -47,7 +47,13 @@ def test_pick_label_uses_slot_notation():
 
 
 def test_pick_label_includes_tier():
-    assert "early" in pick_label(season="2027", round_no=1, slot_tier="early")
+    label = pick_label(
+        season="2027",
+        round_no=1,
+        slot_tier="late",
+        slot_certainty="projected",
+    )
+    assert label == "2027 1st (proj)"
 
 
 def test_build_inventory_includes_current_season():

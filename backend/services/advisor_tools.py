@@ -235,6 +235,7 @@ def _players_for_roster(
                 "ovr": snap.dynasty_rating,
                 "tv": snap.trade_value,
                 "hppg": snap.hppg,
+                "projected_ppg": snap.projected_ppg,
                 "age": snap.age,
             }
         )
@@ -270,6 +271,801 @@ def _balance_with_pick(
     return give_assets, recv_assets
 
 
+# Stud acquisition: slight overpay is expected; block lopsided wins and cheap core steals.
+ACQUISITION_OVERPAY_BAND = 0.15
+ACQUISITION_MAX_FAVOR_YOU = 0.05
+ACQUISITION_MAX_SWING = 0.28
+CORE_TARGET_EXTRA_OVERPAY = 0.10
+
+
+def _find_player_on_rosters(
+    roster_players: dict[str, list[dict[str, Any]]],
+    player_id: str,
+) -> tuple[str, dict[str, Any]] | None:
+    pid = str(player_id)
+    for roster_id, players in roster_players.items():
+        for player in players:
+            if str(player.get("player_id") or "") == pid:
+                return str(roster_id), player
+    return None
+
+
+def _acquisition_package_ok(
+    fairness: dict[str, Any],
+    *,
+    target_is_core: bool,
+    give_assets: list[dict[str, Any]] | None = None,
+    lubricant_mode: bool = False,
+) -> bool:
+    pct = float(fairness.get("net_delta_adjusted_pct") or 0) / 100.0
+    max_overpay = ACQUISITION_OVERPAY_BAND + (
+        CORE_TARGET_EXTRA_OVERPAY if target_is_core else 0.0
+    )
+    if lubricant_mode and give_assets and any(a.get("player_id") for a in give_assets):
+        # Depth + future picks for a stud often needs more real-world overpay.
+        max_overpay = max(max_overpay, 0.22)
+    if pct > ACQUISITION_MAX_FAVOR_YOU:
+        return False
+    if pct < -max_overpay:
+        return False
+    if abs(pct) > ACQUISITION_MAX_SWING:
+        return False
+    return True
+
+
+def _unique_packages(
+    candidates: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]],
+) -> list[tuple[list[dict[str, Any]], list[dict[str, Any]]]]:
+    seen: set[str] = set()
+    out: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]] = []
+    for give, recv in candidates:
+        key = json.dumps(
+            {
+                "give": sorted(
+                    [
+                        p.get("player_id")
+                        or f"{p.get('season')}-{p.get('round')}-{p.get('original_roster_id')}"
+                        for p in give
+                    ]
+                ),
+                "recv": sorted(
+                    [
+                        p.get("player_id")
+                        or f"{p.get('season')}-{p.get('round')}-{p.get('original_roster_id')}"
+                        for p in recv
+                    ]
+                ),
+            },
+            sort_keys=True,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((give, recv))
+    return out
+
+
+KEY_POSITION_DEFAULTS: dict[str, dict[str, Any]] = {
+    "RB": {"min_tv": 5500, "max_age": 28},
+    "WR": {"min_tv": 5500, "max_age": 28},
+    "QB": {"min_tv": 6000, "max_age": 30},
+    "TE": {"min_tv": 4500, "max_age": 29},
+}
+
+
+def _league_key_players_at_position(
+    roster_players: dict[str, list[dict[str, Any]]],
+    *,
+    my_roster_id: str,
+    position: str,
+    min_tv: float,
+    max_age: int,
+    limit: int = 12,
+) -> list[tuple[str, dict[str, Any]]]:
+    pos = position.upper()
+    targets: list[tuple[str, dict[str, Any]]] = []
+    for roster_id, players in roster_players.items():
+        if str(roster_id) == str(my_roster_id):
+            continue
+        for player in players:
+            if (player.get("position") or "").upper() != pos:
+                continue
+            tv = asset_tv(player)
+            age = player.get("age")
+            if tv < min_tv:
+                continue
+            if age is not None and int(age) > max_age:
+                continue
+            targets.append((str(roster_id), player))
+    targets.sort(key=lambda row: asset_tv(row[1]), reverse=True)
+    return targets[:limit]
+
+
+def _target_acquirability_score(player: dict[str, Any]) -> float:
+    """Prefer trade-tagged studs; deprioritize obvious core pieces."""
+    tv = asset_tv(player)
+    tag = player.get("trade_tag")
+    if tag == "trade":
+        return tv * 1.15
+    if tag is None:
+        return tv
+    if tag == "core":
+        return tv * 0.55
+    return tv * 0.85
+
+
+def generate_position_acquisition_packages(
+    *,
+    my_roster_id: str,
+    target_position: str,
+    roster_players: dict[str, list[dict[str, Any]]],
+    picks_by_roster: dict[str, list[dict[str, Any]]],
+    trade_surplus: dict[str, Any] | None = None,
+    contender_tier_by_roster: dict[str, str] | None = None,
+    team_names: dict[str, str] | None = None,
+    max_suggestions: int = 8,
+    max_targets: int = 10,
+    min_tv: float | None = None,
+    max_age: int | None = None,
+    keep_current_first: bool = True,
+    lubricant_mode: bool = True,
+) -> list[dict[str, Any]]:
+    """Scan the league for key players at a position and build acquisition packages."""
+    pos = target_position.upper()
+    defaults = KEY_POSITION_DEFAULTS.get(pos, {"min_tv": 5000, "max_age": 28})
+    min_tv_val = float(min_tv if min_tv is not None else defaults["min_tv"])
+    max_age_val = int(max_age if max_age is not None else defaults["max_age"])
+
+    ranked_targets: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+    for their_id, player in _league_key_players_at_position(
+        roster_players,
+        my_roster_id=my_roster_id,
+        position=pos,
+        min_tv=min_tv_val,
+        max_age=max_age_val,
+        limit=max_targets * 2,
+    ):
+        their_tier = (contender_tier_by_roster or {}).get(their_id)
+        annotated = annotate_players_with_trade_tags(
+            roster_players.get(their_id, []),
+            surplus_positions=set(),
+            contender_tier=their_tier,
+        )
+        annotated_by_id = {str(p["player_id"]): p for p in annotated}
+        row = annotated_by_id.get(str(player["player_id"]), player)
+        ranked_targets.append((their_id, player, row))
+
+    ranked_targets.sort(key=lambda t: _target_acquirability_score(t[2]), reverse=True)
+    seen_players: set[str] = set()
+    all_packages: list[dict[str, Any]] = []
+
+    for their_id, _player, row in ranked_targets:
+        pid = str(row.get("player_id") or "")
+        if not pid or pid in seen_players:
+            continue
+        seen_players.add(pid)
+        if len(seen_players) > max_targets:
+            break
+
+        for pkg in generate_acquisition_packages(
+            my_roster_id=my_roster_id,
+            target_player_id=pid,
+            roster_players=roster_players,
+            picks_by_roster=picks_by_roster,
+            trade_surplus=trade_surplus,
+            contender_tier_by_roster=contender_tier_by_roster,
+            max_suggestions=2,
+            keep_current_first=keep_current_first,
+            lubricant_mode=lubricant_mode,
+        ):
+            cp = pkg.setdefault("counterparty", {})
+            cp["team_name"] = (team_names or {}).get(their_id)
+            cp["target_trade_tag"] = row.get("trade_tag")
+            cp["target_tv"] = asset_tv(row)
+            cp["target_age"] = row.get("age")
+            all_packages.append(pkg)
+
+    # One best package per target player, then rank globally.
+    best_by_target: dict[str, dict[str, Any]] = {}
+    for pkg in all_packages:
+        cp = pkg.get("counterparty") or {}
+        pid = str(cp.get("target_player_id") or "")
+        if not pid:
+            continue
+        prev = best_by_target.get(pid)
+        if prev is None or (pkg.get("acquisition_score") or 0) > (prev.get("acquisition_score") or 0):
+            best_by_target[pid] = pkg
+
+    merged = list(best_by_target.values())
+    merged.sort(
+        key=lambda s: (s.get("acquisition_score") or 0, s.get("package_quality") or 0),
+        reverse=True,
+    )
+    return merged[:max_suggestions]
+
+
+def _pick_slot_key(pick: dict[str, Any]) -> tuple[str, int, str]:
+    return (str(pick["season"]), int(pick["round"]), str(pick["original_roster_id"]))
+
+
+def _filter_reserved_picks(
+    picks: list[dict[str, Any]],
+    reserved: set[tuple[str, int, str]],
+) -> list[dict[str, Any]]:
+    if not reserved:
+        return picks
+    return [p for p in picks if _pick_slot_key(p) not in reserved]
+
+
+def _default_reserved_picks(
+    my_roster_id: str,
+    picks: list[dict[str, Any]],
+    *,
+    keep_current_first: bool,
+    current_season: str = "2026",
+) -> set[tuple[str, int, str]]:
+    """Reserve own current-year R1 (e.g. 1.01 for Jeremiah Love class)."""
+    if not keep_current_first:
+        return set()
+    reserved: set[tuple[str, int, str]] = set()
+    for pick in picks:
+        if (
+            str(pick.get("season")) == current_season
+            and int(pick.get("round") or 0) == 1
+            and str(pick.get("original_roster_id")) == str(my_roster_id)
+        ):
+            reserved.add(_pick_slot_key(pick))
+    return reserved
+
+
+def _build_acquisition_templates(
+    target_row: dict[str, Any],
+    *,
+    my_picks: list[dict[str, Any]],
+    my_trade_players: list[dict[str, Any]],
+    their_picks: list[dict[str, Any]],
+    reserved_pick_keys: set[tuple[str, int, str]],
+    current_season: str = "2026",
+    lubricant_mode: bool = True,
+) -> list[tuple[list[dict[str, Any]], list[dict[str, Any]]]]:
+    """Package shapes for stud acquisition. Lubricant mode favors cross-year picks + depth."""
+    templates: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]] = []
+    available = _filter_reserved_picks(my_picks, reserved_pick_keys)
+    current_picks = sorted(
+        [p for p in available if str(p.get("season")) == current_season],
+        key=asset_tv,
+        reverse=True,
+    )
+    future_picks = sorted(
+        [p for p in available if str(p.get("season")) > current_season],
+        key=asset_tv,
+        reverse=True,
+    )
+    current_non_r1 = [p for p in current_picks if int(p.get("round") or 0) >= 2]
+    future_1sts = [p for p in future_picks if int(p.get("round") or 0) == 1]
+    their_future_1sts = [
+        p
+        for p in their_picks
+        if int(p.get("round") or 0) == 1 and str(p.get("season")) > current_season
+    ]
+
+    top_trade = my_trade_players[:4]
+    target_pos = (target_row.get("position") or "").upper()
+    pos_swap = [
+        p
+        for p in my_trade_players
+        if (p.get("position") or "").upper() == target_pos
+    ]
+    offer_players = list(top_trade[:4])
+    for p in pos_swap:
+        if p not in offer_players:
+            offer_players.append(p)
+
+    their_current_late = [
+        p
+        for p in their_picks
+        if str(p.get("season")) == current_season and int(p.get("round") or 0) >= 3
+    ]
+    their_future_late = [
+        p
+        for p in their_picks
+        if str(p.get("season")) > current_season and int(p.get("round") or 0) >= 2
+    ]
+    pick_backs = (their_future_late + their_current_late)[:3]
+
+    def _with_pick_backs(
+        give: list[dict[str, Any]],
+    ) -> list[tuple[list[dict[str, Any]], list[dict[str, Any]]]]:
+        out: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]] = [(
+            give,
+            [target_row],
+        )]
+        give_tv = sum(asset_tv(a) for a in give)
+        target_tv = asset_tv(target_row)
+        if give_tv > target_tv * 1.06:
+            for back in pick_backs:
+                out.append((give, [target_row, back]))
+        return out
+
+    if lubricant_mode:
+        # Cross-year lubricant: future 1st + trade depth (no current 1.01).
+        if future_1sts and top_trade:
+            templates.append(([top_trade[0], future_1sts[0]], [target_row]))
+        if future_1sts and len(top_trade) >= 2:
+            templates.append(([top_trade[0], top_trade[1], future_1sts[0]], [target_row]))
+        if future_1sts and current_non_r1:
+            templates.append(([current_non_r1[0], future_1sts[0]], [target_row]))
+        if future_1sts and len(current_non_r1) >= 2:
+            templates.append(([current_non_r1[0], current_non_r1[1], future_1sts[0]], [target_row]))
+        if len(future_1sts) >= 2:
+            templates.append((future_1sts[:2], [target_row]))
+        if future_1sts:
+            templates.append(([future_1sts[0]], [target_row]))
+        # Future-for-future back (not same-season slot swaps).
+        if future_1sts and their_future_1sts:
+            templates.append(([future_1sts[0]], [target_row, their_future_1sts[0]]))
+        # Player + current picks (2.01 + 3.01 style) — picks as lubricant, not 1.01.
+        for player in offer_players[:5]:
+            if len(current_non_r1) >= 2:
+                templates.extend(
+                    _with_pick_backs([player, current_non_r1[0], current_non_r1[1]])
+                )
+            if current_non_r1:
+                templates.extend(_with_pick_backs([player, current_non_r1[0]]))
+            if current_non_r1 and future_1sts:
+                templates.append(([player, current_non_r1[0], future_1sts[0]], [target_row]))
+        if top_trade and current_non_r1:
+            templates.append(([top_trade[0], current_non_r1[0]], [target_row]))
+        if len(top_trade) >= 2 and current_non_r1:
+            templates.append(([top_trade[0], top_trade[1], current_non_r1[0]], [target_row]))
+        if len(top_trade) >= 2 and future_1sts and current_non_r1:
+            templates.append(
+                ([top_trade[0], current_non_r1[0], future_1sts[0]], [target_row])
+            )
+        return templates
+
+    # Premium mode: may include reserved picks (1.01) in overload packages.
+    top_picks = available[:4]
+    their_1sts = [p for p in their_picks if int(p.get("round") or 0) == 1][:2]
+    if len(top_picks) >= 3:
+        templates.append((top_picks[:3], [target_row]))
+    if len(top_picks) >= 2:
+        templates.append((top_picks[:2], [target_row]))
+    if top_picks:
+        templates.append(([top_picks[0]], [target_row]))
+    if top_picks and top_trade:
+        templates.append(([top_trade[0], top_picks[0]], [target_row]))
+    if len(top_picks) >= 2 and top_trade:
+        templates.append(([top_trade[0], *top_picks[:2]], [target_row]))
+    if len(top_trade) >= 2 and top_picks:
+        templates.append(([top_trade[0], top_trade[1], top_picks[0]], [target_row]))
+    if len(top_picks) >= 2 and their_1sts:
+        templates.append((top_picks[:2], [target_row, their_1sts[0]]))
+    return templates
+
+
+def generate_acquisition_packages(
+    *,
+    my_roster_id: str,
+    target_player_id: str,
+    roster_players: dict[str, list[dict[str, Any]]],
+    picks_by_roster: dict[str, list[dict[str, Any]]],
+    trade_surplus: dict[str, Any] | None = None,
+    contender_tier_by_roster: dict[str, str] | None = None,
+    max_suggestions: int = 5,
+    keep_current_first: bool = True,
+    lubricant_mode: bool = True,
+    current_season: str = "2026",
+) -> list[dict[str, Any]]:
+    """Build stud-acquisition packages for a specific counterparty player."""
+    located = _find_player_on_rosters(roster_players, target_player_id)
+    if located is None:
+        return []
+    their_id, target = located
+    if their_id == str(my_roster_id):
+        return []
+
+    my_tier = (contender_tier_by_roster or {}).get(str(my_roster_id))
+    their_tier = (contender_tier_by_roster or {}).get(their_id)
+    ts = trade_surplus or {}
+    my_surplus_positions = {row["position"] for row in ts.get("surplus") or []}
+    my_need_positions = {row["position"] for row in ts.get("needs") or []}
+
+    their_players = roster_players.get(their_id, [])
+    their_annotated = {
+        str(p["player_id"]): p
+        for p in annotate_players_with_trade_tags(
+            their_players,
+            surplus_positions=set(),
+            contender_tier=their_tier,
+        )
+    }
+    target_row = their_annotated.get(str(target_player_id), target)
+    target_is_core = target_row.get("trade_tag") == "core"
+
+    my_players = roster_players.get(str(my_roster_id), [])
+    my_annotated = annotate_players_with_trade_tags(
+        my_players,
+        surplus_positions=my_surplus_positions,
+        contender_tier=my_tier,
+    )
+    my_trade_players = [
+        p
+        for p in my_annotated
+        if p.get("trade_tag") != "core"
+        and (
+            p.get("trade_tag") == "trade"
+            or (p.get("depth_rank") or 99) >= 3
+            or (
+                (p.get("position") or "").upper()
+                == (target_row.get("position") or "").upper()
+                and p.get("trade_tag") != "core"
+            )
+        )
+    ]
+    my_trade_players.sort(key=lambda p: asset_tv(p), reverse=True)
+
+    my_picks = annotate_picks_with_trade_tags(
+        picks_by_roster.get(str(my_roster_id), []),
+        contender_tier=my_tier,
+    )
+    my_picks.sort(key=lambda p: asset_tv(p), reverse=True)
+    reserved_keys = _default_reserved_picks(
+        str(my_roster_id),
+        my_picks,
+        keep_current_first=keep_current_first,
+        current_season=current_season,
+    )
+
+    their_picks = sorted(
+        picks_by_roster.get(their_id, []),
+        key=lambda p: asset_tv(p),
+        reverse=True,
+    )
+    their_1sts = [p for p in their_picks if int(p.get("round") or 0) == 1][:2]
+
+    tradability_by_id = {
+        str(p["player_id"]): (
+            0.85 if p.get("trade_tag") == "trade" else 0.05 if p.get("trade_tag") == "core" else 0.35
+        )
+        for p in my_annotated
+    }
+
+    templates = _build_acquisition_templates(
+        target_row,
+        my_picks=my_picks,
+        my_trade_players=my_trade_players,
+        their_picks=their_picks,
+        reserved_pick_keys=reserved_keys,
+        current_season=current_season,
+        lubricant_mode=lubricant_mode,
+    )
+
+    suggestions: list[dict[str, Any]] = []
+    for give_list, recv_list in _unique_packages(templates):
+        if any(p.get("trade_tag") == "core" for p in give_list if p.get("player_id")):
+            continue
+        if target_is_core and not any(
+            int(p.get("round") or 0) == 1 for p in give_list if not p.get("player_id")
+        ):
+            continue
+        if reserved_keys and any(
+            _pick_slot_key(p) in reserved_keys for p in give_list if not p.get("player_id")
+        ):
+            continue
+
+        fairness = evaluate_package_fairness(give_list, recv_list)
+        stretch = not _acquisition_package_ok(
+            fairness,
+            target_is_core=target_is_core,
+            give_assets=give_list,
+            lubricant_mode=lubricant_mode,
+        )
+        if stretch and not lubricant_mode:
+            continue
+        if stretch and abs(float(fairness.get("net_delta_adjusted_pct") or 0)) > ACQUISITION_MAX_SWING * 100:
+            continue
+
+        give_player_rows = [p for p in give_list if p.get("player_id")]
+        recv_player_rows = [p for p in recv_list if p.get("player_id")]
+        quality = package_quality_score(
+            give_players=give_player_rows,
+            recv_players=recv_player_rows,
+            give_assets=give_list,
+            tradability_by_id=tradability_by_id,
+            acquirer_need_positions=my_need_positions,
+            acquirer_surplus_positions=my_surplus_positions,
+            acquirer_tier=my_tier,
+            seller_tier=their_tier,
+            fairness=fairness,
+        )
+        closeness = 1.0 - abs(float(fairness.get("net_delta_adjusted_pct") or 0)) / 100.0
+        suggestions.append(
+            {
+                "counterparty": {
+                    "roster_id": their_id,
+                    "team_name": None,
+                    "direction": "acquire",
+                    "position_hook": target_row.get("position"),
+                    "contender_tier": their_tier,
+                    "target_player_id": str(target_player_id),
+                    "target_player_name": target_row.get("name"),
+                    "target_is_core": target_is_core,
+                    "reserved_picks": [
+                        f"{s} R{r}" for s, r, _ in sorted(reserved_keys)
+                    ],
+                    "lubricant_mode": lubricant_mode,
+                },
+                "give": {
+                    "players": give_player_rows,
+                    "picks": [p for p in give_list if not p.get("player_id")],
+                },
+                "receive": {
+                    "players": recv_player_rows,
+                    "picks": [p for p in recv_list if not p.get("player_id")],
+                },
+                **fairness,
+                "package_quality": quality,
+                "stretch": stretch,
+                "acquisition_score": round(quality * 0.6 + closeness * 40 - (10 if stretch else 0), 2),
+                "rationale": (
+                    f"Acquire {target_row.get('name')} ({target_row.get('position')}) — "
+                    f"{'core target; paid with premium picks' if target_is_core else 'stud acquisition'}; "
+                    f"adj {fairness.get('net_delta_adjusted_pct'):+.1f}%"
+                ),
+            }
+        )
+
+    suggestions.sort(
+        key=lambda s: (s.get("acquisition_score") or 0, s.get("package_quality") or 0),
+        reverse=True,
+    )
+    return suggestions[:max_suggestions]
+
+
+def _position_pool(
+    annotated: list[dict[str, Any]],
+    position: str,
+    *,
+    exclude_core: bool = True,
+    min_depth: int = 1,
+    max_depth: int = 99,
+    trade_preferred: bool = False,
+) -> list[dict[str, Any]]:
+    pos = position.upper()
+    pool: list[dict[str, Any]] = []
+    for player in annotated:
+        if (player.get("position") or "").upper() != pos:
+            continue
+        if exclude_core and player.get("trade_tag") == "core":
+            continue
+        depth = int(player.get("depth_rank") or 99)
+        if depth < min_depth or depth > max_depth:
+            continue
+        pool.append(player)
+    if trade_preferred:
+        pool.sort(
+            key=lambda p: (1 if p.get("trade_tag") == "trade" else 0, asset_tv(p)),
+            reverse=True,
+        )
+    else:
+        pool.sort(key=asset_tv, reverse=True)
+    return pool
+
+
+def generate_need_swap_packages(
+    *,
+    my_roster_id: str,
+    roster_players: dict[str, list[dict[str, Any]]],
+    picks_by_roster: dict[str, list[dict[str, Any]]],
+    trade_surplus: dict[str, Any] | None = None,
+    contender_tier_by_roster: dict[str, str] | None = None,
+    team_names: dict[str, str] | None = None,
+    need_position: str | None = None,
+    target_player_id: str | None = None,
+    max_suggestions: int = 8,
+    keep_current_first: bool = True,
+    lubricant_mode: bool = True,
+    current_season: str = "2026",
+) -> list[dict[str, Any]]:
+    """Mutual-need trades — surplus + depth out, stud + depth back."""
+    ts = trade_surplus or {}
+    my_surplus_positions = {row["position"] for row in ts.get("surplus") or []}
+    my_need_positions = {row["position"] for row in ts.get("needs") or []}
+    if need_position:
+        my_need_positions = {need_position.upper()}
+    if not my_need_positions:
+        return []
+
+    my_tier = (contender_tier_by_roster or {}).get(str(my_roster_id))
+    my_annotated = annotate_players_with_trade_tags(
+        roster_players.get(str(my_roster_id), []),
+        surplus_positions=my_surplus_positions,
+        contender_tier=my_tier,
+    )
+    tradability_by_id = {
+        str(p["player_id"]): (
+            0.85 if p.get("trade_tag") == "trade" else 0.05 if p.get("trade_tag") == "core" else 0.35
+        )
+        for p in my_annotated
+    }
+    my_picks = annotate_picks_with_trade_tags(
+        picks_by_roster.get(str(my_roster_id), []),
+        contender_tier=my_tier,
+    )
+    reserved_keys = _default_reserved_picks(
+        str(my_roster_id), my_picks, keep_current_first=keep_current_first, current_season=current_season
+    )
+    available_picks = _filter_reserved_picks(my_picks, reserved_keys)
+    current_non_r1 = [
+        p
+        for p in available_picks
+        if str(p.get("season")) == current_season and int(p.get("round") or 0) >= 2
+    ]
+    future_1sts = [
+        p
+        for p in available_picks
+        if str(p.get("season")) > current_season and int(p.get("round") or 0) == 1
+    ]
+    offer_surplus_positions = {p for p in my_surplus_positions if p != "FLEX"} or {"WR"}
+
+    counterparties = [
+        cp
+        for cp in ts.get("counterparties") or []
+        if cp.get("direction") == "buy" and (cp.get("position") or "").upper() in my_need_positions
+    ]
+    if target_player_id:
+        located = _find_player_on_rosters(roster_players, target_player_id)
+        if located:
+            their_id, _ = located
+            counterparties = [
+                cp for cp in counterparties if str(cp.get("roster_id")) == their_id
+            ] or [{"roster_id": their_id, "position": need_position or "?", "direction": "buy"}]
+
+    suggestions: list[dict[str, Any]] = []
+    seen_cp: set[str] = set()
+
+    for cp in counterparties:
+        their_id = str(cp.get("roster_id") or "")
+        if not their_id or their_id in seen_cp or their_id == str(my_roster_id):
+            continue
+        seen_cp.add(their_id)
+        need_pos = (cp.get("position") or "").upper()
+        their_tier = (contender_tier_by_roster or {}).get(their_id)
+        their_annotated = annotate_players_with_trade_tags(
+            roster_players.get(their_id, []),
+            surplus_positions=set(),
+            contender_tier=their_tier,
+        )
+        their_studs = _position_pool(their_annotated, need_pos, min_depth=1, max_depth=2)
+        if target_player_id:
+            their_studs = [
+                p for p in their_annotated if str(p.get("player_id")) == str(target_player_id)
+            ] or their_studs[:1]
+        if not their_studs:
+            continue
+
+        for surplus_pos in offer_surplus_positions:
+            my_surplus = _position_pool(
+                my_annotated, surplus_pos, min_depth=1, max_depth=6, trade_preferred=True
+            )
+            my_depth_at_need = _position_pool(
+                my_annotated, need_pos, min_depth=2, max_depth=5, exclude_core=True
+            )
+            their_return = _position_pool(
+                their_annotated, surplus_pos, min_depth=2, max_depth=5, exclude_core=True
+            )
+            if not my_surplus:
+                continue
+
+            templates: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]] = []
+            for stud in their_studs[:2]:
+                for surplus_player in my_surplus[:3]:
+                    depth_options: list[dict[str, Any] | None] = my_depth_at_need[:2] or [None]
+                    for depth_piece in depth_options:
+                        give_players = [surplus_player] + ([depth_piece] if depth_piece else [])
+                        for back in their_return[:2] or [None]:
+                            recv_players = [stud] + ([back] if back else [])
+                            templates.append((give_players, recv_players))
+                        if lubricant_mode and current_non_r1:
+                            templates.append((give_players, [stud]))
+                            templates.append(([*give_players, current_non_r1[0]], [stud]))
+                            if future_1sts:
+                                templates.append(([*give_players, future_1sts[0]], [stud]))
+
+            for give_list, recv_list in _unique_packages(templates):
+                if any(p.get("trade_tag") == "core" for p in give_list if p.get("player_id")):
+                    continue
+                fairness = evaluate_package_fairness(give_list, recv_list)
+                pct = float(fairness.get("net_delta_adjusted_pct") or 0) / 100.0
+                if abs(pct) > ACQUISITION_MAX_SWING:
+                    continue
+                if pct > ACQUISITION_MAX_FAVOR_YOU + 0.08:
+                    continue
+
+                stud_row = recv_list[0]
+                give_player_rows = [p for p in give_list if p.get("player_id")]
+                recv_player_rows = [p for p in recv_list if p.get("player_id")]
+                quality = package_quality_score(
+                    give_players=give_player_rows,
+                    recv_players=recv_player_rows,
+                    give_assets=give_list,
+                    tradability_by_id=tradability_by_id,
+                    acquirer_need_positions=my_need_positions,
+                    acquirer_surplus_positions=my_surplus_positions,
+                    acquirer_tier=my_tier,
+                    seller_tier=their_tier,
+                    fairness=fairness,
+                )
+                closeness = 1.0 - abs(pct)
+                suggestions.append(
+                    {
+                        "counterparty": {
+                            "roster_id": their_id,
+                            "team_name": (team_names or {}).get(their_id),
+                            "direction": "need_swap",
+                            "position_hook": need_pos,
+                            "surplus_hook": surplus_pos,
+                            "contender_tier": their_tier,
+                            "target_player_id": str(stud_row.get("player_id")),
+                            "target_player_name": stud_row.get("name"),
+                            "trade_pattern": "need_swap_with_depth",
+                        },
+                        "give": {
+                            "players": give_player_rows,
+                            "picks": [p for p in give_list if not p.get("player_id")],
+                        },
+                        "receive": {
+                            "players": recv_player_rows,
+                            "picks": [p for p in recv_list if not p.get("player_id")],
+                        },
+                        **fairness,
+                        "package_quality": quality,
+                        "acquisition_score": round(quality * 0.6 + closeness * 40, 2),
+                        "rationale": (
+                            f"Need {need_pos}: {surplus_pos} surplus"
+                            + (
+                                f" + {need_pos} depth"
+                                if len(give_player_rows) > 1
+                                and (give_player_rows[1].get("position") or "").upper() == need_pos
+                                else ""
+                            )
+                            + f" for {stud_row.get('name')}"
+                            + (
+                                f" + {recv_player_rows[1].get('name')}"
+                                if len(recv_player_rows) > 1
+                                else ""
+                            )
+                            + f" ({fairness.get('net_delta_adjusted_pct'):+.1f}% adj)"
+                        ),
+                    }
+                )
+
+    if target_player_id:
+        for pkg in generate_acquisition_packages(
+            my_roster_id=my_roster_id,
+            target_player_id=str(target_player_id),
+            roster_players=roster_players,
+            picks_by_roster=picks_by_roster,
+            trade_surplus=trade_surplus,
+            contender_tier_by_roster=contender_tier_by_roster,
+            max_suggestions=3,
+            keep_current_first=keep_current_first,
+            lubricant_mode=lubricant_mode,
+            current_season=current_season,
+        ):
+            cp = pkg.setdefault("counterparty", {})
+            cp["trade_pattern"] = "same_position_upgrade"
+            cp["direction"] = "need_swap"
+            suggestions.append(pkg)
+
+    suggestions.sort(
+        key=lambda s: (s.get("acquisition_score") or 0, s.get("package_quality") or 0),
+        reverse=True,
+    )
+    return suggestions[:max_suggestions]
+
+
 def generate_trade_suggestions(
     *,
     my_roster_id: str,
@@ -277,10 +1073,59 @@ def generate_trade_suggestions(
     roster_players: dict[str, list[dict[str, Any]]],
     picks_by_roster: dict[str, list[dict[str, Any]]],
     target_roster_id: str | None = None,
+    target_player_id: str | None = None,
+    target_position: str | None = None,
     max_suggestions: int = 5,
     contender_tier_by_roster: dict[str, str] | None = None,
+    keep_current_first: bool = True,
+    lubricant_mode: bool = True,
 ) -> list[dict[str, Any]]:
-    """Trade packages from trade_surplus, expendability, fit, and effective TV."""
+    """Trade packages from trade_surplus or targeted stud acquisition."""
+    if target_player_id:
+        return generate_acquisition_packages(
+            my_roster_id=my_roster_id,
+            target_player_id=str(target_player_id),
+            roster_players=roster_players,
+            picks_by_roster=picks_by_roster,
+            trade_surplus=trade_surplus,
+            contender_tier_by_roster=contender_tier_by_roster,
+            max_suggestions=max_suggestions,
+            keep_current_first=keep_current_first,
+            lubricant_mode=lubricant_mode,
+        )
+
+    if target_position and not target_roster_id:
+        return generate_position_acquisition_packages(
+            my_roster_id=my_roster_id,
+            target_position=target_position,
+            roster_players=roster_players,
+            picks_by_roster=picks_by_roster,
+            trade_surplus=trade_surplus,
+            contender_tier_by_roster=contender_tier_by_roster,
+            max_suggestions=max(max_suggestions, 8),
+            keep_current_first=keep_current_first,
+            lubricant_mode=lubricant_mode,
+        )
+
+    if target_position and target_roster_id:
+        pos = target_position.upper()
+        their_players = roster_players.get(str(target_roster_id), [])
+        ranked = sorted(
+            [p for p in their_players if (p.get("position") or "").upper() == pos],
+            key=asset_tv,
+            reverse=True,
+        )
+        if ranked:
+            return generate_acquisition_packages(
+                my_roster_id=my_roster_id,
+                target_player_id=str(ranked[0]["player_id"]),
+                roster_players=roster_players,
+                picks_by_roster=picks_by_roster,
+                trade_surplus=trade_surplus,
+                contender_tier_by_roster=contender_tier_by_roster,
+                max_suggestions=max_suggestions,
+            )
+
     if not trade_surplus:
         return []
 
@@ -478,7 +1323,12 @@ def generate_trade_suggestions(
         )
 
     suggestions.sort(key=lambda s: s.get("package_quality") or 0, reverse=True)
-    return suggestions[:max_suggestions]
+    filtered = [
+        s
+        for s in suggestions
+        if abs(float(s.get("net_delta_adjusted_pct") or 0)) <= ACQUISITION_MAX_SWING * 100
+    ]
+    return filtered[:max_suggestions]
 
 
 @dataclass
@@ -832,17 +1682,26 @@ class AdvisorTools:
             "validation": validation,
         }
 
-    def suggest_trades(self, target_roster_id: str | None = None) -> dict[str, Any]:
+    def suggest_trades(
+        self,
+        target_roster_id: str | None = None,
+        target_player_id: str | None = None,
+        target_position: str | None = None,
+        keep_current_first: bool = True,
+        lubricant_mode: bool = True,
+    ) -> dict[str, Any]:
         trade_surplus = self._trade_surplus()
         snapshots = self._load_snapshots()
 
         roster_players: dict[str, list[dict[str, Any]]] = {}
         picks_by_roster: dict[str, list[dict[str, Any]]] = {}
+        team_names: dict[str, str] = {}
 
         for roster in self.ctx.db.scalars(
             select(Roster).where(Roster.league_id == self.ctx.league_id)
         ).all():
             rid = roster.sleeper_roster_id
+            team_names[rid] = roster.team_name or rid
             roster_players[rid] = _players_for_roster(
                 snapshots, self._roster_player_ids(rid)
             )
@@ -850,17 +1709,36 @@ class AdvisorTools:
                 self.ctx.db, self.ctx.league_id, rid
             )
 
-        packages = generate_trade_suggestions(
-            my_roster_id=self.ctx.my_roster_id,
-            trade_surplus=trade_surplus,
-            roster_players=roster_players,
-            picks_by_roster=picks_by_roster,
-            target_roster_id=target_roster_id,
-            contender_tier_by_roster=self._contender_tier_by_roster(),
-        )
+        if target_position and not target_player_id and not target_roster_id:
+            packages = generate_position_acquisition_packages(
+                my_roster_id=self.ctx.my_roster_id,
+                target_position=target_position,
+                roster_players=roster_players,
+                picks_by_roster=picks_by_roster,
+                trade_surplus=trade_surplus,
+                contender_tier_by_roster=self._contender_tier_by_roster(),
+                team_names=team_names,
+                keep_current_first=keep_current_first,
+                lubricant_mode=lubricant_mode,
+            )
+        else:
+            packages = generate_trade_suggestions(
+                my_roster_id=self.ctx.my_roster_id,
+                trade_surplus=trade_surplus,
+                roster_players=roster_players,
+                picks_by_roster=picks_by_roster,
+                target_roster_id=target_roster_id,
+                target_player_id=target_player_id,
+                target_position=target_position,
+                contender_tier_by_roster=self._contender_tier_by_roster(),
+                keep_current_first=keep_current_first,
+                lubricant_mode=lubricant_mode,
+            )
         return {
             "my_roster_id": self.ctx.my_roster_id,
             "target_roster_id": target_roster_id,
+            "target_player_id": target_player_id,
+            "target_position": target_position,
             "trade_surplus_summary": {
                 "surplus": (trade_surplus or {}).get("surplus") or [],
                 "needs": (trade_surplus or {}).get("needs") or [],
@@ -909,7 +1787,17 @@ class AdvisorTools:
             )
         if name == "suggest_trades":
             tid = tool_input.get("target_roster_id")
-            return self.suggest_trades(str(tid) if tid else None)
+            return self.suggest_trades(
+                str(tid) if tid else None,
+                str(tool_input["target_player_id"])
+                if tool_input.get("target_player_id")
+                else None,
+                str(tool_input["target_position"]).upper()
+                if tool_input.get("target_position")
+                else None,
+                keep_current_first=bool(tool_input.get("keep_current_first", True)),
+                lubricant_mode=bool(tool_input.get("lubricant_mode", True)),
+            )
         if name == "calculate":
             return self.calculate(str(tool_input.get("expression", "")))
         if name == "web_search":
@@ -1094,9 +1982,9 @@ ADVISOR_TOOL_SPECS: list[dict[str, Any]] = [
     {
         "name": "suggest_trades",
         "description": (
-            "Deterministic trade ideas using trade tags, counterparty fit, and "
-            "consolidation-aware effective TV. Returns up to 5 packages ranked by quality. "
-            "Call validate_trade on promising packages before recommending."
+            "Trade ideas: surplus-based hooks or targeted stud acquisition when "
+            "target_player_id / target_position is set. Uses KTC-adjusted fairness "
+            "with acquisition overpay band. Call validate_trade before recommending."
         ),
         "input_schema": {
             "type": "object",
@@ -1104,6 +1992,22 @@ ADVISOR_TOOL_SPECS: list[dict[str, Any]] = [
                 "target_roster_id": {
                     "type": "string",
                     "description": "Optional counterparty roster id",
+                },
+                "target_player_id": {
+                    "type": "string",
+                    "description": "Acquire this player (builds pick-heavy packages)",
+                },
+                "target_position": {
+                    "type": "string",
+                    "description": "Acquire key players at position (RB, WR). Scans league if no roster set.",
+                },
+                "keep_current_first": {
+                    "type": "boolean",
+                    "description": "Reserve own current-year 1st (default true — keep 1.01 for rookie draft).",
+                },
+                "lubricant_mode": {
+                    "type": "boolean",
+                    "description": "Favor cross-year picks + depth over 1.01 overload (default true).",
                 },
             },
         },
