@@ -20,7 +20,7 @@ export function StatisticalProfile({ player }: StatisticalProfileProps) {
   if (!hasAny) return null;
 
   return (
-    <section className="bb-card p-5">
+    <section className="bb-card p-4 md:p-5">
       <h2 className="text-lg font-medium text-white">Statistical profile</h2>
       <p className="mt-1 text-sm text-bb-muted">
         Percentile vs {player.position} pool in {player.league_name}

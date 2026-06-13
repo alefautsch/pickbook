@@ -38,7 +38,7 @@ export function AgeOutlookTimeline({ player }: AgeOutlookTimelineProps) {
       : 70;
 
   return (
-    <section className="bb-card p-5">
+    <section className="bb-card p-4 md:p-5">
       <h2 className="text-lg font-medium text-white">Age &amp; outlook</h2>
       <p className="mt-1 text-sm text-bb-muted">
         Archetype and peak window given current opportunity

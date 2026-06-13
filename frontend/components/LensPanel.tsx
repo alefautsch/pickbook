@@ -14,7 +14,7 @@ export function LensPanel({ player }: LensPanelProps) {
   ];
 
   return (
-    <section className="bb-card p-5">
+    <section className="bb-card p-4 md:p-5">
       <h2 className="text-lg font-medium text-white">Lenses</h2>
       <p className="mt-1 text-sm text-bb-muted">
         Same player, different readings (§5.8)
