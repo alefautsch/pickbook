@@ -44,7 +44,7 @@ export function TeamTabs({ team, ratingMode = "dynasty" }: TeamTabsProps) {
         <RosterTable starters={team.starters} bench={team.bench} full ratingMode={ratingMode} />
       ) : null}
       {tab === "depth" ? (
-        <DepthChartPanel depthChart={team.depth_chart} leagueId={team.league_id} />
+        <DepthChartPanel depthChart={team.depth_chart} leagueId={team.league_id} compact />
       ) : null}
     </div>
   );

@@ -89,10 +89,12 @@ export function AgeOutlookTimeline({ player }: AgeOutlookTimelineProps) {
               title={`Age ${age}`}
             />
           </div>
-          <div className="mt-1 flex justify-between text-xs text-bb-muted">
+          <div className="mt-1 flex flex-col gap-0.5 text-xs text-bb-muted sm:flex-row sm:justify-between">
             <span>{windowStart}</span>
-            <span>Peak ~{peakEnd - 3}–{peakEnd}</span>
-            <span>{windowEnd}</span>
+            <span className="text-center sm:flex-1">
+              Peak ~{peakEnd - 3}–{peakEnd}
+            </span>
+            <span className="text-right">{windowEnd}</span>
           </div>
         </div>
       ) : null}

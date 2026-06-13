@@ -151,6 +151,30 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
                   size="md"
                 />
               </div>
+              {player.ranks.position_rank || player.ranks.overall_rank ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {player.ranks.position_rank ? (
+                    <div className="rounded-lg bg-white/4 px-3 py-1.5 text-center ring-1 ring-inset ring-white/[0.07]">
+                      <p className="text-base font-bold tabular-nums text-white">
+                        {ordinal(player.ranks.position_rank)}
+                      </p>
+                      <p className="text-[9px] uppercase tracking-wider text-bb-muted">
+                        {player.position} rank
+                      </p>
+                    </div>
+                  ) : null}
+                  {player.ranks.overall_rank ? (
+                    <div className="rounded-lg bg-white/4 px-3 py-1.5 text-center ring-1 ring-inset ring-white/[0.07]">
+                      <p className="text-base font-bold tabular-nums text-bb-gold">
+                        {ordinal(player.ranks.overall_rank)}
+                      </p>
+                      <p className="text-[9px] uppercase tracking-wider text-bb-muted">
+                        overall
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               <dl className="mt-3 grid grid-cols-3 gap-2">
                 {[
                   { label: "Age", value: player.age ?? "—" },
@@ -256,7 +280,7 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
           </div>
 
           {/* Stat strip */}
-          <div className="mt-6 grid grid-cols-3 gap-2 border-t border-bb-border/50 pt-4 sm:grid-cols-4 lg:grid-cols-7">
+          <div className="mt-6 grid grid-cols-2 gap-2 border-t border-bb-border/50 pt-4 sm:grid-cols-4 lg:grid-cols-7">
             {statStrip.map((stat) => (
               <div
                 key={stat.label}
@@ -285,11 +309,11 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
           {/* Row 1: Stats percentiles | Dynasty breakdown */}
           <StatisticalProfile player={player} />
 
-          <section className="bb-card p-5">
+          <section className="bb-card p-4 md:p-5">
             <h2 className="text-lg font-medium text-white">Dynasty breakdown</h2>
             <p className="mt-1 text-sm text-bb-muted">Weighted component inputs</p>
             <div className="mt-4">
-              <ComponentDonut components={player.components} ovr={player.ovr} />
+              <ComponentDonut components={player.components} ovr={player.ovr} compact />
             </div>
           </section>
 

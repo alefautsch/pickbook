@@ -412,53 +412,7 @@ export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
       </div>
 
       <div className="flex flex-col gap-5 xl:grid xl:grid-cols-[1fr_320px] xl:gap-6">
-        <section className="order-1 min-w-0">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-medium text-white">BPA Board</h2>
-            <span className="text-xs text-bb-muted">
-              {draft.board.length} rookies · ☆ = my target
-            </span>
-          </div>
-          <div className="divide-y divide-bb-border/30 overflow-hidden rounded-xl border border-bb-border/50 md:hidden">
-            {draft.board.map((row) => (
-              <BoardRowMobile
-                key={row.player_id}
-                leagueId={leagueId}
-                row={row}
-                isTarget={targets.has(row.player_id)}
-                onToggleTarget={toggleTarget}
-              />
-            ))}
-          </div>
-          <div className="hidden overflow-x-auto rounded-xl border border-bb-border/50 md:block">
-            <table className="w-full min-w-[640px] text-left">
-              <thead>
-                <tr className="border-b border-bb-border/50 bg-black/30 text-[10px] uppercase tracking-wider text-bb-muted">
-                  <th className="px-2 py-2">#</th>
-                  <th className="px-2 py-2">☆</th>
-                  <th className="px-2 py-2">Player</th>
-                  <th className="px-2 py-2 text-right">OVR</th>
-                  <th className="px-2 py-2 text-right">Proj</th>
-                  <th className="px-2 py-2 text-right">TV</th>
-                  <th className="px-2 py-2 text-right">ADP</th>
-                </tr>
-              </thead>
-              <tbody>
-                {draft.board.map((row) => (
-                  <BoardRow
-                    key={row.player_id}
-                    leagueId={leagueId}
-                    row={row}
-                    isTarget={targets.has(row.player_id)}
-                    onToggleTarget={toggleTarget}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <aside className="order-2 flex flex-col gap-4">
+        <aside className="order-1 flex flex-col gap-4 xl:order-2">
           <section className="rounded-xl border border-bb-border/50 bg-black/20 p-4">
             <h3 className="text-sm font-medium text-white">Positional needs</h3>
             <p className="mb-3 text-xs text-bb-muted">
@@ -514,6 +468,52 @@ export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
             </section>
           ) : null}
         </aside>
+
+        <section className="order-2 min-w-0 xl:order-1">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-lg font-medium text-white">BPA Board</h2>
+            <span className="text-xs text-bb-muted">
+              {draft.board.length} rookies · ☆ = my target
+            </span>
+          </div>
+          <div className="divide-y divide-bb-border/30 overflow-hidden rounded-xl border border-bb-border/50 md:hidden">
+            {draft.board.map((row) => (
+              <BoardRowMobile
+                key={row.player_id}
+                leagueId={leagueId}
+                row={row}
+                isTarget={targets.has(row.player_id)}
+                onToggleTarget={toggleTarget}
+              />
+            ))}
+          </div>
+          <div className="hidden overflow-x-auto rounded-xl border border-bb-border/50 md:block">
+            <table className="w-full min-w-[640px] text-left">
+              <thead>
+                <tr className="border-b border-bb-border/50 bg-black/30 text-[10px] uppercase tracking-wider text-bb-muted">
+                  <th className="px-2 py-2">#</th>
+                  <th className="px-2 py-2">☆</th>
+                  <th className="px-2 py-2">Player</th>
+                  <th className="px-2 py-2 text-right">OVR</th>
+                  <th className="px-2 py-2 text-right">Proj</th>
+                  <th className="px-2 py-2 text-right">TV</th>
+                  <th className="px-2 py-2 text-right">ADP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {draft.board.map((row) => (
+                  <BoardRow
+                    key={row.player_id}
+                    leagueId={leagueId}
+                    row={row}
+                    isTarget={targets.has(row.player_id)}
+                    onToggleTarget={toggleTarget}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
 
       <section>

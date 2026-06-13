@@ -17,11 +17,11 @@ type RankingsTableProps = {
   byWinNow: RankingRow[];
 };
 
-const sortOptions: { key: SortKey; label: string }[] = [
-  { key: "dynasty", label: "By OVR" },
-  { key: "ppg", label: "By Starter PPG" },
-  { key: "tv", label: "By Player Value" },
-  { key: "win", label: "By Win-Now" },
+const sortOptions: { key: SortKey; label: string; shortLabel: string }[] = [
+  { key: "dynasty", label: "By OVR", shortLabel: "OVR" },
+  { key: "ppg", label: "By Starter PPG", shortLabel: "PPG" },
+  { key: "tv", label: "By Player Value", shortLabel: "TV" },
+  { key: "win", label: "By Win-Now", shortLabel: "Win" },
 ];
 
 function rankField(key: SortKey): keyof RankingRow {
@@ -61,19 +61,20 @@ export function RankingsTable(props: RankingsTableProps) {
     <section className="bb-panel">
       <div className="bb-panel-header">
         <h2 className="bb-panel-title">League Power Rankings</h2>
-        <div className="flex flex-wrap gap-1">
+        <div className="flex gap-1 overflow-x-auto pb-0.5 sm:flex-wrap sm:overflow-visible sm:pb-0">
           {sortOptions.map((opt) => (
             <button
               key={opt.key}
               type="button"
               onClick={() => setSort(opt.key)}
-              className={`rounded-md px-2 py-1 text-[11px] font-medium transition sm:px-3 sm:py-1.5 sm:text-xs ${
+              className={`shrink-0 rounded-md px-2 py-1 text-[11px] font-medium transition sm:px-3 sm:py-1.5 sm:text-xs ${
                 sort === opt.key
                   ? "bg-bb-gold/20 text-bb-gold"
                   : "text-bb-muted hover:bg-white/5 hover:text-white"
               }`}
             >
-              {opt.label}
+              <span className="sm:hidden">{opt.shortLabel}</span>
+              <span className="hidden sm:inline">{opt.label}</span>
             </button>
           ))}
         </div>

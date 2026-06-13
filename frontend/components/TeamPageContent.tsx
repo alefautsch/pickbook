@@ -13,6 +13,7 @@ import { InjuryWatchPanel } from "@/components/InjuryWatchPanel";
 import { TradeCandidatesPanel } from "@/components/TradeCandidatesPanel";
 import { OvrGauge } from "@/components/OvrGauge";
 import { PositionStrengthBars } from "@/components/PositionStrengthBars";
+import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { TeamTabs } from "@/components/TeamTabs";
 import type { AgeProfile, PositionStrengthMap } from "@/lib/api";
 
@@ -160,21 +161,18 @@ function TeamSidebarPanels({
   return (
     <>
       {team.trade_candidates.length > 0 ? (
-        <section className="bb-panel p-3 md:p-4">
-          <h2 className="bb-panel-title">Trade Chips</h2>
-          <p className="mt-1 text-xs text-bb-muted">Most movable pieces on this roster</p>
-          <div className="mt-3">
-            <TradeCandidatesPanel candidates={team.trade_candidates} leagueId={leagueId} />
-          </div>
-        </section>
+        <CollapsibleSection
+          title="Trade Chips"
+          subtitle="Most movable pieces on this roster"
+          defaultOpen
+        >
+          <TradeCandidatesPanel candidates={team.trade_candidates} leagueId={leagueId} />
+        </CollapsibleSection>
       ) : null}
 
-      <section className="bb-panel p-3 md:p-4">
-        <h2 className="bb-panel-title">Depth Chart</h2>
-        <div className="mt-3">
-          <DepthChartPanel depthChart={team.depth_chart} leagueId={leagueId} compact />
-        </div>
-      </section>
+      <CollapsibleSection title="Depth Chart">
+        <DepthChartPanel depthChart={team.depth_chart} leagueId={leagueId} compact />
+      </CollapsibleSection>
 
       {positionStrength ? (
         <PositionStrengthBars data={positionStrength} myRosterId={rosterId} />
@@ -182,16 +180,13 @@ function TeamSidebarPanels({
 
       <AgeProfileSidebar profiles={ageProfiles} rosterId={rosterId} />
 
-      <div className="bb-panel p-3 md:p-4">
-        <h2 className="bb-panel-title">Draft Picks</h2>
-        <div className="mt-3">
-          <DraftPicksPanel picks={team.draft_picks} compact />
-        </div>
-      </div>
+      <CollapsibleSection title="Draft Picks">
+        <DraftPicksPanel picks={team.draft_picks} compact />
+      </CollapsibleSection>
 
-      <div className="bb-panel p-3 md:p-4">
+      <CollapsibleSection title="Injury Watch">
         <InjuryWatchPanel injuries={team.injuries} leagueId={leagueId} compact />
-      </div>
+      </CollapsibleSection>
     </>
   );
 }
@@ -248,7 +243,7 @@ export function TeamPageContent({
             <div className="mt-2 flex items-center justify-between gap-2">
               <RatingToggle ratingMode={ratingMode} onChange={setRatingMode} />
             </div>
-            <dl className="mt-2 grid grid-cols-3 gap-1.5 sm:grid-cols-5 md:mt-3 md:gap-2">
+            <dl className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3 md:mt-3 md:gap-2">
               <Metric label="Start OVR" value={displayStarterOvr ?? "—"} sub="avg" />
               <Metric
                 label="Start PPG"

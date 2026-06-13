@@ -74,17 +74,19 @@ export function TradeSurplusPanel({ tradeSurplus, leagueId }: TradeSurplusPanelP
               <li key={`${cp.position}-${cp.direction}-${cp.roster_id}`}>
                 <Link
                   href={`/leagues/${leagueId}/teams/${cp.roster_id}`}
-                  className="flex items-center justify-between rounded bg-black/20 px-3 py-2 text-sm transition hover:bg-black/30"
+                  className="block rounded bg-black/20 px-3 py-2 text-sm transition hover:bg-black/30"
                 >
-                  <span className="text-white">
-                    {cp.team_name ?? "Team"}
-                    <span className="ml-2 text-xs text-bb-muted">
-                      {cp.direction === "sell" ? "buy" : "sell"} {cp.position}
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="min-w-0 text-white">
+                      <span className="font-medium">{cp.team_name ?? "Team"}</span>
+                      <span className="ml-2 text-xs text-bb-muted">
+                        {cp.direction === "sell" ? "buy" : "sell"} {cp.position}
+                      </span>
                     </span>
-                  </span>
-                  <span className="text-bb-muted">
-                    you #{cp.my_rank} · them #{cp.their_rank}
-                  </span>
+                    <span className="shrink-0 text-xs text-bb-muted sm:text-sm">
+                      you #{cp.my_rank} · them #{cp.their_rank}
+                    </span>
+                  </div>
                 </Link>
               </li>
             ))}

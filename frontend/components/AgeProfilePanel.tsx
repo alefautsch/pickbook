@@ -70,20 +70,20 @@ export function AgeProfilePanel({ profiles }: AgeProfilePanelProps) {
           {mine.starter_ages.map((s) => (
             <li
               key={`${s.player_id}-${s.slot}`}
-              className="flex items-center justify-between rounded bg-black/20 px-3 py-1.5 text-sm"
+              className="rounded bg-black/20 px-3 py-1.5 text-sm"
             >
-              <span className="text-white">
-                {s.name}
-                <span className="ml-2 text-xs text-bb-muted">
-                  {s.pos} · {s.slot}
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate font-medium text-white">{s.name}</span>
+                <span className="shrink-0 text-bb-muted">
+                  {s.age != null ? `${s.age} yrs` : "—"}
+                  {s.ovr != null ? (
+                    <span className="ml-2 text-bb-gold">OVR {s.ovr}</span>
+                  ) : null}
                 </span>
-              </span>
-              <span className="text-bb-muted">
-                {s.age != null ? `${s.age} yrs` : "—"}
-                {s.ovr != null ? (
-                  <span className="ml-2 text-bb-gold">OVR {s.ovr}</span>
-                ) : null}
-              </span>
+              </div>
+              <p className="mt-0.5 text-xs text-bb-muted">
+                {s.pos} · {s.slot}
+              </p>
             </li>
           ))}
         </ul>
