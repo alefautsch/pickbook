@@ -48,20 +48,20 @@ export function SummaryCards({ league }: SummaryCardsProps) {
   ];
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 xl:grid-cols-6">
       {cards.map((card) => (
         <article
           key={card.label}
-          className="bb-panel px-4 py-3.5"
+          className="bb-panel px-3 py-2.5 sm:px-4 sm:py-3.5"
         >
-          <p className="text-xs uppercase tracking-wider text-bb-muted">{card.label}</p>
-          <div className="mt-2 flex items-center gap-2">
+          <p className="text-[10px] uppercase tracking-wider text-bb-muted sm:text-xs">{card.label}</p>
+          <div className="mt-1.5 flex items-center gap-2 sm:mt-2">
             {card.badge ? (
               <OvrBadge ovr={typeof card.value === "number" ? card.value : null} size="md" />
             ) : card.contender ? (
               <ContenderTag tier={String(card.value)} />
             ) : (
-              <p className="text-2xl font-semibold text-white">{card.value}</p>
+              <p className="text-xl font-semibold text-white sm:text-2xl">{card.value}</p>
             )}
             {card.delta != null && card.delta !== 0 ? (
               <span

@@ -3,8 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { postSyncAll } from "@/lib/api";
+import { SYNC_FINISHED_EVENT, SYNC_STARTED_EVENT } from "@/lib/sync-events";
 
-export function SyncButton() {
+export function SyncButton({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
   const [status, setStatus] = useState<"idle" | "syncing" | "done" | "error">("idle");
   const [message, setMessage] = useState<string | null>(null);
@@ -12,6 +13,7 @@ export function SyncButton() {
   async function handleSync(forceRefresh = false) {
     setStatus("syncing");
     setMessage(null);
+    window.dispatchEvent(new Event(SYNC_STARTED_EVENT));
     try {
       const result = await postSyncAll(forceRefresh);
       const failed = result.results.filter((r) => r.status !== "success");
@@ -27,7 +29,23 @@ export function SyncButton() {
     } catch (err) {
       setStatus("error");
       setMessage(err instanceof Error ? err.message : "Sync failed");
+    } finally {
+      window.dispatchEvent(new Event(SYNC_FINISHED_EVENT));
     }
+  }
+
+  if (compact) {
+    return (
+      <button
+        type="button"
+        onClick={() => handleSync(false)}
+        disabled={status === "syncing"}
+        title={status === "syncing" ? "Syncing…" : "Sync now"}
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-bb-gold/40 bg-bb-gold/10 text-sm text-bb-gold transition hover:bg-bb-gold/20 disabled:opacity-50"
+      >
+        {status === "syncing" ? "…" : "↻"}
+      </button>
+    );
   }
 
   return (

@@ -104,19 +104,68 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
         summary: `${player.player_name ?? "Player"} · OVR ${player.ovr ?? "—"}`,
       }}
     >
-      <div className="flex flex-1 flex-col px-6 py-8 sm:px-10">
-        <section className="bb-card mb-6 overflow-hidden p-6">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+      <div className="flex flex-1 flex-col px-3 py-4 sm:px-6 sm:py-8 md:px-10">
+        <section className="bb-card mb-4 overflow-hidden p-4 sm:mb-6 sm:p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
             <PlayerHeadshot
               src={player.headshot_url}
               alt={player.player_name ?? "Player"}
               position={player.position}
-              className="h-40 w-40 shrink-0"
+              className="h-20 w-20 shrink-0 sm:h-32 sm:w-32 lg:h-40 lg:w-40"
               sizes="160px"
             />
 
-            {/* Name / bio block */}
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 lg:hidden">
+              <p className="text-[10px] uppercase tracking-wider text-bb-muted">
+                {player.league_name}
+              </p>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                <h1 className="text-xl font-bold tracking-tight text-white sm:text-2xl">
+                  {player.player_name}
+                </h1>
+                <span
+                  className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase"
+                  style={{
+                    backgroundColor: `${positionColor(player.position)}22`,
+                    color: positionColor(player.position),
+                  }}
+                >
+                  {player.position}
+                </span>
+              </div>
+              <p className="mt-0.5 text-xs text-bb-muted sm:text-sm">{player.nfl_team}</p>
+              {player.trade_tag ? (
+                <div className="mt-1.5">
+                  <ExpendabilityBadge
+                    tag={player.trade_tag}
+                    lineupDelta={player.lineup_delta_ppg}
+                    size="md"
+                  />
+                </div>
+              ) : null}
+              <div className="mt-2">
+                <OvrGauge
+                  ovr={player.ovr}
+                  expected={player.hppg_expected}
+                  size="md"
+                />
+              </div>
+              <dl className="mt-3 grid grid-cols-3 gap-2">
+                {[
+                  { label: "Age", value: player.age ?? "—" },
+                  { label: "Height", value: formatHeight(player.bio.height) },
+                  { label: "Weight", value: player.bio.weight ? `${player.bio.weight}` : "—" },
+                ].map(({ label, value }) => (
+                  <div key={label} className="rounded-md bg-white/4 px-2 py-1.5">
+                    <dd className="text-sm font-semibold text-white">{value}</dd>
+                    <dt className="text-[8px] uppercase tracking-wider text-bb-muted">{label}</dt>
+                  </div>
+                ))}
+              </dl>
+            </div>
+
+            {/* Name / bio block — desktop */}
+            <div className="hidden min-w-0 flex-1 lg:block">
               <p className="text-xs uppercase tracking-wider text-bb-muted">
                 {player.league_name}
               </p>
@@ -170,8 +219,8 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
               </dl>
             </div>
 
-            {/* OVR gauge + rank boxes */}
-            <div className="flex shrink-0 flex-col items-center gap-3">
+            {/* OVR gauge + rank boxes — desktop */}
+            <div className="hidden shrink-0 flex-col items-center gap-3 lg:flex">
               <OvrGauge
                 ovr={player.ovr}
                 expected={player.hppg_expected}

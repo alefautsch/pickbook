@@ -57,17 +57,142 @@ function Metric({
         : "text-white";
 
   return (
-    <div className="min-w-0 rounded-lg bg-white/4 px-2 py-2 ring-1 ring-inset ring-white/[0.07]">
+    <div className="min-w-0 rounded-lg bg-white/4 px-2 py-1.5 ring-1 ring-inset ring-white/[0.07] md:px-2 md:py-2">
       <dt className="truncate text-[9px] uppercase tracking-wide text-bb-muted">
         {label}
       </dt>
-      <dd className={`mt-0.5 truncate text-xl font-bold tabular-nums leading-none ${toneClass}`}>
+      <dd className={`mt-0.5 truncate text-lg font-bold tabular-nums leading-none md:text-xl ${toneClass}`}>
         {value}
       </dd>
       {sub ? (
         <p className={`mt-0.5 truncate text-[10px] ${rankSubClass(sub)}`}>{sub}</p>
       ) : null}
     </div>
+  );
+}
+
+function RatingToggle({
+  ratingMode,
+  onChange,
+}: {
+  ratingMode: RatingMode;
+  onChange: (mode: RatingMode) => void;
+}) {
+  return (
+    <div className="flex items-center gap-0.5 rounded-lg bg-white/4 p-0.5 ring-1 ring-inset ring-white/[0.07]">
+      <button
+        type="button"
+        onClick={() => onChange("dynasty")}
+        className={`rounded px-2 py-1 text-[11px] font-medium transition md:px-2.5 md:text-xs ${
+          ratingMode === "dynasty"
+            ? "bg-bb-gold/20 text-bb-gold"
+            : "text-bb-muted hover:text-white"
+        }`}
+      >
+        Dynasty
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("win_now")}
+        className={`rounded px-2 py-1 text-[11px] font-medium transition md:px-2.5 md:text-xs ${
+          ratingMode === "win_now"
+            ? "bg-bb-gold/20 text-bb-gold"
+            : "text-bb-muted hover:text-white"
+        }`}
+      >
+        Win-Now
+      </button>
+    </div>
+  );
+}
+
+function TeamBreakdownPanel({ team }: { team: TeamDetail }) {
+  return (
+    <section className="bb-panel p-3 md:p-4">
+      <h2 className="bb-panel-title">Team OVR Breakdown</h2>
+      <div className="mt-2">
+        <ComponentDonut
+          components={team.component_breakdown}
+          ovr={team.avg_dynasty_rating}
+          compact
+        />
+      </div>
+    </section>
+  );
+}
+
+function TeamTraitsPanel({ team }: { team: TeamDetail }) {
+  return (
+    <section className="bb-panel p-3 md:p-4">
+      <h2 className="bb-panel-title">Team Traits</h2>
+      {team.traits.length > 0 ? (
+        <ul className="mt-2 space-y-1.5 md:mt-3">
+          {team.traits.map((trait) => (
+            <li
+              key={trait.label}
+              className="flex items-center justify-between gap-3 text-sm"
+            >
+              <span className="text-bb-muted">{trait.label}</span>
+              <span className="text-right font-medium text-white">{trait.value}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 text-sm text-bb-muted md:mt-3">No traits yet.</p>
+      )}
+    </section>
+  );
+}
+
+function TeamSidebarPanels({
+  team,
+  leagueId,
+  rosterId,
+  positionStrength,
+  ageProfiles,
+}: {
+  team: TeamDetail;
+  leagueId: string;
+  rosterId: string;
+  positionStrength: PositionStrengthMap | null;
+  ageProfiles: AgeProfile[];
+}) {
+  return (
+    <>
+      {team.trade_candidates.length > 0 ? (
+        <section className="bb-panel p-3 md:p-4">
+          <h2 className="bb-panel-title">Trade Chips</h2>
+          <p className="mt-1 text-xs text-bb-muted">Most movable pieces on this roster</p>
+          <div className="mt-3">
+            <TradeCandidatesPanel candidates={team.trade_candidates} leagueId={leagueId} />
+          </div>
+        </section>
+      ) : null}
+
+      <section className="bb-panel p-3 md:p-4">
+        <h2 className="bb-panel-title">Depth Chart</h2>
+        <div className="mt-3">
+          <DepthChartPanel depthChart={team.depth_chart} leagueId={leagueId} compact />
+        </div>
+      </section>
+
+      {positionStrength ? (
+        <PositionStrengthBars data={positionStrength} myRosterId={rosterId} />
+      ) : null}
+
+      <AgeProfileSidebar profiles={ageProfiles} rosterId={rosterId} />
+
+      <div className="bb-panel p-3 md:p-4">
+        <h2 className="bb-panel-title">Draft Picks</h2>
+        <div className="mt-3">
+          <DraftPicksPanel picks={team.draft_picks} compact />
+        </div>
+      </div>
+
+      <div className="bb-panel p-3 md:p-4">
+        <InjuryWatchPanel injuries={team.injuries} leagueId={leagueId} compact />
+      </div>
+    </>
   );
 }
 
@@ -99,181 +224,83 @@ export function TeamPageContent({
           : "default";
 
   return (
-    <div className="flex flex-1 flex-col bg-[#0d1117]/40 px-4 py-5">
-      <section className="mb-5 grid gap-4 lg:grid-cols-[minmax(300px,1fr)_280px_220px]">
-        <div className="bb-panel p-4">
-          <div className="flex items-start gap-4">
-            <div className="shrink-0">
-              <OvrGauge ovr={displayOvr} size="md" />
+    <div className="flex flex-1 flex-col bg-[#0d1117]/40 px-3 py-3 md:px-4 md:py-5">
+      {/* Compact hero — team identity only */}
+      <section className="bb-panel mb-3 p-3 md:mb-5 md:p-4">
+        <div className="flex items-start gap-3">
+          <div className="shrink-0 scale-90 md:scale-100">
+            <OvrGauge ovr={displayOvr} size="md" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-lg font-semibold leading-tight text-white md:text-2xl">
+                {team.team_name ?? "Team"}
+              </h1>
+              <ContenderTag tier={team.contender_tier} />
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-semibold leading-tight text-white sm:text-2xl">
-                  {team.team_name ?? "Team"}
-                </h1>
-                <ContenderTag tier={team.contender_tier} />
-              </div>
-              <p className="mt-0.5 text-sm text-bb-muted">
-                {team.owner ?? "Unknown owner"}
-                {team.is_me ? " · (me)" : ""}
-                {team.dynasty_rank
-                  ? ` · ${ordinal(team.dynasty_rank)} of ${leagueRosterCount}`
-                  : ""}
-              </p>
-              <p className="text-xs uppercase tracking-wider text-bb-muted">
-                {team.league_name}
-              </p>
-              <div className="mt-2 flex items-center gap-1.5">
-                <span className="text-[10px] uppercase tracking-wider text-bb-muted">
-                  Ratings
-                </span>
-                <div className="flex items-center gap-0.5 rounded-lg bg-white/4 p-0.5 ring-1 ring-inset ring-white/[0.07]">
-                  <button
-                    type="button"
-                    onClick={() => setRatingMode("dynasty")}
-                    className={`rounded px-2.5 py-1 text-xs font-medium transition ${
-                      ratingMode === "dynasty"
-                        ? "bg-bb-gold/20 text-bb-gold"
-                        : "text-bb-muted hover:text-white"
-                    }`}
-                  >
-                    Dynasty
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRatingMode("win_now")}
-                    className={`rounded px-2.5 py-1 text-xs font-medium transition ${
-                      ratingMode === "win_now"
-                        ? "bg-bb-gold/20 text-bb-gold"
-                        : "text-bb-muted hover:text-white"
-                    }`}
-                  >
-                    Win-Now
-                  </button>
-                </div>
-              </div>
-              <dl className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5">
-                <Metric
-                  label="Start OVR"
-                  value={displayStarterOvr ?? "—"}
-                  sub="avg"
-                />
-                <Metric
-                  label="Start PPG"
-                  value={formatPpg(team.starter_total_ppg)}
-                  sub={team.starter_ppg_rank ? ordinal(team.starter_ppg_rank) : undefined}
-                />
-                <Metric
-                  label="Trade Value"
-                  value={formatTv(team.total_trade_value)}
-                  sub={team.tv_rank ? ordinal(team.tv_rank) : undefined}
-                />
-                <Metric
-                  label="Pick Value"
-                  value={formatTv(team.draft_pick_value)}
-                />
-                <Metric
-                  label="Trend"
-                  value={
-                    ovrDelta != null && ovrDelta !== 0
-                      ? `${ovrDelta > 0 ? "+" : ""}${ovrDelta}`
-                      : "—"
-                  }
-                  tone={ovrTone}
-                />
-              </dl>
+            <p className="mt-0.5 text-xs text-bb-muted md:text-sm">
+              {team.owner ?? "Unknown owner"}
+              {team.is_me ? " · (me)" : ""}
+              {team.dynasty_rank
+                ? ` · ${ordinal(team.dynasty_rank)} of ${leagueRosterCount}`
+                : ""}
+            </p>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <RatingToggle ratingMode={ratingMode} onChange={setRatingMode} />
             </div>
+            <dl className="mt-2 grid grid-cols-3 gap-1.5 sm:grid-cols-5 md:mt-3 md:gap-2">
+              <Metric label="Start OVR" value={displayStarterOvr ?? "—"} sub="avg" />
+              <Metric
+                label="Start PPG"
+                value={formatPpg(team.starter_total_ppg)}
+                sub={team.starter_ppg_rank ? ordinal(team.starter_ppg_rank) : undefined}
+              />
+              <Metric
+                label="Trade Value"
+                value={formatTv(team.total_trade_value)}
+                sub={team.tv_rank ? ordinal(team.tv_rank) : undefined}
+              />
+              <Metric label="Pick Value" value={formatTv(team.draft_pick_value)} />
+              <Metric
+                label="Trend"
+                value={
+                  ovrDelta != null && ovrDelta !== 0
+                    ? `${ovrDelta > 0 ? "+" : ""}${ovrDelta}`
+                    : "—"
+                }
+                tone={ovrTone}
+              />
+            </dl>
           </div>
         </div>
-
-        <section className="bb-panel p-4">
-          <h2 className="bb-panel-title">Team OVR Breakdown</h2>
-          <div className="mt-2">
-            <ComponentDonut
-              components={team.component_breakdown}
-              ovr={team.avg_dynasty_rating}
-              compact
-            />
-          </div>
-        </section>
-
-        <section className="bb-panel p-4">
-          <h2 className="bb-panel-title">Team Traits</h2>
-          {team.traits.length > 0 ? (
-            <ul className="mt-3 space-y-1.5">
-              {team.traits.map((trait) => (
-                <li
-                  key={trait.label}
-                  className="flex items-center justify-between gap-3 text-sm"
-                >
-                  <span className="text-bb-muted">{trait.label}</span>
-                  <span className="text-right font-medium text-white">
-                    {trait.value}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-3 text-sm text-bb-muted">No traits yet.</p>
-          )}
-        </section>
       </section>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+      {/* Desktop: breakdown + traits in hero row */}
+      <section className="mb-5 hidden gap-4 lg:grid lg:grid-cols-2">
+        <TeamBreakdownPanel team={team} />
+        <TeamTraitsPanel team={team} />
+      </section>
+
+      {/* Roster front and center */}
+      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-5">
         <div className="min-w-0">
           <TeamTabs team={team} ratingMode={ratingMode} />
         </div>
 
-        <aside className="space-y-4">
-          {team.trade_candidates.length > 0 ? (
-            <section className="bb-panel p-4">
-              <h2 className="bb-panel-title">Trade Chips</h2>
-              <p className="mt-1 text-xs text-bb-muted">
-                Most movable pieces on this roster
-              </p>
-              <div className="mt-3">
-                <TradeCandidatesPanel
-                  candidates={team.trade_candidates}
-                  leagueId={leagueId}
-                />
-              </div>
-            </section>
-          ) : null}
+        {/* Mobile: breakdown + traits directly below roster */}
+        <div className="grid gap-3 lg:hidden">
+          <TeamBreakdownPanel team={team} />
+          <TeamTraitsPanel team={team} />
+        </div>
 
-          <section className="bb-panel p-4">
-            <h2 className="bb-panel-title">Depth Chart</h2>
-            <div className="mt-3">
-              <DepthChartPanel
-                depthChart={team.depth_chart}
-                leagueId={leagueId}
-                compact
-              />
-            </div>
-          </section>
-
-          {positionStrength ? (
-            <PositionStrengthBars
-              data={positionStrength}
-              myRosterId={rosterId}
-            />
-          ) : null}
-
-          <AgeProfileSidebar profiles={ageProfiles} rosterId={rosterId} />
-
-          <div className="bb-panel p-4">
-            <h2 className="bb-panel-title">Draft Picks</h2>
-            <div className="mt-3">
-              <DraftPicksPanel picks={team.draft_picks} compact />
-            </div>
-          </div>
-
-          <div className="bb-panel p-4">
-            <InjuryWatchPanel
-              injuries={team.injuries}
-              leagueId={leagueId}
-              compact
-            />
-          </div>
+        <aside className="space-y-3 md:space-y-4">
+          <TeamSidebarPanels
+            team={team}
+            leagueId={leagueId}
+            rosterId={rosterId}
+            positionStrength={positionStrength}
+            ageProfiles={ageProfiles}
+          />
         </aside>
       </div>
     </div>

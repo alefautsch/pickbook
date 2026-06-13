@@ -39,7 +39,7 @@ export default async function LeagueAnalysisPage({ params }: PageProps) {
 
   return (
     <AppShell leagues={leagues} activeLeagueId={leagueId}>
-      <div className="flex flex-1 flex-col bg-[#0d1117]/40 px-5 py-6 sm:px-8">
+      <div className="flex flex-1 flex-col bg-[#0d1117]/40 px-3 py-4 sm:px-8 sm:py-6">
         <header className="mb-6">
           <h1 className="text-2xl font-semibold text-white">{league.name}</h1>
           <p className="mt-1 text-sm text-bb-muted">

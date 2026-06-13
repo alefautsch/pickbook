@@ -1,7 +1,32 @@
+import { appendFileSync } from "node:fs";
 import type { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const SYNC_STATUS_HIT_LOG = "/tmp/bb-sync-status-hits.log";
+const SYNC_STATUS_MIN_GAP_MS = 5_000;
+
+let syncStatusCache: { body: string; at: number } | null = null;
+
+function logSyncStatusHit(
+  request: NextRequest,
+  path: string[],
+  callerOverride?: string,
+) {
+  if (path.join("/") !== "sync/status" || request.method !== "GET") return;
+  const caller =
+    callerOverride ?? request.headers.get("x-bb-sync-caller") ?? "unknown";
+  const source =
+    request.headers.get("referer") ??
+    request.headers.get("user-agent") ??
+    "unknown";
+  try {
+    appendFileSync(SYNC_STATUS_HIT_LOG, `${Date.now()} ${caller} ${source}\n`);
+  } catch {
+    // ignore logging failures
+  }
+}
 
 const BACKEND_URL =
   process.env.API_URL ??
@@ -13,7 +38,29 @@ function backendUrl(path: string[], search: string): string {
   return `${BACKEND_URL.replace(/\/$/, "")}/${suffix}${search}`;
 }
 
+function cachedSyncStatusResponse(): Response | null {
+  if (!syncStatusCache) return null;
+  return new Response(syncStatusCache.body, {
+    status: 200,
+    headers: {
+      "content-type": "application/json",
+      "x-bb-sync-status-cache": "hit",
+    },
+  });
+}
+
 async function proxy(request: NextRequest, path: string[]): Promise<Response> {
+  const isSyncStatusGet =
+    request.method === "GET" && path.join("/") === "sync/status";
+
+  if (isSyncStatusGet && syncStatusCache) {
+    const age = Date.now() - syncStatusCache.at;
+    if (age < SYNC_STATUS_MIN_GAP_MS) {
+      logSyncStatusHit(request, path, "cached");
+      return cachedSyncStatusResponse()!;
+    }
+  }
+
   const url = backendUrl(path, request.nextUrl.search);
   const headers = new Headers(request.headers);
   headers.delete("host");
@@ -34,6 +81,16 @@ async function proxy(request: NextRequest, path: string[]): Promise<Response> {
   const responseHeaders = new Headers(upstream.headers);
   responseHeaders.delete("content-encoding");
 
+  if (isSyncStatusGet && upstream.ok) {
+    const body = await upstream.text();
+    syncStatusCache = { body, at: Date.now() };
+    return new Response(body, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers: responseHeaders,
+    });
+  }
+
   return new Response(upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,
@@ -45,6 +102,7 @@ type RouteContext = { params: Promise<{ path: string[] }> };
 
 async function handle(request: NextRequest, context: RouteContext) {
   const { path } = await context.params;
+  logSyncStatusHit(request, path);
   return proxy(request, path);
 }
 

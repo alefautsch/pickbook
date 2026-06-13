@@ -13,7 +13,8 @@ import { formatSlotLabel } from "@/lib/positions";
 import { OvrBadge } from "./OvrBadge";
 import { ExpendabilityBadge } from "./ExpendabilityBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
-import { PositionPill } from "./PositionPill";
+import { PositionPill, PositionTag } from "./PositionPill";
+import { RosterMobileList } from "./RosterMobileList";
 
 type RosterTableProps = {
   starters?: LineupSlot[];
@@ -26,8 +27,12 @@ type RosterTableProps = {
 };
 
 function PlayerCell({ player }: { player: PlayerCard }) {
+  const metaParts = [player.nfl_team, player.age != null ? String(player.age) : null].filter(
+    Boolean,
+  );
+
   return (
-    <div className="flex items-center gap-2.5">
+    <div className="flex items-center gap-2 md:gap-2.5">
       <PlayerHeadshot
         src={player.headshot_url}
         alt={player.player_name ?? "Player"}
@@ -42,7 +47,17 @@ function PlayerCell({ player }: { player: PlayerCard }) {
         >
           {player.player_name}
         </Link>
-        <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 md:hidden">
+          {player.position ? <PositionTag position={player.position} /> : null}
+          {metaParts.length > 0 ? (
+            <span className="text-xs text-bb-muted">{metaParts.join(" · ")}</span>
+          ) : null}
+          <ExpendabilityBadge
+            tag={player.trade_tag}
+            lineupDelta={player.lineup_delta_ppg}
+          />
+        </div>
+        <div className="mt-0.5 hidden flex-wrap items-center gap-1.5 md:flex">
           <p className="truncate text-xs text-bb-muted">
             {player.position ?? "—"}
             {player.nfl_team ? ` · ${player.nfl_team}` : ""}
@@ -66,7 +81,7 @@ function ProjectionCell({ player }: { player: PlayerCard }) {
     .join(" · ");
 
   return (
-    <td className="px-3 py-2.5" title={title}>
+    <td className="px-2 py-2 md:px-3 md:py-2.5" title={title}>
       <span className="text-lg font-semibold tabular-nums text-white">
         {formatPpg(player.projected_ppg)}
       </span>
@@ -101,15 +116,19 @@ function StatRow({
       </td>
       {full ? (
         <>
-          <td className="px-3 py-2.5 text-white">{player.nfl_team ?? "—"}</td>
-          <td className="px-3 py-2.5 text-white">{player.age ?? "—"}</td>
+          <td className="hidden px-3 py-2.5 text-white md:table-cell">
+            {player.nfl_team ?? "—"}
+          </td>
+          <td className="hidden px-3 py-2.5 text-white md:table-cell">
+            {player.age ?? "—"}
+          </td>
         </>
       ) : null}
-      <td className="px-3 py-2.5">
+      <td className="px-2 py-2 md:px-3 md:py-2.5">
         <OvrBadge ovr={displayOvr} expected={player.hppg_expected} size="sm" />
       </td>
       <ProjectionCell player={player} />
-      <td className="px-3 py-2.5 text-white">
+      <td className="px-2 py-2 text-white md:px-3 md:py-2.5">
         {formatWorpPpg(player.worp_ppg)}
       </td>
       {full ? (
@@ -121,7 +140,9 @@ function StatRow({
           )}
         </td>
       ) : null}
-      <td className="px-3 py-2.5 text-white">{formatTv(player.trade_value)}</td>
+      <td className="px-2 py-2 text-white md:px-3 md:py-2.5">
+        {formatTv(player.trade_value)}
+      </td>
       {full ? (
         <>
           <td className="px-3 py-2.5 text-white">
@@ -156,11 +177,10 @@ function EmptyStatRow({
       </td>
       {full ? (
         <>
-          <td className="px-3 py-2.5 text-bb-muted">—</td>
-          <td className="px-3 py-2.5 text-bb-muted">—</td>
+          <td className="hidden px-3 py-2.5 text-bb-muted md:table-cell">—</td>
+          <td className="hidden px-3 py-2.5 text-bb-muted md:table-cell">—</td>
         </>
       ) : null}
-      <td className="px-3 py-2.5 text-bb-muted">—</td>
       <td className="px-3 py-2.5 text-bb-muted">—</td>
       <td className="px-3 py-2.5 text-bb-muted">—</td>
       {full ? <td className="px-3 py-2.5 text-bb-muted">—</td> : null}
@@ -204,23 +224,33 @@ export function RosterTable({
   const colSpan = full ? 12 : 6;
 
   return (
-    <div className="bb-card overflow-x-auto">
-      <table className="w-full min-w-[1040px] text-left text-sm">
+    <div className="bb-card overflow-hidden md:overflow-x-auto">
+      <RosterMobileList
+        starters={starters}
+        players={players}
+        bench={bench}
+        slotLabels={slotLabels}
+        full={full}
+        ratingMode={ratingMode}
+      />
+      <table className="hidden w-full min-w-[1040px] text-left text-sm md:table">
         <thead>
           <tr className="border-b border-bb-border/60 text-xs uppercase tracking-wide text-bb-muted">
-            <th className="w-14 px-3 py-3 text-center font-medium">Pos</th>
-            <th className="px-3 py-3 font-medium">Player</th>
+            <th className="w-11 px-2 py-2.5 text-center font-medium md:w-14 md:px-3 md:py-3">
+              Pos
+            </th>
+            <th className="px-2 py-2.5 font-medium md:px-3 md:py-3">Player</th>
             {full ? (
               <>
-                <th className="px-3 py-3 font-medium">Team</th>
-                <th className="px-3 py-3 font-medium">Age</th>
+                <th className="hidden px-3 py-3 font-medium md:table-cell">Team</th>
+                <th className="hidden px-3 py-3 font-medium md:table-cell">Age</th>
               </>
             ) : null}
-            <th className="px-3 py-3 font-medium">OVR</th>
-            <th className="px-3 py-3 font-medium">Proj PPG</th>
-            <th className="px-3 py-3 font-medium">W/G</th>
+            <th className="px-2 py-2.5 font-medium md:px-3 md:py-3">OVR</th>
+            <th className="px-2 py-2.5 font-medium md:px-3 md:py-3">Proj PPG</th>
+            <th className="px-2 py-2.5 font-medium md:px-3 md:py-3">W/G</th>
             {full ? <th className="px-3 py-3 font-medium">ACTV</th> : null}
-            <th className="px-3 py-3 font-medium">Trade Value</th>
+            <th className="px-2 py-2.5 font-medium md:px-3 md:py-3">Trade Value</th>
             {full ? (
               <>
                 <th className="px-3 py-3 font-medium">WORP</th>

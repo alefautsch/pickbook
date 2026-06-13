@@ -183,7 +183,7 @@ export function AdvisorWidget({ open, onOpenChange }: AdvisorWidgetProps) {
         <button
           type="button"
           onClick={() => onOpenChange(true)}
-          className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full border border-bb-gold/40 bg-[#0a0e14]/95 px-4 py-2.5 text-sm font-medium text-bb-gold shadow-lg shadow-black/40 backdrop-blur transition hover:border-bb-gold/60 hover:bg-bb-gold/10"
+          className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-40 flex items-center gap-2 rounded-full border border-bb-gold/40 bg-[#0a0e14]/95 px-3 py-2 text-xs font-medium text-bb-gold shadow-lg shadow-black/40 backdrop-blur transition hover:border-bb-gold/60 hover:bg-bb-gold/10 sm:bottom-5 sm:right-5 sm:px-4 sm:py-2.5 sm:text-sm"
           title="Open dynasty advisor"
         >
           <span className="text-base">✦</span>
@@ -193,7 +193,7 @@ export function AdvisorWidget({ open, onOpenChange }: AdvisorWidgetProps) {
 
       {open ? (
         <aside
-          className="fixed bottom-5 right-5 z-50 flex h-[min(640px,calc(100vh-2.5rem))] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-bb-border/60 bg-[#0a0e14]/98 shadow-2xl shadow-black/50 backdrop-blur"
+          className="fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-50 flex h-[min(640px,calc(100dvh-1.5rem))] flex-col overflow-hidden rounded-2xl border border-bb-border/60 bg-[#0a0e14]/98 shadow-2xl shadow-black/50 backdrop-blur sm:inset-x-auto sm:bottom-5 sm:right-5 sm:h-[min(640px,calc(100vh-2.5rem))] sm:w-[min(420px,calc(100vw-2rem))]"
           role="dialog"
           aria-label="Dynasty advisor"
         >

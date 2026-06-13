@@ -67,7 +67,7 @@ export function RankingsTable(props: RankingsTableProps) {
               key={opt.key}
               type="button"
               onClick={() => setSort(opt.key)}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+              className={`rounded-md px-2 py-1 text-[11px] font-medium transition sm:px-3 sm:py-1.5 sm:text-xs ${
                 sort === opt.key
                   ? "bg-bb-gold/20 text-bb-gold"
                   : "text-bb-muted hover:bg-white/5 hover:text-white"
@@ -79,7 +79,57 @@ export function RankingsTable(props: RankingsTableProps) {
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="space-y-2 p-3 md:hidden">
+        {rows.map((row) => (
+          <Link
+            key={row.roster_id}
+            href={`/leagues/${leagueId}/teams/${row.roster_id}`}
+            className={`block rounded-lg border border-bb-border/40 px-3 py-3 transition hover:bg-white/3 ${
+              row.is_me ? "border-bb-gold/30 bg-bb-gold/6" : "bg-black/10"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg font-bold text-bb-gold">
+                    {row[rankKey] ?? "—"}
+                  </span>
+                  <p className="truncate font-medium text-white">
+                    {row.team_name ?? "Team"}
+                    {row.is_me ? (
+                      <span className="ml-1 text-xs text-bb-gold">(me)</span>
+                    ) : null}
+                  </p>
+                </div>
+                {row.owner ? (
+                  <p className="truncate text-xs text-bb-muted">{row.owner}</p>
+                ) : null}
+              </div>
+              <OvrBadge ovr={row.avg_dynasty_rating} size="sm" />
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <p className="text-bb-muted">Starter PPG</p>
+                <p className="font-medium text-white">{formatPpg(row.starter_total_ppg)}</p>
+              </div>
+              <div>
+                <p className="text-bb-muted">Player Value</p>
+                <p className="font-medium text-white">{formatTv(row.total_trade_value)}</p>
+              </div>
+              <div>
+                <p className="text-bb-muted">Pick Value</p>
+                <p className="font-medium text-white">{formatTv(row.draft_pick_value)}</p>
+              </div>
+              <div className="flex flex-col items-start gap-1">
+                <p className="text-bb-muted">Contender</p>
+                <ContenderTag tier={row.contender_tier} size="sm" />
+              </div>
+            </div>
+          </Link>
+        ))}
+      </div>
+
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full min-w-[820px] text-left text-sm">
           <thead>
             <tr className="border-b border-bb-border/50 text-xs uppercase tracking-wide text-bb-muted">

@@ -63,10 +63,10 @@ export default async function LeagueOverviewPage({ params }: PageProps) {
       }}
     >
       <HashScroll />
-      <div className="flex flex-1 flex-col bg-[#0d1117]/40 px-5 py-6 sm:px-8">
+      <div className="flex flex-1 flex-col bg-[#0d1117]/40 px-3 py-4 sm:px-8 sm:py-6">
         {leagueTile ? <SummaryCards league={leagueTile} /> : null}
 
-        <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="flex flex-col gap-6 xl:grid xl:grid-cols-[minmax(0,1fr)_300px] xl:gap-6">
           <div className="min-w-0 space-y-6">
             <div id="rankings" className="scroll-mt-6">
               <RankingsTable

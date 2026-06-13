@@ -499,8 +499,47 @@ export function getPlayerGameLog(
   );
 }
 
+let syncStatusClientCache: SyncStatusResponse | null = null;
+let syncStatusClientInflight: Promise<SyncStatusResponse> | null = null;
+let syncStatusClientLastFetch = 0;
+const SYNC_STATUS_MIN_GAP_MS = 5_000;
+
+export function invalidateSyncStatusCache(): void {
+  syncStatusClientCache = null;
+  syncStatusClientLastFetch = 0;
+}
+
 export function getSyncStatus(): Promise<SyncStatusResponse> {
-  return apiFetch<SyncStatusResponse>("/sync/status");
+  const isBrowser = typeof window !== "undefined";
+  const headers = { "x-bb-sync-caller": isBrowser ? "browser" : "server" };
+
+  if (isBrowser) {
+    const now = Date.now();
+    if (syncStatusClientInflight) {
+      return syncStatusClientInflight;
+    }
+    if (
+      syncStatusClientCache &&
+      now - syncStatusClientLastFetch < SYNC_STATUS_MIN_GAP_MS
+    ) {
+      return Promise.resolve(syncStatusClientCache);
+    }
+
+    syncStatusClientInflight = apiFetch<SyncStatusResponse>("/sync/status", {
+      headers,
+    })
+      .then((data) => {
+        syncStatusClientCache = data;
+        syncStatusClientLastFetch = Date.now();
+        return data;
+      })
+      .finally(() => {
+        syncStatusClientInflight = null;
+      });
+    return syncStatusClientInflight;
+  }
+
+  return apiFetch<SyncStatusResponse>("/sync/status", { headers });
 }
 
 export function postSyncAll(forceRefresh = false): Promise<SyncAllResponse> {

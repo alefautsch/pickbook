@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { LeagueTile as LeagueTileData } from "@/lib/api";
+import { buildNavItems, resolveActiveNav } from "@/lib/nav";
 
 const PICKBOOK_URL =
   process.env.NEXT_PUBLIC_PICKBOOK_URL ??
@@ -14,56 +15,12 @@ type SidebarNavProps = {
   activeLeagueId?: string;
 };
 
-type NavKey =
-  | "overview"
-  | "league"
-  | "my-team"
-  | "rankings"
-  | "players"
-  | "portfolio"
-  | "rookie-draft"
-  | "settings";
-
-function resolveActiveNav(
-  pathname: string,
-  hash: string,
-  leagueId?: string,
-  myRosterId?: string | null,
-): NavKey | null {
-  if (pathname.startsWith("/settings")) return "settings";
-  if (pathname.startsWith("/portfolio")) return "portfolio";
-  if (pathname.startsWith("/players")) return "players";
-
-  if (leagueId) {
-    const leagueBase = `/leagues/${leagueId}`;
-    if (pathname.startsWith(`${leagueBase}/rookie-draft`)) {
-      return "rookie-draft";
-    }
-    const leagueAnalysis = `${leagueBase}/league`;
-
-    if (myRosterId && pathname.startsWith(`${leagueBase}/teams/${myRosterId}`)) {
-      return "my-team";
-    }
-    if (pathname === leagueAnalysis || pathname.startsWith(`${leagueAnalysis}/`)) {
-      return "league";
-    }
-    if (pathname === leagueBase && hash === "#rankings") {
-      return "rankings";
-    }
-    if (pathname === leagueBase) {
-      return "overview";
-    }
-  }
-
-  if (pathname === "/") return "overview";
-  return null;
-}
-
 export function SidebarNav({ leagues, activeLeagueId }: SidebarNavProps) {
   const pathname = usePathname();
   const activeLeague = leagues.find((l) => l.league_id === activeLeagueId) ?? leagues[0];
   const leagueId = activeLeague?.league_id;
   const myRosterId = activeLeague?.my_roster_id;
+  const leagueBase = leagueId ? `/leagues/${leagueId}` : "/";
 
   const [hash, setHash] = useState("");
   useEffect(() => {
@@ -74,26 +31,10 @@ export function SidebarNav({ leagues, activeLeagueId }: SidebarNavProps) {
   }, [pathname]);
 
   const active = resolveActiveNav(pathname, hash, leagueId, myRosterId);
-
-  const leagueBase = leagueId ? `/leagues/${leagueId}` : "/";
-  const myTeamHref =
-    leagueId && myRosterId
-      ? `/leagues/${leagueId}/teams/${myRosterId}`
-      : leagueBase;
-
-  const items: { key: NavKey; label: string; href: string }[] = [
-    { key: "overview", label: "Overview", href: leagueBase },
-    { key: "league", label: "League", href: `${leagueBase}/league` },
-    { key: "my-team", label: "My Team", href: myTeamHref },
-    { key: "rankings", label: "Rankings", href: `${leagueBase}#rankings` },
-    { key: "players", label: "Players", href: "/players" },
-    { key: "portfolio", label: "Portfolio", href: "/portfolio" },
-    { key: "rookie-draft", label: "Rookie Draft", href: `${leagueBase}/rookie-draft` },
-    { key: "settings", label: "Settings", href: "/settings" },
-  ];
+  const items = buildNavItems(leagueId, myRosterId);
 
   return (
-    <aside className="flex w-32 shrink-0 flex-col border-r border-bb-border/60 bg-[#0a0e14]/90">
+    <aside className="hidden w-32 shrink-0 flex-col border-r border-bb-border/60 bg-[#0a0e14]/90 lg:flex">
       <div className="border-b border-bb-border/40 px-3 py-4">
         <Link href={leagueBase} className="block">
           <div className="flex items-center gap-1.5">

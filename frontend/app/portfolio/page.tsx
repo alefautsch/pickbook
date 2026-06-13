@@ -25,9 +25,9 @@ export default async function PortfolioPage() {
       leagues={leagues}
       advisorContext={{ pageType: "portfolio", summary: "Cross-league portfolio" }}
     >
-      <div className="flex flex-1 flex-col px-6 py-10 sm:px-10">
-        <header className="mb-8">
-          <h1 className="text-3xl font-semibold text-white">Portfolio</h1>
+      <div className="flex flex-1 flex-col px-3 py-4 sm:px-6 sm:py-10 md:px-10">
+        <header className="mb-6 md:mb-8">
+          <h1 className="text-2xl font-semibold text-white md:text-3xl">Portfolio</h1>
           <p className="mt-2 text-sm text-bb-muted">
             {portfolio.unique_players} players across {portfolio.total_leagues}{" "}
             leagues · {portfolio.multi_league_count} multi-league holdings

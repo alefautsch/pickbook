@@ -24,15 +24,15 @@ export function TeamTabs({ team, ratingMode = "dynasty" }: TeamTabsProps) {
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-bb-border/50 pb-3">
+      <div className="mb-3 grid grid-cols-3 gap-1 rounded-xl bg-black/25 p-1 ring-1 ring-inset ring-white/[0.06] md:mb-4 md:flex md:w-fit md:gap-2 md:rounded-none md:bg-transparent md:p-0 md:ring-0">
         {tabs.map((t) => (
           <button
             key={t.key}
             type="button"
             onClick={() => setTab(t.key)}
-            className={`rounded-lg px-3 py-1.5 text-sm transition ${
+            className={`rounded-lg px-2 py-2 text-xs font-medium transition md:px-3 md:py-1.5 md:text-sm ${
               tab === t.key
-                ? "bg-bb-gold/20 text-bb-gold"
+                ? "bg-bb-gold/20 text-bb-gold shadow-sm"
                 : "text-bb-muted hover:bg-white/5 hover:text-white"
             }`}
           >
