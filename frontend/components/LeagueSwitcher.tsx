@@ -4,9 +4,14 @@ import type { LeagueTile as LeagueTileData } from "@/lib/api";
 type LeagueSwitcherProps = {
   leagues: LeagueTileData[];
   activeLeagueId?: string;
+  leagueHref?: (leagueId: string) => string;
 };
 
-export function LeagueSwitcher({ leagues, activeLeagueId }: LeagueSwitcherProps) {
+export function LeagueSwitcher({
+  leagues,
+  activeLeagueId,
+  leagueHref = (leagueId) => `/leagues/${leagueId}`,
+}: LeagueSwitcherProps) {
   return (
     <nav className="flex min-w-0 gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {leagues.map((league) => {
@@ -15,7 +20,7 @@ export function LeagueSwitcher({ leagues, activeLeagueId }: LeagueSwitcherProps)
         return (
           <Link
             key={league.league_id}
-            href={`/leagues/${league.league_id}`}
+            href={leagueHref(league.league_id)}
             prefetch={false}
             className={`w-36 shrink-0 rounded-lg border px-2.5 py-1.5 transition sm:w-44 sm:px-3 sm:py-2 ${
               active

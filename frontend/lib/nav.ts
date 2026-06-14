@@ -60,7 +60,11 @@ export function buildNavItems(
     { key: "league", label: "League", href: `${leagueBase}/league` },
     { key: "my-team", label: "My Team", href: myTeamHref },
     { key: "rankings", label: "Rankings", href: `${leagueBase}#rankings` },
-    { key: "players", label: "Players", href: "/players" },
+    {
+      key: "players",
+      label: "Players",
+      href: leagueId ? `/players?league_id=${leagueId}` : "/players",
+    },
     { key: "portfolio", label: "Portfolio", href: "/portfolio" },
     { key: "rookie-draft", label: "Rookie Draft", href: `${leagueBase}/rookie-draft` },
     { key: "settings", label: "Settings", href: "/settings" },

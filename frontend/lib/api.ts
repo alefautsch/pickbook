@@ -610,6 +610,45 @@ export type PlayerSearchResults = {
   hits: PlayerSearchHit[];
 };
 
+export type LeaguePlayerRow = {
+  player_id: string;
+  player_name: string | null;
+  position: string | null;
+  nfl_team: string | null;
+  age: number | null;
+  ovr: number | null;
+  tier: string | null;
+  dynasty_rookie: boolean;
+  hppg: number | null;
+  projected_ppg: number | null;
+  worp_ppg: number | null;
+  trade_value: number | null;
+  hppg_expected: boolean;
+  availability: number | null;
+  healthy_games: number | null;
+  total_games: number | null;
+  season_worp: number | null;
+  flex_rating: number | null;
+  porp: number | null;
+  projection_source: string | null;
+  headshot_url: string;
+  is_free_agent: boolean;
+  roster_team_name: string | null;
+  roster_id: string | null;
+};
+
+export type LeaguePlayerDirectory = {
+  league_id: string;
+  league_name: string;
+  total_players: number;
+  computed_at: string | null;
+  players: LeaguePlayerRow[];
+};
+
+export function getLeaguePlayers(leagueId: string): Promise<LeaguePlayerDirectory> {
+  return apiFetch<LeaguePlayerDirectory>(`/leagues/${leagueId}/players`);
+}
+
 export type FreeAgentRow = {
   player_id: string;
   player_name: string | null;

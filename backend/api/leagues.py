@@ -7,7 +7,8 @@ from backend.db.session import get_db
 from backend.schemas.analysis import LeagueAnalysis
 from backend.schemas.free_agent import FreeAgentBoard
 from backend.schemas.league import LeagueDetail, LeagueRankings, LeagueTile
-from backend.services.portfolio_service import get_free_agents
+from backend.schemas.league_players import LeaguePlayerDirectory
+from backend.services.portfolio_service import get_free_agents, get_league_players
 from backend.services.read_service import (
     get_league_analysis,
     get_league_detail,
@@ -45,6 +46,14 @@ def read_league_analysis(league_id: str, db: Session = Depends(get_db)) -> Leagu
     if analysis is None:
         raise HTTPException(status_code=404, detail="League not found")
     return analysis
+
+
+@router.get("/{league_id}/players", response_model=LeaguePlayerDirectory)
+def read_league_players(league_id: str, db: Session = Depends(get_db)) -> LeaguePlayerDirectory:
+    directory = get_league_players(db, league_id)
+    if directory is None:
+        raise HTTPException(status_code=404, detail="League not found")
+    return directory
 
 
 @router.get("/{league_id}/free-agents", response_model=FreeAgentBoard)

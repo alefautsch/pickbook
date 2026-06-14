@@ -16,6 +16,7 @@ import {
   formatWorpPpg,
   ordinal,
 } from "@/lib/format";
+import { TeamLogoWatermark } from "@/components/TeamLogoWatermark";
 import { tierLabels, ovrTier } from "@/lib/ovr";
 
 type PlayerHeroProps = {
@@ -64,9 +65,10 @@ export function PlayerHero({ player }: PlayerHeroProps) {
   ];
 
   return (
-    <section className="bb-card mb-4 overflow-hidden p-4 sm:mb-6 sm:p-6">
+    <section className="bb-card relative mb-4 overflow-hidden p-4 sm:mb-6 sm:p-6">
+      <TeamLogoWatermark team={player.nfl_team} />
       {/* Mobile / tablet */}
-      <div className="lg:hidden">
+      <div className="relative lg:hidden">
         <div className="flex items-start gap-3">
           <PlayerHeadshot
             src={player.headshot_url}
@@ -164,7 +166,7 @@ export function PlayerHero({ player }: PlayerHeroProps) {
       </div>
 
       {/* Desktop */}
-      <div className="hidden flex-col gap-4 lg:flex lg:flex-row lg:items-start">
+      <div className="relative hidden flex-col gap-4 lg:flex lg:flex-row lg:items-start">
         <PlayerHeadshot
           src={player.headshot_url}
           alt={player.player_name ?? "Player"}

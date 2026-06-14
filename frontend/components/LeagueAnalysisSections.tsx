@@ -3,14 +3,12 @@
 import Link from "next/link";
 import type {
   AgeProfile,
-  FreeAgentBoard as FreeAgentBoardData,
   LeagueAnalysis,
   LeagueDetail,
   PositionStrengthMap,
 } from "@/lib/api";
 import { AgeProfilePanel } from "@/components/AgeProfilePanel";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { FreeAgentBoard } from "@/components/FreeAgentBoard";
 import { PositionHeatmap } from "@/components/PositionHeatmap";
 import { TradeSurplusPanel } from "@/components/TradeSurplusPanel";
 import { OvrBadge } from "@/components/OvrBadge";
@@ -18,29 +16,16 @@ import { OvrBadge } from "@/components/OvrBadge";
 type LeagueAnalysisSectionsProps = {
   leagueId: string;
   league: LeagueDetail;
-  freeAgents: FreeAgentBoardData;
   analysis: LeagueAnalysis;
 };
 
 export function LeagueAnalysisSections({
   leagueId,
   league,
-  freeAgents,
   analysis,
 }: LeagueAnalysisSectionsProps) {
   return (
     <div className="flex flex-col gap-4 md:gap-5">
-      <CollapsibleSection title="Free Agents" defaultOpen className="bb-panel p-0">
-        <div className="px-3 pb-3 md:px-4 md:pb-4">
-          <FreeAgentBoard
-            leagueId={leagueId}
-            superflex={league.superflex}
-            initialBoard={freeAgents}
-            embedded
-          />
-        </div>
-      </CollapsibleSection>
-
       <CollapsibleSection title="All Teams" defaultOpen>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {league.teams.map((team) => (

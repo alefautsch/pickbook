@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session
 from backend.config import get_settings
 from backend.db.models import League, PlayerSnapshot, Roster, RosterPlayer
 from backend.schemas.free_agent import FreeAgentBoard, FreeAgentRow
+from backend.schemas.league_players import LeaguePlayerDirectory, LeaguePlayerRow
 from backend.schemas.portfolio import (
     PlayerHoldings,
     PlayerSearchHit,
@@ -361,4 +363,83 @@ def get_free_agents(
         fa_pool_size=fa_pool_size,
         total_available=len(fa_rows),
         players=fa_rows,
+    )
+
+
+def _roster_info_by_player(db: Session, league_id: str) -> dict[str, tuple[str, str]]:
+    rows = db.execute(
+        select(
+            RosterPlayer.sleeper_player_id,
+            Roster.team_name,
+            Roster.sleeper_roster_id,
+        )
+        .join(Roster, Roster.id == RosterPlayer.roster_id)
+        .where(Roster.league_id == league_id)
+    ).all()
+    return {
+        str(row[0]): (row[1] or f"Team {row[2]}", str(row[2]))
+        for row in rows
+    }
+
+
+def get_league_players(db: Session, league_id: str) -> LeaguePlayerDirectory | None:
+    league = db.get(League, league_id)
+    if league is None:
+        return None
+
+    rostered = _rostered_player_ids(db, league_id)
+    roster_info = _roster_info_by_player(db, league_id)
+
+    snapshots = db.scalars(
+        select(PlayerSnapshot)
+        .where(PlayerSnapshot.league_id == league_id)
+        .order_by(PlayerSnapshot.dynasty_rating.desc().nullslast())
+    ).all()
+    canonical_ids = _canonical_snapshot_ids(snapshots)
+
+    players: list[LeaguePlayerRow] = []
+    computed_at: datetime | None = None
+    for snap in snapshots:
+        if snap.sleeper_player_id not in canonical_ids:
+            continue
+        pid = snap.sleeper_player_id
+        is_fa = pid not in rostered
+        team_name, roster_id = roster_info.get(pid, (None, None))
+        if computed_at is None or (snap.computed_at and snap.computed_at > computed_at):
+            computed_at = snap.computed_at
+        players.append(
+            LeaguePlayerRow(
+                player_id=pid,
+                player_name=snap.player_name,
+                position=snap.position,
+                nfl_team=snap.nfl_team,
+                age=snap.age,
+                ovr=snap.dynasty_rating,
+                tier=ovr_tier(snap.dynasty_rating),
+                dynasty_rookie=snap.dynasty_rookie,
+                hppg=snap.hppg,
+                projected_ppg=snap.projected_ppg,
+                worp_ppg=snap.worp_ppg,
+                trade_value=snap.trade_value,
+                hppg_expected=snap.hppg_expected,
+                availability=snap.availability,
+                healthy_games=snap.healthy_games,
+                total_games=snap.total_games,
+                season_worp=snap.season_worp,
+                flex_rating=snap.flex_rating,
+                porp=snap.porp,
+                projection_source=snap.projection_source,
+                headshot_url=headshot_url(pid),
+                is_free_agent=is_fa,
+                roster_team_name=team_name,
+                roster_id=roster_id,
+            )
+        )
+
+    return LeaguePlayerDirectory(
+        league_id=league_id,
+        league_name=league.name,
+        total_players=len(players),
+        computed_at=computed_at,
+        players=players,
     )
