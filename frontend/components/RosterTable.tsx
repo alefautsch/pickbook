@@ -26,7 +26,7 @@ type RosterTableProps = {
   ratingMode?: RatingMode;
 };
 
-function PlayerCell({ player }: { player: PlayerCard }) {
+function PlayerCell({ player, full = false }: { player: PlayerCard; full?: boolean }) {
   const metaParts = [player.nfl_team, player.age != null ? String(player.age) : null].filter(
     Boolean,
   );
@@ -48,21 +48,11 @@ function PlayerCell({ player }: { player: PlayerCard }) {
           <span className="truncate">{player.player_name}</span>
           {player.dynasty_rookie ? <RookieBadge /> : null}
         </Link>
-        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 md:hidden">
+        <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
           {player.position ? <PositionTag position={player.position} /> : null}
-          {metaParts.length > 0 ? (
+          {!full && metaParts.length > 0 ? (
             <span className="text-xs text-bb-muted">{metaParts.join(" · ")}</span>
           ) : null}
-          <ExpendabilityBadge
-            tag={player.trade_tag}
-            lineupDelta={player.lineup_delta_ppg}
-          />
-        </div>
-        <div className="mt-0.5 hidden flex-wrap items-center gap-1.5 md:flex">
-          <p className="truncate text-xs text-bb-muted">
-            {player.position ?? "—"}
-            {player.nfl_team ? ` · ${player.nfl_team}` : ""}
-          </p>
           <ExpendabilityBadge
             tag={player.trade_tag}
             lineupDelta={player.lineup_delta_ppg}
@@ -113,7 +103,7 @@ function StatRow({
         <PositionPill slot={slot} fill />
       </td>
       <td className="px-3 py-2.5">
-        <PlayerCell player={player} />
+        <PlayerCell player={player} full={full} />
       </td>
       {full ? (
         <>

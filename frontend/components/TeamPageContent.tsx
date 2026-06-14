@@ -270,22 +270,15 @@ export function TeamPageContent({
         </div>
       </section>
 
-      {/* Desktop: breakdown + traits in hero row */}
-      <section className="mb-5 hidden gap-4 lg:grid lg:grid-cols-2">
-        <TeamBreakdownPanel team={team} />
-        <TeamTraitsPanel team={team} />
-      </section>
-
       {/* Roster front and center */}
       <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-5">
-        <div className="min-w-0">
+        <div className="min-w-0 space-y-4">
           <TeamTabs team={team} ratingMode={ratingMode} />
-        </div>
 
-        {/* Mobile: breakdown + traits directly below roster */}
-        <div className="grid gap-3 lg:hidden">
-          <TeamBreakdownPanel team={team} />
-          <TeamTraitsPanel team={team} />
+          <div className="grid gap-3 lg:grid-cols-2 lg:gap-4">
+            <TeamBreakdownPanel team={team} />
+            <TeamTraitsPanel team={team} />
+          </div>
         </div>
 
         <aside className="space-y-3 md:space-y-4">
