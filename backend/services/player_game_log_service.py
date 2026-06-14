@@ -36,18 +36,20 @@ def _float_or_none(row: pd.Series, field: str) -> float | None:
     return float(value)
 
 
-def _game_log_cache_path(seasons: tuple[int, ...], ppr: float) -> Any:
+def _game_log_cache_path(seasons: tuple[int, ...], ppr: float, te_premium: float) -> Any:
     ppr_key = str(ppr).replace(".", "_")
-    return CACHE_DIR / f"player_game_log_v3_{'-'.join(str(s) for s in seasons)}_{ppr_key}.json"
+    te_key = str(te_premium).replace(".", "_")
+    return CACHE_DIR / f"player_game_log_v4_{'-'.join(str(s) for s in seasons)}_{ppr_key}_te{te_key}.json"
 
 
 def _load_game_log_rows(
     *,
     seasons: tuple[int, ...],
     ppr: float,
+    te_premium: float = 0.0,
     force_refresh: bool = False,
 ) -> list[dict[str, Any]]:
-    cache_path = _game_log_cache_path(seasons, ppr)
+    cache_path = _game_log_cache_path(seasons, ppr, te_premium)
     if not force_refresh and cache_path.exists():
         try:
             import json
@@ -73,7 +75,10 @@ def _load_game_log_rows(
             (weekly["season_type"] == "REG")
             & (weekly["position"].isin(POSITIONS))
         ].copy()
-        weekly["half_ppr"] = weekly.apply(lambda row: _half_ppr_points(row, ppr=ppr), axis=1)
+        weekly["half_ppr"] = weekly.apply(
+            lambda row: _half_ppr_points(row, ppr=ppr, te_premium=te_premium),
+            axis=1,
+        )
         weekly["pfr_id"] = weekly["player_id"].map(gsis_to_pfr)
 
         snaps = _download_csv(f"{_NFLVERSE}/snap_counts/snap_counts_{season}.csv")
@@ -179,6 +184,7 @@ def get_player_game_log(
     rows = _load_game_log_rows(
         seasons=DEFAULT_SEASONS,
         ppr=scoring.ppr,
+        te_premium=scoring.te_premium,
         force_refresh=force_refresh,
     )
     entries = _entries_for_player(rows, snapshot.player_name)

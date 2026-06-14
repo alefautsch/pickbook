@@ -150,6 +150,7 @@ def compute_player_snapshots(
         opportunity_store = OpportunityStore.load(
             sleeper_players=state.sleeper_players,
             ppr=context.ppr,
+            te_premium=context.te_premium,
             force_refresh=force_refresh,
         )
     except Exception:
@@ -202,6 +203,8 @@ def compute_player_snapshots(
         age = state._player_age(player_id)
         bio = _bio_from_sleeper(sleeper)
         worp_ppg = _resolve_worp_ppg_for_snapshot(state, player_id, war_player, healthy)
+        hppg = healthy.get("healthy_ppg")
+        trade_value = round(blended.trade_value, 2)
 
         base_rows.append(
             {
@@ -221,13 +224,13 @@ def compute_player_snapshots(
                 "dynasty_rookie": bool(scored.get("dynasty_rookie")),
                 "components_json": scored.get("dynasty_components") or {},
                 "value_inputs_json": state.value_inputs(war_player, blended),
-                "hppg": healthy.get("healthy_ppg"),
+                "hppg": hppg,
                 "worp_ppg": worp_ppg,
                 "availability": healthy.get("availability"),
                 "healthy_games": healthy.get("healthy_games"),
                 "total_games": healthy.get("total_games"),
                 "hppg_expected": bool(healthy.get("hppg_expected")),
-                "trade_value": round(blended.trade_value, 2),
+                "trade_value": trade_value,
                 "flex_rating": flex.get("flex_rating"),
                 "season_worp": war_player.worp,
                 "porp": war_player.porp,

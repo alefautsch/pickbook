@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ from dynasty_draft.ktc_values import KtcStore
 from dynasty_draft.projections import SleeperProjectionStore
 from dynasty_draft.recommender import DraftState
 from dynasty_draft.sleeper_client import SleeperClient
+from dynasty_draft.scoring_adjustments import tep_adjusted_trade_value
 from dynasty_draft.trade_value_blend import TradeValueBlend
 from dynasty_draft.worp_blend import WorpBlend
 from dynasty_draft.player_identity import sleeper_identity_score
@@ -89,6 +91,7 @@ class LeagueScoringState(DraftState):
                 roster_positions=scoring.roster_positions,
                 superflex=scoring.superflex,
                 ppr=scoring.ppr,
+                te_premium=scoring.te_premium,
                 war=war,
                 sleeper_players=sleeper_players,
                 force_refresh=force_metric_refresh,
@@ -104,6 +107,7 @@ class LeagueScoringState(DraftState):
                 roster_positions=scoring.roster_positions,
                 superflex=scoring.superflex,
                 ppr=scoring.ppr,
+                te_premium=scoring.te_premium,
                 force_refresh=force_metric_refresh,
             )
         except Exception:
@@ -112,6 +116,28 @@ class LeagueScoringState(DraftState):
     @property
     def scoring_context(self) -> LeagueScoringContext:
         return self._scoring_context
+
+    def blended_trade_value(self, player: PlayerValue) -> float:
+        return self.with_blended_tv(player).trade_value
+
+    def with_blended_tv(self, player: PlayerValue) -> PlayerValue:
+        blended = super().with_blended_tv(player)
+        if player.pos != "TE" or self._scoring_context.te_premium <= 0:
+            return blended
+        store = getattr(self, "healthy_ppg_store", None)
+        row = store.lookup(None, name=player.name) if store is not None else None
+        if row is None:
+            return blended
+        adjusted_tv = tep_adjusted_trade_value(
+            blended.trade_value,
+            position=player.pos,
+            te_premium=self._scoring_context.te_premium,
+            hppg=row.healthy_ppg,
+            receptions_per_game=row.receptions_per_game,
+        )
+        if adjusted_tv == blended.trade_value:
+            return blended
+        return replace(blended, trade_value=adjusted_tv)
 
     def _universe_pool(self) -> list[tuple[str, PlayerValue]]:
         """Full fantasy player universe for fixed OVR anchors (§5.7) — not roster-scoped."""

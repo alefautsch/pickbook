@@ -62,6 +62,7 @@ class SleeperProjectionStore:
         roster_positions: list[str],
         superflex: bool,
         ppr: float = 0.5,
+        te_premium: float = 0.0,
         war: WarData | None = None,
         sleeper_players: dict[str, dict[str, Any]] | None = None,
         rows: list[dict[str, Any]] | None = None,
@@ -71,6 +72,7 @@ class SleeperProjectionStore:
         self.roster_positions = roster_positions
         self.superflex = superflex
         self.ppr = ppr
+        self.te_premium = te_premium
         self._pts_field = _pts_field(ppr)
         self._by_player_id: dict[str, float] = {}
         self._vor_by_player_id: dict[str, float] = {}
@@ -93,6 +95,7 @@ class SleeperProjectionStore:
         roster_positions: list[str],
         superflex: bool,
         ppr: float,
+        te_premium: float = 0.0,
         war: WarData,
         sleeper_players: dict[str, dict[str, Any]],
         force_refresh: bool = False,
@@ -124,6 +127,7 @@ class SleeperProjectionStore:
             roster_positions=roster_positions,
             superflex=superflex,
             ppr=ppr,
+            te_premium=te_premium,
             war=war,
             sleeper_players=sleeper_players,
             rows=rows,
@@ -142,6 +146,10 @@ class SleeperProjectionStore:
             if pts is None:
                 continue
             points = float(pts)
+            if pos == "TE" and self.te_premium > 0:
+                rec = stats.get("rec")
+                if rec is not None:
+                    points += self.te_premium * float(rec)
             self._by_player_id[str(player_id)] = points
             by_pos[pos].append((str(player_id), points))
 

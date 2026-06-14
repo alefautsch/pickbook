@@ -25,7 +25,7 @@ OPPORTUNITY_TTL_SECONDS = 7 * 24 * 60 * 60
 _NFLVERSE = "https://github.com/nflverse/nflverse-data/releases/download"
 _USER_AGENT = "blackbook/0.1 (dynasty portfolio tool)"
 RECENCY_DECAY = 0.97
-_CACHE_VERSION = "v7"
+_CACHE_VERSION = "v8"
 _YOUNG_UPSIDE_TV_MIN = 3000.0
 
 
@@ -76,9 +76,13 @@ class OpportunityStore:
         sleeper_players: dict[str, dict[str, Any]],
         seasons: tuple[int, ...] = DEFAULT_SEASONS,
         ppr: float = 0.5,
+        te_premium: float = 0.0,
         force_refresh: bool = False,
     ) -> OpportunityStore:
-        cache_path = CACHE_DIR / f"opportunity_{_CACHE_VERSION}_{'-'.join(str(s) for s in seasons)}.json"
+        cache_path = (
+            CACHE_DIR
+            / f"opportunity_{_CACHE_VERSION}_{'-'.join(str(s) for s in seasons)}_p{ppr}_te{te_premium}.json"
+        )
         now = time.time()
         if not force_refresh and cache_path.exists():
             try:
@@ -90,7 +94,7 @@ class OpportunityStore:
             except (json.JSONDecodeError, OSError, TypeError, ValueError):
                 pass
 
-        metrics = _build_opportunity_metrics(seasons=seasons, ppr=ppr)
+        metrics = _build_opportunity_metrics(seasons=seasons, ppr=ppr, te_premium=te_premium)
         by_sleeper_id, by_norm_name = _index_for_sleeper(metrics, sleeper_players)
 
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -117,6 +121,7 @@ def _build_opportunity_metrics(
     *,
     seasons: tuple[int, ...],
     ppr: float,
+    te_premium: float = 0.0,
 ) -> dict[str, dict[str, Any]]:
     players = _download_csv(f"{_NFLVERSE}/players/players.csv")
     gsis_to_pfr = {
@@ -133,7 +138,10 @@ def _build_opportunity_metrics(
         weekly = weekly[
             (weekly["season_type"] == "REG") & (weekly["position"].isin(POSITIONS))
         ].copy()
-        weekly["half_ppr"] = weekly.apply(lambda row: _half_ppr_points(row, ppr=ppr), axis=1)
+        weekly["half_ppr"] = weekly.apply(
+            lambda row: _half_ppr_points(row, ppr=ppr, te_premium=te_premium),
+            axis=1,
+        )
         weekly["pfr_id"] = weekly["player_id"].map(gsis_to_pfr)
 
         snaps = _download_csv(f"{_NFLVERSE}/snap_counts/snap_counts_{season}.csv")

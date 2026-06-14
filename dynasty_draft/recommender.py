@@ -928,6 +928,7 @@ class DraftState:
                     "availability": row.availability,
                     "healthy_games": row.healthy_games,
                     "total_games": row.total_games,
+                    "receptions_per_game": row.receptions_per_game,
                     "ppg_source": "nflverse",
                     "hppg_expected": False,
                 }

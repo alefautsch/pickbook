@@ -22,7 +22,7 @@ SNAP_MIN = 8
 DEFAULT_SEASONS = (2024, 2025)
 RECENCY_DECAY = 0.97
 _WORP_PER_VOR_PPG = 0.012
-_CACHE_VERSION = "v7"
+_CACHE_VERSION = "v8"
 
 _NFLVERSE = "https://github.com/nflverse/nflverse-data/releases/download"
 _USER_AGENT = "pickbook/0.3 (personal dynasty draft tool)"
@@ -35,6 +35,7 @@ class HealthyPpgRow:
     availability: float
     healthy_games: int
     total_games: int
+    receptions_per_game: float = 0.0
     nfl_team: str | None = None
 
 
@@ -68,10 +69,14 @@ class HealthyPpgStore:
         roster_positions: list[str] | None = None,
         superflex: bool = False,
         ppr: float = 0.5,
+        te_premium: float = 0.0,
         force_refresh: bool = False,
     ) -> HealthyPpgStore:
         roster_positions = roster_positions or ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX"]
-        cache_path = CACHE_DIR / f"healthy_ppg_{_CACHE_VERSION}_{'-'.join(str(s) for s in seasons)}.json"
+        cache_path = (
+            CACHE_DIR
+            / f"healthy_ppg_{_CACHE_VERSION}_{'-'.join(str(s) for s in seasons)}_p{ppr}_te{te_premium}.json"
+        )
         now = time.time()
         if not force_refresh and cache_path.exists():
             try:
@@ -90,6 +95,7 @@ class HealthyPpgStore:
             roster_positions=roster_positions,
             superflex=superflex,
             ppr=ppr,
+            te_premium=te_premium,
         )
         by_sleeper_id, by_norm_name = _index_for_sleeper(metrics, sleeper_players)
 
@@ -116,6 +122,7 @@ def _row_from_dict(raw: dict[str, Any]) -> HealthyPpgRow | None:
             availability=float(raw["availability"]),
             healthy_games=int(raw["healthy_games"]),
             total_games=int(raw["total_games"]),
+            receptions_per_game=float(raw.get("receptions_per_game") or 0.0),
             nfl_team=str(nfl_team).upper() if nfl_team else None,
         )
     except (KeyError, TypeError, ValueError):
@@ -142,6 +149,7 @@ def _build_metrics(
     roster_positions: list[str],
     superflex: bool,
     ppr: float,
+    te_premium: float = 0.0,
 ) -> dict[str, dict[str, Any]]:
     players = _download_csv(f"{_NFLVERSE}/players/players.csv")
     gsis_to_pfr = {
@@ -158,7 +166,7 @@ def _build_metrics(
             & (weekly["position"].isin(POSITIONS))
         ].copy()
         weekly["half_ppr"] = weekly.apply(
-            lambda row: _half_ppr_points(row, ppr=ppr),
+            lambda row: _half_ppr_points(row, ppr=ppr, te_premium=te_premium),
             axis=1,
         )
         weekly["pfr_id"] = weekly["player_id"].map(gsis_to_pfr)
@@ -186,6 +194,7 @@ def _build_metrics(
     healthy_stats = _healthy_stats(healthy_only, keys)
     grouped = grouped.merge(healthy_stats, on=keys, how="left")
     grouped["healthy_ppg"] = grouped["healthy_ppg"].fillna(0.0)
+    grouped["receptions_per_game"] = grouped["receptions_per_game"].fillna(0.0)
     grouped["healthy_games"] = grouped["healthy_games"].fillna(0).astype(int)
     grouped["availability"] = grouped.apply(
         lambda row: (row["healthy_games"] / row["total_games"]) if row["total_games"] else 0.0,
@@ -229,6 +238,7 @@ def _build_metrics(
             "availability": round(float(row["availability"]), 3),
             "healthy_games": int(row["healthy_games"]),
             "total_games": int(row["total_games"]),
+            "receptions_per_game": round(float(row["receptions_per_game"]), 2),
             "name": str(row["player_display_name"]),
             "gsis_id": str(row["player_id"]),
             "pos": pos,
@@ -273,8 +283,14 @@ def _healthy_stats(data: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
         record = dict(zip(keys, key_values, strict=True))
         record["healthy_ppg"] = _weighted_average(group["half_ppr"], group["recency_weight"])
         record["healthy_games"] = int(len(group))
+        rec = (
+            pd.to_numeric(group["receptions"], errors="coerce").fillna(0.0)
+            if "receptions" in group.columns
+            else pd.Series(0.0, index=group.index)
+        )
+        record["receptions_per_game"] = _weighted_average(rec, group["recency_weight"])
         records.append(record)
-    return pd.DataFrame(records, columns=[*keys, "healthy_ppg", "healthy_games"])
+    return pd.DataFrame(records, columns=[*keys, "healthy_ppg", "healthy_games", "receptions_per_game"])
 
 
 def _team_game_counts(seasons: tuple[int, ...]) -> dict[tuple[int, str], int]:
@@ -339,17 +355,21 @@ def _availability_rows(
     return pd.DataFrame(records, columns=[*keys, "total_games"])
 
 
-def _half_ppr_points(row: pd.Series, *, ppr: float) -> float:
+def _half_ppr_points(row: pd.Series, *, ppr: float, te_premium: float = 0.0) -> float:
     std = float(row.get("fantasy_points") or 0.0)
     full = float(row.get("fantasy_points_ppr") or std)
     if ppr >= 1.0:
-        return full
-    if ppr <= 0.0:
-        return std
-    if ppr == 0.5:
-        return (std + full) / 2.0
-    rec = float(row.get("receptions") or 0.0)
-    return std + ppr * rec
+        points = full
+    elif ppr <= 0.0:
+        points = std
+    elif ppr == 0.5:
+        points = (std + full) / 2.0
+    else:
+        rec = float(row.get("receptions") or 0.0)
+        points = std + ppr * rec
+    if te_premium and str(row.get("position") or "").upper() == "TE":
+        points += te_premium * float(row.get("receptions") or 0.0)
+    return points
 
 
 def _is_healthy_game(row: pd.Series) -> bool:

@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from dynasty_draft.healthy_ppg import _with_health_flags
+from dynasty_draft.healthy_ppg import _half_ppr_points, _with_health_flags
 
 
 def test_relative_snap_share_excludes_mid_game_injury_outlier():
@@ -83,3 +83,30 @@ def test_relative_snap_share_keeps_normal_rotational_role():
     )
 
     assert flagged["healthy"].tolist() == [True, True, True]
+
+
+def test_half_ppr_points_adds_te_premium_for_tight_ends():
+    row = pd.Series(
+        {
+            "position": "TE",
+            "fantasy_points": 8.0,
+            "fantasy_points_ppr": 12.0,
+            "receptions": 4.0,
+        }
+    )
+    base = _half_ppr_points(row, ppr=0.5)
+    tep = _half_ppr_points(row, ppr=0.5, te_premium=0.5)
+    assert base == 10.0
+    assert tep == 12.0
+
+
+def test_half_ppr_points_te_premium_does_not_apply_to_wr():
+    row = pd.Series(
+        {
+            "position": "WR",
+            "fantasy_points": 8.0,
+            "fantasy_points_ppr": 12.0,
+            "receptions": 4.0,
+        }
+    )
+    assert _half_ppr_points(row, ppr=0.5, te_premium=0.5) == 10.0
