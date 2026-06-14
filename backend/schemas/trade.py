@@ -112,6 +112,7 @@ class TradeSideValidation(BaseModel):
     team_name: str | None = None
     accept_likelihood: Literal["low", "medium", "high"] | None = None
     fairness_view: Literal["favors_them", "fair", "favors_you"] | None = None
+    fairness_label: str | None = None
     would_improve_roster: bool | None = None
     reasoning: str | None = None
     blockers: list[str] = Field(default_factory=list)

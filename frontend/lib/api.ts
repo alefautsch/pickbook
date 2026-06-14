@@ -753,6 +753,7 @@ export type StarterNeeds = {
 
 export type RookieBoardRow = {
   bpa_rank: number;
+  ovr_rank?: number | null;
   player_id: string;
   player_name: string | null;
   position: string | null;
@@ -1054,6 +1055,7 @@ export type TradeSideValidation = {
   team_name?: string | null;
   accept_likelihood?: "low" | "medium" | "high" | null;
   fairness_view?: "favors_them" | "fair" | "favors_you" | null;
+  fairness_label?: string | null;
   would_improve_roster?: boolean | null;
   reasoning?: string | null;
   blockers: string[];

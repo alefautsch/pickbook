@@ -90,6 +90,7 @@ def test_build_validation_payload_shapes_counterparty_context():
             "give_adjusted_tv": 4200,
             "receive_adjusted_tv": 6800,
             "net_delta_adjusted_pct": 18.0,
+            "net_delta_adjusted_total_tv": 2600,
             "fairness": "favors_you",
             "within_band": False,
             "positional_notes": ["Receive 1 RB — fills a roster hole"],
@@ -119,22 +120,20 @@ def test_build_validation_payload_shapes_counterparty_context():
         },
     )
 
-    assert payload["counterparty"]["team_name"] == "Theirs"
     assert payload["review_for_team"] == "Theirs"
     assert payload["the_other_team"] == "Mine"
-    assert payload["counterparty"]["starter_total_ppg"] == 104.0
-    assert payload["trade_from_proposer_view"]["proposer_gives"]["players"][0]["lineup_delta_ppg"] == 1.2
-    assert payload["trade_from_proposer_view"]["proposer_receives"]["players"][0]["lineup_delta_ppg"] == 9.5
-    assert payload["deterministic_tv"]["tv_fairness_grade"] == "C+"
-    assert payload["lineup_impact"]["counterparty"]["starter_ppg_delta"] == -8.5
-    assert payload["lineup_impact"]["proposer"]["starter_ppg_delta"] == 8.5
+    assert payload["review_for_team_context"]["starter_total_ppg"] == 104.0
+    assert payload["review_for_team_trade"]["gives"]["players"][0]["lineup_delta_ppg"] == 9.5
+    assert payload["review_for_team_trade"]["gets"]["players"][0]["lineup_delta_ppg"] == 1.2
 
-    cp_tv = payload["counterparty_tv"]
-    assert cp_tv["counterparty_gives"]["total_tv"] == 6800
-    assert cp_tv["counterparty_receives"]["total_tv"] == 4200
-    assert cp_tv["net_tv_delta"] == -2600
-    assert cp_tv["tv_favors"] == "proposer"
-    assert payload["lineup_impact"]["proposer"]["post_trade_starters"][0]["is_incoming"] is True
+    review_tv = payload["review_for_team_tv"]
+    assert review_tv["gives"]["total_tv"] == 6800
+    assert review_tv["gets"]["total_tv"] == 4200
+    assert review_tv["net_tv_delta"] == -2600
+    assert review_tv["tv_favors"] == "Mine"
+    assert payload["lineup_impact"]["Theirs"]["starter_ppg_delta"] == -8.5
+    assert payload["lineup_impact"]["Mine"]["starter_ppg_delta"] == 8.5
+    assert payload["lineup_impact"]["Mine"]["post_trade_starters"][0]["is_incoming"] is True
 
 
 def test_parse_validation_json_from_fenced_block():

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dynasty_draft.draft_context import build_draft_timeline
-from dynasty_draft.draft_pick_ownership import build_pick_owner_index, resolve_pick_owner
+from dynasty_draft.draft_pick_ownership import build_pick_owner_index, merge_pick_slot_order, resolve_pick_owner
 from dynasty_draft.recommender import DraftState
 from dynasty_draft.war_data import WarData
 
@@ -103,3 +103,54 @@ def test_timeline_upcoming_pick_shows_traded_owner_team():
     pick_three = next(row for row in rows if row["pick_no"] == 3)
     assert pick_three["team"] == "Team Forty"
     assert pick_three["is_me"] is True
+
+
+def test_merge_pick_slot_order_overrides_startup_slots():
+    draft = {
+        "season": "2026",
+        "settings": {"teams": 4, "rounds": 2},
+        "slot_to_roster_id": {"1": "10", "2": "20", "3": "30", "4": "40"},
+    }
+    merged = merge_pick_slot_order(draft, {"30": 1, "40": 3})
+    assert merged["slot_to_roster_id"]["1"] == "30"
+    assert merged["slot_to_roster_id"]["3"] == "40"
+
+
+def test_pick_slot_order_plus_trade_shows_acquiring_team():
+    index = build_pick_owner_index(
+        [{"season": "2026", "round": 1, "roster_id": "20", "owner_id": "40"}]
+    )
+    draft = merge_pick_slot_order(
+        {
+            "season": "2026",
+            "type": "snake",
+            "settings": {"teams": 4, "rounds": 2},
+            "draft_order": {
+                "user_10": 1,
+                "user_20": 2,
+                "user_30": 3,
+                "user_40": 4,
+            },
+            "slot_to_roster_id": {"1": "10", "2": "20", "3": "30", "4": "40"},
+        },
+        {"40": 2},
+    )
+    state = DraftState(
+        draft=draft,
+        picks=[],
+        league={"league_id": "lg1", "season": "2026", "roster_positions": ["QB", "RB", "WR", "TE"]},
+        user_id="user_40",
+        war=_WarEmpty(),
+        sleeper_players={},
+        league_users=[
+            {"user_id": "user_10", "display_name": "Team Ten"},
+            {"user_id": "user_20", "display_name": "Team Twenty"},
+            {"user_id": "user_30", "display_name": "Team Thirty"},
+            {"user_id": "user_40", "display_name": "Team Forty"},
+        ],
+        pick_owner_index=index,
+        roster_owner_ids={10: "user_10", 20: "user_20", 30: "user_30", 40: "user_40"},
+    )
+    rows = build_draft_timeline(state, past=None, upcoming=None)
+    pick_two = next(row for row in rows if row["pick_no"] == 2)
+    assert pick_two["team"] == "Team Forty"

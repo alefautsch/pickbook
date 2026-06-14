@@ -37,31 +37,29 @@ def validation_accept_score(validation: dict[str, Any]) -> float | None:
 
 
 _VALIDATION_SYSTEM = """You are a dynasty fantasy football trade analyst.
-Evaluate whether review_for_team would ACCEPT this trade if it were offered to them.
+Your ONLY job: decide whether review_for_team would ACCEPT this trade if the_other_team offered it.
 
 You receive:
-- review_for_team: the manager judging the trade (their roster, needs, surplus, window)
+- review_for_team: the manager you are advising (roster, needs, surplus, contender window)
 - the_other_team: the other manager in the deal
-- trade_from_proposer_view: package orientation (see Rules below)
+- review_for_team_trade: what review_for_team gives up vs what they get back
 - Per-asset depth context (lineup_delta_ppg = marginal PPG lost if that player is moved)
-- Post-trade ideal starter lineup impact for both sides (starter_ppg_before/after/delta, changed slots)
-- counterparty_tv: TV math from review_for_team's perspective (authoritative for fairness)
+- Post-trade ideal starter lineup impact keyed by team name (starter_ppg_before/after/delta)
+- review_for_team_tv: TV math from review_for_team's perspective ONLY — use this for fairness
 
 Rules:
-- review_for_team is always the "counterparty" block in the payload.
-- review_for_team GIVES what the other manager receives and GETS what the other manager gives.
-- Judge objectively: would review_for_team accept this package given their roster situation?
-- In reasoning and blockers, use team_name fields only — never say "counterparty", "proposer", "you", or "they".
-- Use counterparty_tv for all TV delta/fairness statements — never invert it.
-- counterparty_tv.net_tv_delta positive = review_for_team receives MORE total TV (favors review_for_team).
-- counterparty_tv.net_tv_delta negative = review_for_team receives LESS total TV (favors the other manager).
-- fairness_from_counterparty_view: favors_them = favors review_for_team; favors_you = favors the other manager.
-- Only cite players and picks explicitly listed in the trade payload — do not substitute other names.
+- Judge ONLY from review_for_team's interests. Ignore any other manager's wants.
+- Never reference a logged-in user, "my team", is_me, or who is using the app.
+- In reasoning and blockers, use team_name fields only — never say "you", "they", "proposer", or "counterparty".
+- review_for_team_tv.net_tv_delta positive = review_for_team receives MORE total TV (favors review_for_team).
+- review_for_team_tv.net_tv_delta negative = review_for_team receives LESS total TV (favors the_other_team).
+- fairness_from_counterparty_view: favors_them = favors review_for_team; favors_you = favors the_other_team.
+- Only cite players and picks explicitly listed in the trade payload.
 - Rebuilders hoard early picks; contenders ship surplus picks/depth for win-now production.
 - A trade can be TV-lopsided but still accepted when it fixes a critical need from surplus depth.
 - For contenders, weigh starter_ppg_delta heavily: a large positive delta at a need position can justify TV overpay.
 - For rebuilders, negative starter_ppg_delta is acceptable when acquiring youth/picks; positive delta is a bonus.
-- If review_for_team's lineup_impact shows new incoming starters or materially higher starter PPG, that supports acceptance.
+- If review_for_team's lineup impact shows new incoming starters or materially higher starter PPG, that supports acceptance.
 - Be specific: name players, positions, pick slots, PPG deltas, and roster holes.
 
 Respond with ONLY valid JSON (no markdown):
@@ -171,59 +169,62 @@ def _compact_pick(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _counterparty_tv_summary(
+def _review_team_tv_summary(
     give: dict[str, Any],
     receive: dict[str, Any],
     tv_evaluation: dict[str, Any],
     *,
-    proposer_index: dict[str, dict[str, Any]],
-    counterparty_index: dict[str, dict[str, Any]],
+    review_team_name: str,
+    other_team_name: str,
+    review_team_index: dict[str, dict[str, Any]],
+    other_team_index: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
-    """Flip proposer-centric TV math into explicit counterparty perspective."""
-    proposer_gives = float(tv_evaluation.get("give_total_tv") or 0)
-    proposer_receives = float(tv_evaluation.get("receive_total_tv") or 0)
-    proposer_gives_adj = float(tv_evaluation.get("give_adjusted_tv") or 0)
-    proposer_receives_adj = float(tv_evaluation.get("receive_adjusted_tv") or 0)
+    """TV math from review_for_team's perspective (review gives receive-side assets)."""
+    other_gives = float(tv_evaluation.get("give_total_tv") or 0)
+    other_receives = float(tv_evaluation.get("receive_total_tv") or 0)
+    other_gives_adj = float(tv_evaluation.get("give_adjusted_tv") or 0)
+    other_receives_adj = float(tv_evaluation.get("receive_adjusted_tv") or 0)
 
-    cp_gives = proposer_receives
-    cp_receives = proposer_gives
-    cp_gives_adj = proposer_receives_adj
-    cp_receives_adj = proposer_gives_adj
+    review_gives = other_receives
+    review_gets = other_gives
+    review_gives_adj = other_receives_adj
+    review_gets_adj = other_gives_adj
 
-    net_raw = cp_receives - cp_gives
-    net_adj = cp_receives_adj - cp_gives_adj
-    net_adj_total = -float(tv_evaluation.get("net_delta_adjusted_total_tv") or 0)
+    net_raw = review_gets - review_gives
+    net_adj = review_gets_adj - review_gives_adj
+    raw_total = tv_evaluation.get("net_delta_adjusted_total_tv")
+    if raw_total is not None:
+        net_adj_total = -float(raw_total)
+    else:
+        net_adj_total = net_adj
 
-    fairness = str(tv_evaluation.get("fairness") or "fair")
     if tv_evaluation.get("within_band"):
         tv_favors = "fair"
     elif net_adj_total > 0:
-        tv_favors = "counterparty"
+        tv_favors = review_team_name
     elif net_adj_total < 0:
-        tv_favors = "proposer"
+        tv_favors = other_team_name
     else:
-        tv_favors = "fair" if fairness == "fair" else (
-            "counterparty" if fairness == "favors_counterparty" else "proposer"
-        )
+        tv_favors = "fair"
 
     return {
-        "counterparty_gives": {
+        "gives": {
             "players": _enrich_trade_players(
                 receive.get("players") or [],
-                counterparty_index,
+                review_team_index,
             ),
             "picks": [_compact_pick(pick) for pick in receive.get("picks") or []],
-            "total_tv": round(cp_gives, 2),
-            "adjusted_tv": round(cp_gives_adj, 2),
+            "total_tv": round(review_gives, 2),
+            "adjusted_tv": round(review_gives_adj, 2),
         },
-        "counterparty_receives": {
+        "gets": {
             "players": _enrich_trade_players(
                 give.get("players") or [],
-                proposer_index,
+                other_team_index,
             ),
             "picks": [_compact_pick(pick) for pick in give.get("picks") or []],
-            "total_tv": round(cp_receives, 2),
-            "adjusted_tv": round(cp_receives_adj, 2),
+            "total_tv": round(review_gets, 2),
+            "adjusted_tv": round(review_gets_adj, 2),
         },
         "net_tv_delta": round(net_raw, 2),
         "net_adjusted_tv_delta": round(net_adj, 2),
@@ -234,8 +235,28 @@ def _counterparty_tv_summary(
         "tv_favors": tv_favors,
         "within_band": tv_evaluation.get("within_band"),
         "consolidation_tax_tv": tv_evaluation.get("consolidation_tax_tv"),
-        "proposer_pays_consolidation_tax": bool(tv_evaluation.get("receive_consolidating")),
+        "other_team_pays_consolidation_tax": bool(tv_evaluation.get("receive_consolidating")),
     }
+
+
+def _counterparty_tv_summary(
+    give: dict[str, Any],
+    receive: dict[str, Any],
+    tv_evaluation: dict[str, Any],
+    *,
+    proposer_index: dict[str, dict[str, Any]],
+    counterparty_index: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Backward-compatible alias used in tests."""
+    return _review_team_tv_summary(
+        give,
+        receive,
+        tv_evaluation,
+        review_team_name="counterparty",
+        other_team_name="proposer",
+        review_team_index=counterparty_index,
+        other_team_index=proposer_index,
+    )
 
 
 def _fairness_label_for_counterparty(
@@ -269,15 +290,13 @@ def build_validation_payload(
     """Shape context for the validation LLM."""
     proposer_index = _player_roster_index(proposer_team)
     counterparty_index = _player_roster_index(counterparty_team)
+    review_name = str(counterparty_team.get("team_name") or counterparty_roster_id)
+    other_name = str(proposer_team.get("team_name") or proposer_roster_id)
 
     payload: dict[str, Any] = {
-        "review_for_team": counterparty_team.get("team_name") or counterparty_roster_id,
-        "the_other_team": proposer_team.get("team_name") or proposer_roster_id,
-        "proposer": {
-            "roster_id": proposer_roster_id,
-            **_compact_team_context(proposer_team),
-        },
-        "counterparty": {
+        "review_for_team": review_name,
+        "the_other_team": other_name,
+        "review_for_team_context": {
             "roster_id": counterparty_roster_id,
             **_compact_team_context(counterparty_team),
             "top_players": [
@@ -285,62 +304,44 @@ def build_validation_payload(
                 for player in (counterparty_team.get("players") or [])[:12]
             ],
         },
-        "trade_from_proposer_view": {
-            "proposer_gives": {
-                "players": _enrich_trade_players(
-                    give.get("players") or [],
-                    proposer_index,
-                ),
-                "picks": [_compact_pick(pick) for pick in give.get("picks") or []],
-            },
-            "proposer_receives": {
+        "the_other_team_context": {
+            "roster_id": proposer_roster_id,
+            **_compact_team_context(proposer_team),
+        },
+        "review_for_team_trade": {
+            "gives": {
                 "players": _enrich_trade_players(
                     receive.get("players") or [],
                     counterparty_index,
                 ),
                 "picks": [_compact_pick(pick) for pick in receive.get("picks") or []],
             },
+            "gets": {
+                "players": _enrich_trade_players(
+                    give.get("players") or [],
+                    proposer_index,
+                ),
+                "picks": [_compact_pick(pick) for pick in give.get("picks") or []],
+            },
         },
-        "counterparty_tv": _counterparty_tv_summary(
+        "review_for_team_tv": _review_team_tv_summary(
             give,
             receive,
             tv_evaluation,
-            proposer_index=proposer_index,
-            counterparty_index=counterparty_index,
+            review_team_name=review_name,
+            other_team_name=other_name,
+            review_team_index=counterparty_index,
+            other_team_index=proposer_index,
         ),
-        "deterministic_tv": {
-            "_note": "Proposer-centric. Prefer counterparty_tv for accept/reject reasoning.",
-            "tv_fairness_grade": tv_evaluation.get("tv_fairness_grade"),
-            "give_total_tv": tv_evaluation.get("give_total_tv"),
-            "receive_total_tv": tv_evaluation.get("receive_total_tv"),
-            "give_adjusted_tv": tv_evaluation.get("give_adjusted_tv"),
-            "receive_adjusted_tv": tv_evaluation.get("receive_adjusted_tv"),
-            "give_effective_tv": tv_evaluation.get("give_effective_tv"),
-            "receive_effective_tv": tv_evaluation.get("receive_effective_tv"),
-            "net_delta_tv": tv_evaluation.get("net_delta_tv"),
-            "net_delta_adjusted_tv": tv_evaluation.get("net_delta_adjusted_tv"),
-            "net_delta_effective_tv": tv_evaluation.get("net_delta_effective_tv"),
-            "net_delta_adjusted_total_tv": tv_evaluation.get("net_delta_adjusted_total_tv"),
-            "net_delta_pct": tv_evaluation.get("net_delta_pct"),
-            "net_delta_adjusted_pct": tv_evaluation.get("net_delta_adjusted_pct"),
-            "fairness": tv_evaluation.get("fairness"),
-            "within_band": tv_evaluation.get("within_band"),
-            "fairness_band": tv_evaluation.get("fairness_band"),
-            "consolidation_tax_tv": tv_evaluation.get("consolidation_tax_tv"),
-            "consolidation_premium_pct": tv_evaluation.get("consolidation_premium_pct"),
-            "give_consolidating": tv_evaluation.get("give_consolidating"),
-            "receive_consolidating": tv_evaluation.get("receive_consolidating"),
-            "positional_notes": tv_evaluation.get("positional_notes"),
-        },
     }
 
     lineup_impact: dict[str, Any] = {}
     counterparty_lineup_compact = _compact_lineup_side(counterparty_lineup)
     proposer_lineup_compact = _compact_lineup_side(proposer_lineup)
     if counterparty_lineup_compact is not None:
-        lineup_impact["counterparty"] = counterparty_lineup_compact
+        lineup_impact[review_name] = counterparty_lineup_compact
     if proposer_lineup_compact is not None:
-        lineup_impact["proposer"] = proposer_lineup_compact
+        lineup_impact[other_name] = proposer_lineup_compact
     if lineup_impact:
         payload["lineup_impact"] = lineup_impact
 

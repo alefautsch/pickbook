@@ -88,49 +88,14 @@ def build_league_pick_inventory(
     return inventory
 
 
-def _traded_pick_key(tp: dict[str, Any]) -> tuple[str, int, str] | None:
-    if not tp.get("season") or tp.get("round") is None or tp.get("roster_id") is None:
-        return None
-    return (str(tp["season"]), int(tp["round"]), str(tp["roster_id"]))
-
-
 def collect_league_traded_picks(
     client: SleeperClient,
     league_id: str,
 ) -> list[dict[str, Any]]:
     """League traded_picks plus startup/rookie draft traded_picks (2026 lives here)."""
-    merged: list[dict[str, Any]] = []
-    seen: set[tuple[str, int, str]] = set()
+    from dynasty_draft.draft_pick_ownership import collect_traded_picks
 
-    def _add(row: dict[str, Any]) -> None:
-        key = _traded_pick_key(row)
-        if key is None or key in seen:
-            return
-        seen.add(key)
-        merged.append(
-            {
-                "season": str(row["season"]),
-                "round": int(row["round"]),
-                "roster_id": str(row["roster_id"]),
-                "owner_id": str(row.get("owner_id") or row["roster_id"]),
-            }
-        )
-
-    for tp in client.get_traded_picks(league_id):
-        _add(tp)
-
-    for draft in client.get_league_drafts(league_id):
-        draft_id = draft.get("draft_id")
-        if not draft_id:
-            continue
-        try:
-            draft_traded = client._get(f"/draft/{draft_id}/traded_picks")
-        except Exception:
-            continue
-        for tp in draft_traded or []:
-            _add(tp)
-
-    return merged
+    return collect_traded_picks(client, league_id)
 
 
 ROOKIE_PLAYER_TYPE = 1

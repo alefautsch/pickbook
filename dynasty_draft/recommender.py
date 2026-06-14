@@ -68,6 +68,7 @@ class DraftState:
     strategy: DraftStrategy = field(default_factory=DraftStrategy)
     league_users: list[dict[str, Any]] = field(default_factory=list)
     pick_owner_index: PickOwnerIndex = field(default_factory=dict)
+    roster_owner_ids: dict[int, str] = field(default_factory=dict)
 
     drafted_ids: set[str] = field(init=False)
     drafted_names: set[str] = field(init=False)
@@ -166,7 +167,7 @@ class DraftState:
         if original is None:
             return None
         season = self._draft_season()
-        if not season:
+        if not season or not self.pick_owner_index:
             return original
         teams = self._teams()
         round_no = (pick_no - 1) // teams + 1
@@ -176,6 +177,18 @@ class DraftState:
             round_no=round_no,
             original_roster_id=original,
         )
+
+    def user_id_for_roster(self, roster_id: int) -> str | None:
+        uid = self.roster_owner_ids.get(int(roster_id))
+        if uid:
+            return uid
+        draft_order = self.draft.get("draft_order") or {}
+        slot_to_roster = self.draft.get("slot_to_roster_id") or {}
+        for user_id, slot in draft_order.items():
+            rid = slot_to_roster.get(str(slot))
+            if rid is not None and int(rid) == int(roster_id):
+                return str(user_id)
+        return None
 
     def is_my_pick_number(self, pick_no: int) -> bool:
         if self.my_roster_id is None:

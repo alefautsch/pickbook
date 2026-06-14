@@ -92,14 +92,8 @@ def _roster_id_for_slot(state: DraftState, slot: int) -> int | None:
 
 def _team_name_for_roster(state: DraftState, roster_id: int) -> str:
     users_by_id = {str(u.get("user_id")): u for u in (state.league_users or [])}
-    draft_order = state.draft.get("draft_order") or {}
-    slot_to_roster = state.draft.get("slot_to_roster_id") or {}
-    roster_to_user: dict[int, str] = {}
-    for user_id, slot in draft_order.items():
-        rid = slot_to_roster.get(str(slot))
-        if rid is not None:
-            roster_to_user[int(rid)] = str(user_id)
-    user = users_by_id.get(roster_to_user.get(roster_id, ""))
+    user_id = state.user_id_for_roster(roster_id)
+    user = users_by_id.get(user_id or "")
     return _team_display_name(user, roster_id)
 
 

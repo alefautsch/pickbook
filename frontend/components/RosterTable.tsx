@@ -175,6 +175,7 @@ function EmptyStatRow({
       ) : null}
       <td className="px-3 py-2.5 text-bb-muted">—</td>
       <td className="px-3 py-2.5 text-bb-muted">—</td>
+      <td className="px-3 py-2.5 text-bb-muted">—</td>
       {full ? <td className="px-3 py-2.5 text-bb-muted">—</td> : null}
       <td className="px-3 py-2.5 text-bb-muted">—</td>
       {full ? (
@@ -260,7 +261,7 @@ export function RosterTable({
                   colSpan={colSpan}
                   className="px-3 py-2 text-xs font-bold uppercase tracking-widest text-bb-muted"
                 >
-                  Roster
+                  Starters
                 </td>
               </tr>
               {starterSlots.map((slot, index) =>

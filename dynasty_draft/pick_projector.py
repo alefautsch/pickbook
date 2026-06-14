@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any
 
-from dynasty_draft.draft_context import _team_display_name
+from dynasty_draft.draft_context import _team_name_for_roster
 from dynasty_draft.recommender import DraftState
 from dynasty_draft.war_data import POSITIONS, PlayerValue
 
@@ -24,16 +24,7 @@ def _roster_id_for_pick(state: DraftState, pick_no: int) -> int | None:
 
 
 def _team_name(state: DraftState, roster_id: int) -> str:
-    users_by_id = {str(u.get("user_id")): u for u in (state.league_users or [])}
-    draft_order = state.draft.get("draft_order") or {}
-    slot_to_roster = state.draft.get("slot_to_roster_id") or {}
-    roster_to_user: dict[int, str] = {}
-    for user_id, slot in draft_order.items():
-        rid = slot_to_roster.get(str(slot))
-        if rid is not None:
-            roster_to_user[int(rid)] = str(user_id)
-    user = users_by_id.get(roster_to_user.get(roster_id, ""))
-    return _team_display_name(user, roster_id)
+    return _team_name_for_roster(state, roster_id)
 
 
 def _initial_roster_counts(state: DraftState) -> dict[int, Counter[str]]:

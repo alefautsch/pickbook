@@ -79,3 +79,22 @@ def resolve_pick_owner(
     if owner is not None:
         return int(owner)
     return int(original_roster_id)
+
+
+def slot_to_roster_from_pick_slots(pick_slots: dict[str, int]) -> dict[str, str]:
+    """Invert roster_id → round slot (1 = 1.01) into snake slot → roster_id."""
+    return {str(slot): str(rid) for rid, slot in pick_slots.items()}
+
+
+def merge_pick_slot_order(
+    draft: dict[str, Any],
+    pick_slots: dict[str, int],
+) -> dict[str, Any]:
+    """Overlay pick-allocation / startup-derived slots onto draft slot_to_roster_id."""
+    if not pick_slots:
+        return draft
+    merged = dict(draft)
+    slot_map = dict(merged.get("slot_to_roster_id") or {})
+    slot_map.update(slot_to_roster_from_pick_slots(pick_slots))
+    merged["slot_to_roster_id"] = slot_map
+    return merged

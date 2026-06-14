@@ -243,7 +243,7 @@ export function RosterMobileList({
 
       {hasStarterSection ? (
         <>
-          <MobileSectionHeader label="Roster" />
+          <MobileSectionHeader label="Starters" />
           {starterSlots.map((slot, index) => {
             const key = `starter-${slot.slot}-${slot.player?.player_id ?? "empty"}-${index}`;
             if (!slot.player) {

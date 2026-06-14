@@ -85,17 +85,14 @@ def _favors_roster_id(
     return side_b_roster_id
 
 
-def _make_tools(db: Session, league_id: str, proposer_roster_id: str) -> AdvisorTools:
-    my_roster = db.scalar(
-        select(Roster).where(Roster.league_id == league_id, Roster.is_me.is_(True))
-    )
-    my_roster_id = str(my_roster.sleeper_roster_id) if my_roster else proposer_roster_id
+def _make_tools(db: Session, league_id: str, perspective_roster_id: str) -> AdvisorTools:
+    """Trade tools scoped to the proposing side — not the app owner's is_me team."""
     return AdvisorTools(
         AdvisorToolContext(
             db=db,
             league_id=league_id,
-            my_roster_id=my_roster_id,
-            focused_roster_id=proposer_roster_id,
+            my_roster_id=perspective_roster_id,
+            focused_roster_id=perspective_roster_id,
         )
     )
 

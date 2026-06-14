@@ -59,8 +59,9 @@ function fairnessLabel(
   if (evaluation.fairness === "fair") return "Fair trade";
   if (evaluation.favors_roster_id === sideARosterId) return `Favors ${sideAName}`;
   if (evaluation.favors_roster_id === sideBRosterId) return `Favors ${sideBName}`;
+  if (evaluation.fairness === "favors_counterparty") return `Favors ${sideBName}`;
   if (evaluation.fairness === "favors_you") return `Favors ${sideAName}`;
-  return `Favors ${sideBName}`;
+  return "Fair trade";
 }
 
 function buildRequest(
@@ -126,22 +127,21 @@ export function TradeCalculator({
         setPlayers(directory.players);
 
         const teams = leagueDetail.teams;
-        const me = teams.find((t) => t.is_me);
-        const others = teams.filter((t) => !t.is_me);
+        const sorted = [...teams].sort((a, b) =>
+          (a.team_name ?? a.roster_id).localeCompare(b.team_name ?? b.roster_id),
+        );
 
         if (defaultSideA) {
           setSideARosterId(defaultSideA);
-        } else if (me) {
-          setSideARosterId(me.roster_id);
-        } else if (teams[0]) {
-          setSideARosterId(teams[0].roster_id);
+        } else if (sorted[0]) {
+          setSideARosterId(sorted[0].roster_id);
         }
 
         if (defaultSideB) {
           setSideBRosterId(defaultSideB);
         } else {
-          const aId = defaultSideA ?? me?.roster_id;
-          const other = others.find((t) => t.roster_id !== aId) ?? others[0];
+          const aId = defaultSideA ?? sorted[0]?.roster_id;
+          const other = sorted.find((t) => t.roster_id !== aId) ?? sorted[1];
           if (other) setSideBRosterId(other.roster_id);
         }
       })
@@ -313,6 +313,10 @@ export function TradeCalculator({
           <h1 className="text-xl font-semibold text-white sm:text-2xl">Trade Calculator</h1>
           <p className="mt-1 text-sm text-bb-muted">
             KTC-blended values · stud adjustments · consolidation tax · depth discount
+          </p>
+          <p className="mt-1 max-w-xl text-xs text-bb-muted">
+            Pick any two teams — yours does not need to be in the deal. Left column is what
+            that team gives; AI grades whether each manager would accept.
           </p>
         </div>
         <button
@@ -562,8 +566,16 @@ export function TradeCalculator({
             </p>
           ) : null}
           <div className="grid gap-4 md:grid-cols-2">
-            <ValidationCard label={sideAName} validation={validation.side_a} />
-            <ValidationCard label={sideBName} validation={validation.side_b} />
+            <ValidationCard
+              label={sideAName}
+              otherTeamName={sideBName}
+              validation={validation.side_a}
+            />
+            <ValidationCard
+              label={sideBName}
+              otherTeamName={sideAName}
+              validation={validation.side_b}
+            />
           </div>
         </section>
       ) : null}
@@ -674,7 +686,6 @@ function TradeSideColumn({
           options={teams.map((team) => ({
             value: team.roster_id,
             label: team.team_name ?? team.roster_id,
-            hint: team.is_me ? "you" : undefined,
           }))}
         />
         <span className={`shrink-0 text-sm font-bold tabular-nums ${accentText}`}>
@@ -1055,11 +1066,26 @@ function Metric({
   );
 }
 
+function validationFairnessLabel(
+  validation: TradeValidationResult["side_a"],
+  teamName: string,
+  otherTeamName: string,
+): string {
+  if (validation.fairness_label) return validation.fairness_label;
+  const view = validation.fairness_view;
+  if (!view || view === "fair") return "Fair";
+  // favors_them = favors the team being graded (card title); favors_you = the other side
+  if (view === "favors_them") return `Favors ${teamName}`;
+  return `Favors ${otherTeamName}`;
+}
+
 function ValidationCard({
   label,
+  otherTeamName,
   validation,
 }: {
   label: string;
+  otherTeamName: string;
   validation: TradeValidationResult["side_a"];
 }) {
   if (validation.skipped) {
@@ -1081,9 +1107,10 @@ function ValidationCard({
           {validation.grade ?? "—"}
         </span>
       </div>
-      <p className="text-[11px] uppercase tracking-wide text-bb-muted">
+      <p className="text-[11px] text-bb-muted">Would {label} accept this offer?</p>
+      <p className="mt-1 text-[11px] uppercase tracking-wide text-bb-muted">
         Accept: {validation.accept_likelihood ?? "—"} · Fairness:{" "}
-        {validation.fairness_view?.replace(/_/g, " ") ?? "—"}
+        {validationFairnessLabel(validation, label, otherTeamName)}
         {validation.would_improve_roster ? " · Improves roster" : ""}
       </p>
       {validation.reasoning ? (

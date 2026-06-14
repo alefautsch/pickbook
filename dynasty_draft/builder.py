@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from dynasty_draft.draft_pick_ownership import build_pick_owner_index, collect_traded_picks
 from dynasty_draft.draft_context import build_scoring_context
 from dynasty_draft.external_adp import AdpStore
 from dynasty_draft.dynasty_score import DynastyRatingCurve, DynastyWeights
@@ -85,6 +86,10 @@ def build_state(config: dict[str, Any], *, exit_on_error: bool = True) -> DraftS
     war = WarData(war_path)
     strategy = DraftStrategy.from_config(config)
 
+    pick_owner_index = {}
+    if league_id:
+        pick_owner_index = build_pick_owner_index(collect_traded_picks(client, str(league_id)))
+
     state = DraftState(
         draft=draft,
         picks=picks,
@@ -98,6 +103,7 @@ def build_state(config: dict[str, Any], *, exit_on_error: bool = True) -> DraftS
         dynasty_weights=DynastyWeights.from_config(config.get("dynasty_weights")),
         dynasty_rating_curve=DynastyRatingCurve.from_config(config.get("dynasty_rating_curve")),
         strategy=strategy,
+        pick_owner_index=pick_owner_index,
     )
 
     if config.get("ktc_enabled", True):

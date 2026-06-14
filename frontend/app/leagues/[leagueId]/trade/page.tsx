@@ -29,10 +29,7 @@ export default async function TradeCalculatorPage({ params }: PageProps) {
         summary: "Trade Calculator",
       }}
     >
-      <TradeCalculator
-        leagueId={leagueId}
-        defaultSideA={league.my_roster_id ?? undefined}
-      />
+      <TradeCalculator leagueId={leagueId} />
     </AppShell>
   );
 }

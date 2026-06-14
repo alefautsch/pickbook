@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   getRookieDraft,
   type RookieBoardRow,
@@ -40,6 +40,139 @@ function loadTargets(leagueId: string, draftId: string): Set<string> {
 
 function saveTargets(leagueId: string, draftId: string, ids: Set<string>) {
   localStorage.setItem(targetsKey(leagueId, draftId), JSON.stringify([...ids]));
+}
+
+function ScrollPanel({
+  title,
+  subtitle,
+  headerRight,
+  maxHeightClass = "max-h-[min(50dvh,28rem)]",
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  headerRight?: ReactNode;
+  maxHeightClass?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="bb-panel min-w-0 overflow-hidden">
+      <div className="bb-panel-header">
+        <div className="min-w-0 flex-1">
+          <h2 className="bb-panel-title">{title}</h2>
+          {subtitle ? (
+            <p className="mt-0.5 line-clamp-2 text-xs text-bb-muted">{subtitle}</p>
+          ) : null}
+        </div>
+        {headerRight ? <div className="shrink-0">{headerRight}</div> : null}
+      </div>
+      <div className={`overflow-y-auto overscroll-contain ${maxHeightClass}`}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function BoardSortToggle({
+  boardSort,
+  onChange,
+}: {
+  boardSort: "bpa" | "ovr";
+  onChange: (sort: "bpa" | "ovr") => void;
+}) {
+  return (
+    <div className="flex rounded-lg border border-bb-border/50 p-0.5 text-xs">
+      <button
+        type="button"
+        onClick={() => onChange("bpa")}
+        className={`rounded-md px-2.5 py-1 ${
+          boardSort === "bpa"
+            ? "bg-white/10 text-white"
+            : "text-bb-muted hover:text-white"
+        }`}
+      >
+        BPA
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("ovr")}
+        className={`rounded-md px-2.5 py-1 ${
+          boardSort === "ovr"
+            ? "bg-white/10 text-white"
+            : "text-bb-muted hover:text-white"
+        }`}
+      >
+        OVR
+      </button>
+    </div>
+  );
+}
+
+function SidebarPanels({
+  draft,
+  targetRows,
+}: {
+  draft: RookieDraftView;
+  targetRows: RookieBoardRow[];
+}) {
+  return (
+    <>
+      <section className="rounded-xl border border-bb-border/50 bg-black/20 p-4">
+        <h3 className="text-sm font-medium text-white">Positional needs</h3>
+        <p className="mb-3 text-xs text-bb-muted">
+          {draft.drafting_team_name ?? "My team"} · open starter slots
+        </p>
+        <NeedsStrip needs={draft.starter_needs} />
+      </section>
+
+      {targetRows.length > 0 ? (
+        <section className="rounded-xl border border-bb-gold/30 bg-bb-gold/5 p-4">
+          <h3 className="text-sm font-medium text-bb-gold">My targets</h3>
+          <ul className="mt-2 space-y-2">
+            {targetRows.map((row) => (
+              <li
+                key={row.player_id}
+                className="flex items-center justify-between gap-2 text-sm"
+              >
+                <span className="min-w-0 truncate text-white">
+                  <PlayerName>{row.player_name}</PlayerName>{" "}
+                  <span className="text-bb-muted">({row.position})</span>
+                </span>
+                <OvrBadge ovr={row.ovr} size="sm" expected={row.hppg_expected} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {draft.bpa_top.length > 0 ? (
+        <section className="rounded-xl border border-bb-border/50 bg-black/20 p-4">
+          <h3 className="text-sm font-medium text-white">BPA top 5</h3>
+          <ol className="mt-2 space-y-1.5 text-sm">
+            {draft.bpa_top.slice(0, 5).map((row) => (
+              <li key={row.player_id} className="flex justify-between gap-2">
+                <span className="truncate">
+                  {row.bpa_rank}. <PlayerName as="span">{row.player_name}</PlayerName>
+                </span>
+                <OvrBadge ovr={row.ovr} size="sm" expected={row.hppg_expected} />
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
+
+      {draft.strategy_notes.length > 0 ? (
+        <section className="rounded-xl border border-bb-border/50 bg-black/20 p-4">
+          <h3 className="text-sm font-medium text-white">Notes</h3>
+          <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-bb-muted">
+            {draft.strategy_notes.map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </>
+  );
 }
 
 function NeedsStrip({ needs }: { needs: StarterNeeds }) {
@@ -134,53 +267,50 @@ function BoardRowMobile({
 }) {
   return (
     <div
-      className={`flex items-center gap-2 px-3 py-2.5 ${
+      className={`grid grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-x-2 px-3 py-2.5 ${
         isTarget ? "bg-bb-gold/10" : ""
       }`}
     >
       <button
         type="button"
         onClick={() => onToggleTarget(row.player_id)}
-        className={`shrink-0 text-base ${isTarget ? "text-bb-gold" : "text-bb-muted"}`}
+        className={`shrink-0 text-base leading-none ${isTarget ? "text-bb-gold" : "text-bb-muted"}`}
         title={isTarget ? "Remove target" : "Add target"}
       >
         {isTarget ? "★" : "☆"}
       </button>
-      <span className="w-5 shrink-0 text-center text-xs text-bb-muted">{rank}</span>
-      <PlayerHeadshot
-        src={row.headshot_url}
-        alt={row.player_name ?? "Player"}
-        position={row.position}
-        className="h-9 w-9 shrink-0"
-        sizes="36px"
-      />
-      <div className="min-w-0 flex-1">
-        <Link
-          href={`/players/${row.player_id}?league_id=${encodeURIComponent(leagueId)}`}
-          className="flex items-center gap-1 truncate hover:text-bb-gold"
-        >
-          <PlayerName>{row.player_name}</PlayerName>
-          {row.dynasty_rookie ? <RookieBadge /> : null}
-        </Link>
-        <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-          {row.position ? <PositionTag position={row.position} /> : null}
-          <span className="text-[10px] text-bb-muted">
-            {[row.nfl_team, row.age != null ? String(row.age) : null].filter(Boolean).join(" · ")}
-          </span>
+      <span className="w-5 text-center text-xs tabular-nums text-bb-muted">{rank}</span>
+      <div className="flex min-w-0 items-center gap-2">
+        <PlayerHeadshot
+          src={row.headshot_url}
+          alt={row.player_name ?? "Player"}
+          position={row.position}
+          className="h-8 w-8 shrink-0"
+          sizes="32px"
+        />
+        <div className="min-w-0">
+          <Link
+            href={`/players/${row.player_id}?league_id=${encodeURIComponent(leagueId)}`}
+            className="block truncate text-sm hover:text-bb-gold"
+          >
+            <PlayerName>{row.player_name}</PlayerName>
+          </Link>
+          <div className="mt-0.5 flex items-center gap-1.5">
+            {row.position ? <PositionTag position={row.position} /> : null}
+            {row.dynasty_rookie ? <RookieBadge /> : null}
+            <span className="truncate text-[10px] text-bb-muted">
+              {[row.nfl_team, row.age != null ? String(row.age) : null]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          </div>
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2 pr-1">
-        <OvrBadge
-          ovr={row.ovr}
-          size="sm"
-          expected={row.hppg_expected}
-        />
-        <div className="w-10 text-right">
-          <p className="text-[9px] uppercase text-bb-muted">Proj</p>
-          <p className="text-xs font-semibold tabular-nums text-white">
-            {formatPpg(row.projected_ppg ?? row.hppg)}
-          </p>
-        </div>
+      <div className="flex flex-col items-end gap-0.5">
+        <OvrBadge ovr={row.ovr} size="sm" expected={row.hppg_expected} />
+        <span className="text-[10px] tabular-nums text-bb-muted">
+          {formatPpg(row.projected_ppg ?? row.hppg)}
+        </span>
       </div>
     </div>
   );
@@ -198,30 +328,27 @@ function TimelineRowMobile({ row }: { row: RookieDraftTimelineRow }) {
           : "border-bb-border/30 bg-black/15";
 
   return (
-    <div className={`rounded-lg border px-3 py-2 ${statusClass}`}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-xs text-bb-muted">
-            Pick #{row.pick_no}
-            {row.round != null ? ` · Rd ${row.round}` : ""}
-            {row.status === "on_clock" ? (
-              <span className="ml-1 text-bb-gold">● on clock</span>
-            ) : null}
-          </p>
-          <p className="truncate text-sm font-medium text-white">
-            {row.team_name ?? "—"}
-          </p>
-        </div>
+    <div className={`rounded-lg border px-2.5 py-2 ${statusClass}`}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] text-bb-muted">
+          #{row.pick_no}
+          {row.round != null ? ` · R${row.round}` : ""}
+          {row.status === "on_clock" ? (
+            <span className="ml-1 text-bb-gold">● clock</span>
+          ) : isProjected ? (
+            <span className="ml-1 not-italic text-bb-muted">proj</span>
+          ) : null}
+        </p>
         {row.ovr != null ? <OvrBadge ovr={row.ovr} size="sm" /> : null}
       </div>
-      <p className="mt-1 text-sm text-white">
+      <p className="mt-0.5 truncate text-xs font-medium text-white">
+        {row.team_name ?? "—"}
+      </p>
+      <p className="mt-0.5 truncate text-sm text-white">
         {row.player_name ? (
-          <span className="inline-flex flex-wrap items-center gap-1.5">
+          <span className="inline-flex items-center gap-1.5">
             <PlayerName>{row.player_name}</PlayerName>
             {row.position ? <PositionTag position={row.position} /> : null}
-            {isProjected ? (
-              <span className="text-[10px] text-bb-muted">proj</span>
-            ) : null}
           </span>
         ) : row.status === "on_clock" ? (
           <span className="text-bb-gold">On the clock</span>
@@ -384,16 +511,18 @@ export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
 
   return (
     <div className="flex flex-col gap-5 px-3 py-4 sm:gap-6 sm:p-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-xl font-semibold text-white sm:text-2xl">Rookie Draft</h1>
-          <p className="mt-1 text-sm text-bb-muted">
-            {draft.league_name} · draft {draft.draft_id.slice(-6)} ·{" "}
-            {draft.picks_made}/{draft.total_picks} picks ·{" "}
-            {draft.adp_source ?? "ADP"}
+          <p className="mt-1 text-xs text-bb-muted sm:text-sm">
+            <span className="block truncate sm:inline">{draft.league_name}</span>
+            <span className="hidden sm:inline"> · </span>
+            <span className="block sm:inline">
+              {draft.picks_made}/{draft.total_picks} picks · {draft.adp_source ?? "ADP"}
+            </span>
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
           <button
             type="button"
             onClick={() => void refresh()}
@@ -447,170 +576,92 @@ export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
       </div>
 
       <div className="flex flex-col gap-5 xl:grid xl:grid-cols-[1fr_320px] xl:gap-6">
-        <aside className="order-1 flex flex-col gap-4 xl:order-2">
-          <section className="rounded-xl border border-bb-border/50 bg-black/20 p-4">
-            <h3 className="text-sm font-medium text-white">Positional needs</h3>
-            <p className="mb-3 text-xs text-bb-muted">
-              {draft.drafting_team_name ?? "My team"} · open starter slots
-            </p>
-            <NeedsStrip needs={draft.starter_needs} />
-          </section>
-
-          {targetRows.length > 0 ? (
-            <section className="rounded-xl border border-bb-gold/30 bg-bb-gold/5 p-4">
-              <h3 className="text-sm font-medium text-bb-gold">My targets</h3>
-              <ul className="mt-2 space-y-2">
-                {targetRows.map((row) => (
-                  <li
-                    key={row.player_id}
-                    className="flex items-center justify-between text-sm"
-                  >
-                    <span className="text-white">
-                    <PlayerName>{row.player_name}</PlayerName>{" "}
-                      <span className="text-bb-muted">({row.position})</span>
-                    </span>
-                    <OvrBadge ovr={row.ovr} size="sm" expected={row.hppg_expected} />
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-
-          {draft.bpa_top.length > 0 ? (
-            <section className="rounded-xl border border-bb-border/50 bg-black/20 p-4">
-              <h3 className="text-sm font-medium text-white">BPA top 5</h3>
-              <ol className="mt-2 space-y-1.5 text-sm">
-                {draft.bpa_top.slice(0, 5).map((row) => (
-                  <li key={row.player_id} className="flex justify-between gap-2">
-                    <span className="truncate">
-                      {row.bpa_rank}. <PlayerName as="span">{row.player_name}</PlayerName>
-                    </span>
-                    <OvrBadge ovr={row.ovr} size="sm" expected={row.hppg_expected} />
-                  </li>
-                ))}
-              </ol>
-            </section>
-          ) : null}
-
-          {draft.strategy_notes.length > 0 ? (
-            <section className="rounded-xl border border-bb-border/50 bg-black/20 p-4">
-              <h3 className="text-sm font-medium text-white">Notes</h3>
-              <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-bb-muted">
-                {draft.strategy_notes.map((note) => (
-                  <li key={note}>{note}</li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-        </aside>
-
-        <section className="order-2 min-w-0 xl:order-1">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-medium text-white">Rookie Board</h2>
-            <div className="flex items-center gap-3">
-              <div className="flex rounded-lg border border-bb-border/50 p-0.5 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setBoardSort("bpa")}
-                  className={`rounded-md px-2.5 py-1 ${
-                    boardSort === "bpa"
-                      ? "bg-white/10 text-white"
-                      : "text-bb-muted hover:text-white"
-                  }`}
-                >
-                  BPA
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setBoardSort("ovr")}
-                  className={`rounded-md px-2.5 py-1 ${
-                    boardSort === "ovr"
-                      ? "bg-white/10 text-white"
-                      : "text-bb-muted hover:text-white"
-                  }`}
-                >
-                  OVR
-                </button>
-              </div>
-              <span className="text-xs text-bb-muted">
-                {draft.board.length} rookies · ☆ = my target
-              </span>
-            </div>
-          </div>
-          <div className="divide-y divide-bb-border/30 overflow-hidden rounded-xl border border-bb-border/50 md:hidden">
-            {sortedBoard.map((row) => (
-              <BoardRowMobile
-                key={row.player_id}
-                leagueId={leagueId}
-                row={row}
-                rank={boardDisplayRank(row, boardSort)}
-                isTarget={targets.has(row.player_id)}
-                onToggleTarget={toggleTarget}
-              />
-            ))}
-          </div>
-          <div className="hidden overflow-x-auto rounded-xl border border-bb-border/50 md:block">
-            <table className="w-full min-w-[640px] text-left">
-              <thead>
-                <tr className="border-b border-bb-border/50 bg-black/30 text-[10px] uppercase tracking-wider text-bb-muted">
-                  <th className="px-2 py-2">#</th>
-                  <th className="px-2 py-2">☆</th>
-                  <th className="px-2 py-2">Player</th>
-                  <th className="px-2 py-2 text-right">OVR</th>
-                  <th className="px-2 py-2 text-right">Proj</th>
-                  <th className="px-2 py-2 text-right">TV</th>
-                  <th className="px-2 py-2 text-right">ADP</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedBoard.map((row) => (
-                  <BoardRow
-                    key={row.player_id}
-                    leagueId={leagueId}
-                    row={row}
-                    rank={boardDisplayRank(row, boardSort)}
-                    isTarget={targets.has(row.player_id)}
-                    onToggleTarget={toggleTarget}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
-
-      <section>
-        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-lg font-medium text-white">Draft board</h2>
-          <p className="text-xs text-bb-muted">
-            Unpicked slots show a projected pick (real team order · ADP + needs sim)
-          </p>
-        </div>
-        <div className="space-y-2 md:hidden">
-          {draft.timeline.map((row) => (
-            <TimelineRowMobile key={row.pick_no} row={row} />
-          ))}
-        </div>
-        <div className="hidden max-h-112 overflow-y-auto rounded-xl border border-bb-border/50 md:block">
-          <table className="w-full text-left">
-            <thead className="sticky top-0 z-10 bg-[#0f1419]">
-              <tr className="border-b border-bb-border/50 text-[10px] uppercase tracking-wider text-bb-muted">
-                <th className="px-2 py-2">Pick</th>
-                <th className="px-2 py-2">Rd</th>
-                <th className="px-2 py-2">Team</th>
-                <th className="px-2 py-2">Player</th>
-                <th className="px-2 py-2">Pos</th>
-                <th className="px-2 py-2 text-right">OVR</th>
-              </tr>
-            </thead>
-            <tbody>
+        <div className="flex min-w-0 flex-col gap-5">
+          <ScrollPanel
+            title="Mock draft"
+            subtitle="Real team order · unpicked slots show projected picks"
+            maxHeightClass="max-h-[min(45dvh,26rem)] sm:max-h-[min(50dvh,28rem)]"
+          >
+            <div className="space-y-1.5 p-2 md:hidden">
               {draft.timeline.map((row) => (
-                <TimelineRow key={row.pick_no} row={row} />
+                <TimelineRowMobile key={row.pick_no} row={row} />
               ))}
-            </tbody>
-          </table>
+            </div>
+            <div className="hidden md:block">
+              <table className="w-full text-left">
+                <thead className="sticky top-0 z-10 bg-[#121820]">
+                  <tr className="border-b border-bb-border/50 text-[10px] uppercase tracking-wider text-bb-muted">
+                    <th className="px-2 py-2">Pick</th>
+                    <th className="px-2 py-2">Rd</th>
+                    <th className="px-2 py-2">Team</th>
+                    <th className="px-2 py-2">Player</th>
+                    <th className="px-2 py-2">Pos</th>
+                    <th className="px-2 py-2 text-right">OVR</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {draft.timeline.map((row) => (
+                    <TimelineRow key={row.pick_no} row={row} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </ScrollPanel>
+
+          <ScrollPanel
+            title="Available rookies"
+            subtitle={`${draft.board.length} on board · ☆ = my target`}
+            maxHeightClass="max-h-[min(55dvh,32rem)] sm:max-h-[min(60dvh,36rem)]"
+            headerRight={
+              <BoardSortToggle boardSort={boardSort} onChange={setBoardSort} />
+            }
+          >
+            <div className="divide-y divide-bb-border/30 md:hidden">
+              {sortedBoard.map((row) => (
+                <BoardRowMobile
+                  key={row.player_id}
+                  leagueId={leagueId}
+                  row={row}
+                  rank={boardDisplayRank(row, boardSort)}
+                  isTarget={targets.has(row.player_id)}
+                  onToggleTarget={toggleTarget}
+                />
+              ))}
+            </div>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[640px] text-left">
+                <thead className="sticky top-0 z-10 bg-[#121820]">
+                  <tr className="border-b border-bb-border/50 text-[10px] uppercase tracking-wider text-bb-muted">
+                    <th className="px-2 py-2">#</th>
+                    <th className="px-2 py-2">☆</th>
+                    <th className="px-2 py-2">Player</th>
+                    <th className="px-2 py-2 text-right">OVR</th>
+                    <th className="px-2 py-2 text-right">Proj</th>
+                    <th className="px-2 py-2 text-right">TV</th>
+                    <th className="px-2 py-2 text-right">ADP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedBoard.map((row) => (
+                    <BoardRow
+                      key={row.player_id}
+                      leagueId={leagueId}
+                      row={row}
+                      rank={boardDisplayRank(row, boardSort)}
+                      isTarget={targets.has(row.player_id)}
+                      onToggleTarget={toggleTarget}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </ScrollPanel>
         </div>
-      </section>
+
+        <aside className="flex flex-col gap-4">
+          <SidebarPanels draft={draft} targetRows={targetRows} />
+        </aside>
+      </div>
     </div>
   );
 }

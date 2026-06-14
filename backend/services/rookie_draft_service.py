@@ -19,9 +19,13 @@ from backend.schemas.rookie_draft import (
     RookieDraftView,
     StarterNeeds,
 )
-from backend.services.pick_service import collect_league_traded_picks
+from backend.services.pick_service import collect_league_traded_picks, pick_slot_by_roster
 from backend.services.read_service import headshot_url, ovr_tier
-from dynasty_draft.draft_pick_ownership import PickOwnerIndex, build_pick_owner_index
+from dynasty_draft.draft_pick_ownership import (
+    PickOwnerIndex,
+    build_pick_owner_index,
+    merge_pick_slot_order,
+)
 from dynasty_draft.config import load_config
 from dynasty_draft.draft_context import build_draft_timeline, build_scoring_context
 from dynasty_draft.dynasty_score import DynastyRatingCurve, DynastyWeights
@@ -109,6 +113,7 @@ def build_rookie_draft_state(
     settings: dict[str, Any],
     client: SleeperClient,
     pick_owner_index: PickOwnerIndex | None = None,
+    roster_owner_ids: dict[int, str] | None = None,
 ) -> RookieDraftState:
     war_path = Path(str(settings.get("war_csv", "war.csv")))
     if not war_path.exists():
@@ -141,6 +146,7 @@ def build_rookie_draft_state(
         dynasty_rating_curve=DynastyRatingCurve.from_config(settings.get("dynasty_rating_curve")),
         strategy=strategy,
         pick_owner_index=pick_owner_index or {},
+        roster_owner_ids=roster_owner_ids or {},
     )
 
     if settings.get("ktc_enabled", True):
@@ -398,8 +404,17 @@ def get_rookie_draft_view(
     draft = client.get_draft(resolved_draft_id)
     picks = client.get_draft_picks(resolved_draft_id)
     league_users = client.get_league_users(league_id)
+    season = str(draft.get("season") or league_row.season)
+    pick_slots, _ = pick_slot_by_roster(client, league_id, season=season)
+    draft = merge_pick_slot_order(draft, pick_slots)
     traded_picks = collect_league_traded_picks(client, league_id)
     pick_owner_index = build_pick_owner_index(traded_picks)
+    rosters = client.get_rosters(league_id)
+    roster_owner_ids = {
+        int(row["roster_id"]): str(row["owner_id"])
+        for row in rosters
+        if row.get("roster_id") is not None and row.get("owner_id") is not None
+    }
 
     state = build_rookie_draft_state(
         draft=draft,
@@ -410,6 +425,7 @@ def get_rookie_draft_view(
         settings=settings,
         client=client,
         pick_owner_index=pick_owner_index,
+        roster_owner_ids=roster_owner_ids,
     )
 
     rosters = db.scalars(select(Roster).where(Roster.league_id == league_id)).all()
