@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -35,6 +36,18 @@ const AdvisorContext = createContext<AdvisorContextValue | null>(null);
 const perspectiveStorageKey = (leagueId: string) =>
   `bb-advisor-trade-perspective:${leagueId}`;
 
+function readStoredPerspective(
+  leagueId: string | undefined,
+  myRosterId: string | undefined,
+): string | undefined {
+  if (!leagueId || typeof window === "undefined") {
+    return myRosterId;
+  }
+  return (
+    window.localStorage.getItem(perspectiveStorageKey(leagueId)) ?? myRosterId
+  );
+}
+
 type AdvisorProviderProps = {
   leagueId?: string;
   myRosterId?: string;
@@ -51,29 +64,19 @@ export function AdvisorProvider({
   const [pageContext, setPageContext] = useState<AdvisorPageContext>(
     initialPageContext ?? { pageType: "unknown" },
   );
-  const [tradePerspectiveRosterId, setTradePerspectiveRosterId] = useState<
+  const [tradePerspectiveRosterId, setTradePerspectiveRosterIdState] = useState<
     string | undefined
-  >(undefined);
+  >(() => readStoredPerspective(leagueId, myRosterId));
 
-  useEffect(() => {
-    if (!leagueId || typeof window === "undefined") {
-      setTradePerspectiveRosterId(undefined);
-      return;
-    }
-    const stored = window.localStorage.getItem(perspectiveStorageKey(leagueId));
-    if (stored) {
-      setTradePerspectiveRosterId(stored);
-      return;
-    }
-    setTradePerspectiveRosterId(myRosterId);
-  }, [leagueId, myRosterId]);
-
-  useEffect(() => {
-    if (!leagueId || typeof window === "undefined") return;
-    const id = tradePerspectiveRosterId ?? myRosterId;
-    if (!id) return;
-    window.localStorage.setItem(perspectiveStorageKey(leagueId), id);
-  }, [leagueId, myRosterId, tradePerspectiveRosterId]);
+  const setTradePerspectiveRosterId = useCallback(
+    (rosterId: string | undefined) => {
+      setTradePerspectiveRosterIdState(rosterId);
+      if (leagueId && typeof window !== "undefined" && rosterId) {
+        window.localStorage.setItem(perspectiveStorageKey(leagueId), rosterId);
+      }
+    },
+    [leagueId],
+  );
 
   const focusedRosterId = tradePerspectiveRosterId ?? myRosterId;
 
@@ -91,6 +94,7 @@ export function AdvisorProvider({
       leagueId,
       myRosterId,
       tradePerspectiveRosterId,
+      setTradePerspectiveRosterId,
       focusedRosterId,
       pageContext,
     ],

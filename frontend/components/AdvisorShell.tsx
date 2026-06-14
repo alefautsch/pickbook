@@ -21,6 +21,7 @@ export function AdvisorShell({
 
   return (
     <AdvisorProvider
+      key={leagueId}
       leagueId={leagueId}
       myRosterId={myRosterId ?? undefined}
       pageContext={pageContext}

@@ -72,27 +72,28 @@ export function AdvisorWidget({ open, onOpenChange }: AdvisorWidgetProps) {
   }, [threadKey]);
 
   useEffect(() => {
-    if (!leagueId) {
-      setLeagueTeams([]);
-      return;
-    }
+    if (!leagueId) return;
+    let cancelled = false;
     getLeagueRankings(leagueId)
-      .then((rankings) => setLeagueTeams(rankings.by_dynasty ?? []))
-      .catch(() => setLeagueTeams([]));
-  }, [leagueId]);
-
-  useEffect(() => {
-    if (!leagueTeams.length || !focusedRosterId) return;
-    const known = leagueTeams.some((t) => t.roster_id === focusedRosterId);
-    if (!known && myRosterId) {
-      setTradePerspectiveRosterId(myRosterId);
-    }
-  }, [
-    leagueTeams,
-    focusedRosterId,
-    myRosterId,
-    setTradePerspectiveRosterId,
-  ]);
+      .then((rankings) => {
+        if (cancelled) return;
+        const teams = rankings.by_dynasty ?? [];
+        setLeagueTeams(teams);
+        if (
+          focusedRosterId &&
+          !teams.some((t) => t.roster_id === focusedRosterId) &&
+          myRosterId
+        ) {
+          setTradePerspectiveRosterId(myRosterId);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLeagueTeams([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [leagueId, focusedRosterId, myRosterId, setTradePerspectiveRosterId]);
 
   const perspectiveTeam = leagueTeams.find((t) => t.roster_id === focusedRosterId);
   const perspectiveLabel =
