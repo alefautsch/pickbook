@@ -133,21 +133,117 @@ def collect_league_traded_picks(
     return merged
 
 
+ROOKIE_PLAYER_TYPE = 1
+
+
+def _rookie_draft_reversed() -> bool:
+    from dynasty_draft.config import load_config
+
+    config = load_config()
+    return bool((config.get("strategy") or {}).get("rookie_draft_reversed", True))
+
+
+def _startup_is_rookie_order() -> bool:
+    """Direct startup→rookie mapping only when the rookie draft is not reversed."""
+    return not _rookie_draft_reversed()
+
+
+def _rookie_draft_status_by_season(
+    client: SleeperClient,
+    league_id: str,
+) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for draft in client.get_league_drafts(league_id):
+        settings = draft.get("settings") or {}
+        if int(settings.get("player_type", 0) or 0) != ROOKIE_PLAYER_TYPE:
+            continue
+        season = str(draft.get("season") or "")
+        if season:
+            out[season] = str(draft.get("status") or "")
+    return out
+
+
 def _league_is_pre_draft(league_remote: dict[str, Any]) -> bool:
     return (league_remote.get("status") or "").lower() in ("pre_draft", "drafting")
+
+
+def pick_slot_by_roster(
+    client: SleeperClient,
+    league_id: str,
+    *,
+    season: str,
+) -> tuple[dict[str, int], bool]:
+    """Map roster_id → slot within round (1 = 1.01), matching Sleeper pick labels.
+
+    Sleeper's traded_picks API only stores franchise slot + owner — not 1.01.
+    The UI derives pick numbers from a draft's draft_order. We mirror that:
+
+    1. Rookie / pick-allocation draft (player_type=1) with draft_order set → use directly
+    2. Else completed startup draft (player_type=2) → apply reversal if configured
+    """
+    drafts = client.get_league_drafts(league_id)
+    rosters = client.get_rosters(league_id)
+    uid_to_rid = {
+        str(r["owner_id"]): str(r["roster_id"])
+        for r in rosters
+        if r.get("owner_id") is not None and r.get("roster_id") is not None
+    }
+
+    def _slots_from_order(order: dict[str, Any]) -> dict[str, int]:
+        out: dict[str, int] = {}
+        for uid, slot in order.items():
+            rid = uid_to_rid.get(str(uid))
+            if rid is not None:
+                out[rid] = int(slot)
+        return out
+
+    rookie_drafts = [
+        d
+        for d in drafts
+        if str(d.get("season") or "") == str(season)
+        and int((d.get("settings") or {}).get("player_type", 0) or 0) == ROOKIE_PLAYER_TYPE
+        and d.get("type") in ("snake", "linear")
+        and d.get("status") in ("complete", "pre_draft", "drafting")
+        and d.get("draft_order")
+    ]
+    if rookie_drafts:
+        order = rookie_drafts[0].get("draft_order") or {}
+        slots = _slots_from_order(order)
+        if slots:
+            return slots, True
+
+    startup_drafts = [
+        d
+        for d in drafts
+        if int((d.get("settings") or {}).get("player_type", 0) or 0) == 2
+        and d.get("type") in ("snake", "linear")
+        and d.get("status") == "complete"
+    ]
+    if startup_drafts:
+        draft = max(
+            startup_drafts,
+            key=lambda d: int((d.get("settings") or {}).get("rounds") or 0),
+        )
+        order = draft.get("draft_order") or {}
+        slots = _slots_from_order(order)
+        if slots:
+            return slots, _startup_is_rookie_order()
+
+    return {}, False
 
 
 def startup_draft_slot_by_roster(
     client: SleeperClient,
     league_id: str,
 ) -> dict[str, int]:
-    """Map roster_id → startup player-draft slot (1 = first pick). Sleeper uses this for 1.01."""
+    """Map roster_id → startup player-draft slot (1 = first pick in startup)."""
     drafts = client.get_league_drafts(league_id)
     player_drafts = [
         d
         for d in drafts
         if d.get("type") in ("snake", "linear")
         and d.get("status") in ("complete", "pre_draft", "drafting")
+        and int((d.get("settings") or {}).get("player_type", 0) or 0) == 2
     ]
     if not player_drafts:
         return {}
@@ -174,12 +270,15 @@ def startup_draft_slot_by_roster(
 def _use_startup_slots_for_season(
     league_remote: dict[str, Any],
     pick_season: str,
+    *,
+    rookie_draft_statuses: dict[str, str] | None = None,
 ) -> bool:
-    """Pre-season / startup: rookie slot follows startup draft order, not dynasty rank."""
+    """Current-season picks follow startup order until the rookie draft completes."""
     current = str(league_remote.get("season") or "")
-    if _league_is_pre_draft(league_remote):
-        return pick_season == current
-    return False
+    if pick_season != current:
+        return False
+    status = (rookie_draft_statuses or {}).get(pick_season, "")
+    return status != "complete"
 
 
 def _contender_tier_by_roster(rankings_json: dict[str, Any] | None) -> dict[str, str]:
@@ -202,6 +301,52 @@ def _dynasty_rank_by_roster(rankings_json: dict[str, Any] | None) -> dict[str, i
         if rid is not None and rank is not None:
             out[str(rid)] = int(rank)
     return out
+
+
+def _pick_slot_fields(
+    *,
+    league_remote: dict[str, Any],
+    current_season: str,
+    league_size: int,
+    season: str,
+    round_no: int,
+    original_roster_id: str,
+    owner_roster_id: str,
+    rank_by_roster: dict[str, int],
+    pick_slots: dict[str, int],
+    pick_slots_direct: bool,
+    rookie_draft_statuses: dict[str, str],
+) -> tuple[SlotTier, int | None, str]:
+    original_rank = rank_by_roster.get(original_roster_id)
+    seasons_out = seasons_until(current_season, season)
+    use_draft_slots = _use_startup_slots_for_season(
+        league_remote,
+        season,
+        rookie_draft_statuses=rookie_draft_statuses,
+    )
+    draft_slot = pick_slots.get(original_roster_id) if use_draft_slots else None
+    slot_is_direct = pick_slots_direct if use_draft_slots else False
+    league_pre_draft = _league_is_pre_draft(league_remote)
+    slot_tier = infer_slot_tier(
+        original_rank,
+        league_size=league_size,
+        startup_draft_slot=draft_slot,
+        startup_is_rookie_order=slot_is_direct,
+    )
+    slot_no = slot_in_round(
+        original_rank,
+        league_size=league_size,
+        startup_draft_slot=draft_slot,
+        startup_is_rookie_order=slot_is_direct,
+    )
+    certainty = pick_slot_certainty(
+        is_own_slot=original_roster_id == owner_roster_id,
+        seasons_out=seasons_out,
+        league_pre_draft=league_pre_draft,
+    )
+    if use_draft_slots and slot_no is not None:
+        certainty = "known"
+    return slot_tier, slot_no, certainty
 
 
 def _table_exists(db: Session, table_name: str) -> bool:
@@ -295,9 +440,10 @@ def sync_league_draft_picks(
     )
     rank_by_roster = _dynasty_rank_by_roster(snap.rankings_json if snap else None)
     tier_by_roster = _contender_tier_by_roster(snap.rankings_json if snap else None)
-    startup_slots = startup_draft_slot_by_roster(client, league_id)
     league_size = league_row.total_rosters or len(rosters) or 12
     current_season = league_row.season
+    pick_slots, pick_slots_direct = pick_slot_by_roster(client, league_id, season=current_season)
+    rookie_draft_statuses = _rookie_draft_status_by_season(client, league_id)
     draft_rounds = _draft_rounds(remote)
     ktc_store = _load_ktc_for_league(league_row)
     war = _load_war(db)
@@ -321,31 +467,21 @@ def sync_league_draft_picks(
         original_id = row["original_roster_id"]
         owner_id = row["owner_roster_id"]
         is_own = original_id == owner_id
-        original_rank = rank_by_roster.get(original_id)
-        seasons_out = seasons_until(current_season, row["season"])
-        use_startup = _use_startup_slots_for_season(remote, row["season"])
-        startup_slot = startup_slots.get(original_id) if use_startup else None
-        league_pre_draft = _league_is_pre_draft(remote)
-        slot_tier = infer_slot_tier(
-            original_rank,
+        slot_tier, slot_no, certainty = _pick_slot_fields(
+            league_remote=remote,
+            current_season=current_season,
             league_size=league_size,
-            startup_draft_slot=startup_slot,
-            startup_is_rookie_order=use_startup,
+            season=row["season"],
+            round_no=row["round"],
+            original_roster_id=original_id,
+            owner_roster_id=owner_id,
+            rank_by_roster=rank_by_roster,
+            pick_slots=pick_slots,
+            pick_slots_direct=pick_slots_direct,
+            rookie_draft_statuses=rookie_draft_statuses,
         )
-        slot_no = slot_in_round(
-            original_rank,
-            league_size=league_size,
-            startup_draft_slot=startup_slot,
-            startup_is_rookie_order=use_startup,
-        )
-        certainty = pick_slot_certainty(
-            is_own_slot=is_own,
-            seasons_out=seasons_out,
-            league_pre_draft=league_pre_draft,
-        )
-        if use_startup and slot_no is not None:
-            certainty = "known"
         owner_tier = tier_by_roster.get(owner_id)
+        seasons_out = seasons_until(current_season, row["season"])
         tv = value_pick(
             round_no=row["round"],
             slot_tier=slot_tier,
@@ -406,8 +542,12 @@ def get_roster_draft_picks(
         db.rollback()
         return []
 
+    if not rows:
+        return []
+
     league_row = db.get(League, league_id)
     league_size = (league_row.total_rosters if league_row else None) or 12
+    current_season = league_row.season if league_row else rows[0].season
 
     snap = db.scalar(
         select(LeagueSnapshot)
@@ -416,37 +556,84 @@ def get_roster_draft_picks(
         .limit(1)
     )
     rank_by_roster = _dynasty_rank_by_roster(snap.rankings_json if snap else None)
-    startup_slots = startup_draft_slot_by_roster(SleeperClient(), league_id)
-    league_row = db.get(League, league_id)
-    league_remote = None
+    tier_by_roster = _contender_tier_by_roster(snap.rankings_json if snap else None)
+
+    client = SleeperClient()
+    pick_slots, pick_slots_direct = pick_slot_by_roster(client, league_id, season=current_season)
+    rookie_draft_statuses = _rookie_draft_status_by_season(client, league_id)
+    league_remote: dict[str, Any] | None = None
     if league_row:
         try:
-            league_remote = SleeperClient().get_league(league_id)
+            league_remote = client.get_league(league_id)
         except Exception:
             league_remote = None
+    if league_remote is None:
+        league_remote = {"season": current_season, "status": "in_season"}
 
-    return [
-        {
-            "season": row.season,
-            "round": row.round,
-            "original_roster_id": row.original_roster_id,
-            "owner_roster_id": row.owner_roster_id,
-            "slot_tier": row.slot_tier,
-            "slot_in_round": slot_in_round(
-                rank_by_roster.get(row.original_roster_id),
-                league_size=league_size,
-                startup_draft_slot=startup_slots.get(row.original_roster_id)
-                if league_remote
-                and _use_startup_slots_for_season(league_remote, row.season)
-                else None,
-                startup_is_rookie_order=bool(
-                    league_remote
-                    and _use_startup_slots_for_season(league_remote, row.season)
-                ),
-            ),
-            "trade_value": row.trade_value,
-            "label": row.label,
-            "is_own_slot": row.original_roster_id == row.owner_roster_id,
-        }
-        for row in rows
-    ]
+    ktc_store = _load_ktc_for_league(league_row)
+    war = _load_war(db)
+    draft_rounds = _draft_rounds(league_remote)
+    rookie_values = rookie_prospect_values(
+        war.players,
+        ktc_lookup=ktc_store.lookup if ktc_store else None,
+    )
+    ktc_lookup, _ = _ktc_pick_lookup(ktc_store)
+    ktc_slot_lookup = _ktc_slot_lookup(
+        ktc_store,
+        league_size=league_size,
+        draft_rounds=draft_rounds,
+        current_season=current_season,
+        rookie_values=rookie_values,
+    )
+
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        slot_tier, slot_no, certainty = _pick_slot_fields(
+            league_remote=league_remote,
+            current_season=current_season,
+            league_size=league_size,
+            season=row.season,
+            round_no=row.round,
+            original_roster_id=row.original_roster_id,
+            owner_roster_id=row.owner_roster_id,
+            rank_by_roster=rank_by_roster,
+            pick_slots=pick_slots,
+            pick_slots_direct=pick_slots_direct,
+            rookie_draft_statuses=rookie_draft_statuses,
+        )
+        seasons_out = seasons_until(current_season, row.season)
+        is_own = row.original_roster_id == row.owner_roster_id
+        trade_value = value_pick(
+            round_no=row.round,
+            slot_tier=slot_tier,
+            seasons_out=seasons_out,
+            slot_in_round_no=slot_no,
+            is_own_slot=is_own,
+            owner_contender_tier=tier_by_roster.get(row.owner_roster_id),
+            slot_certainty=certainty,
+            pick_season=row.season,
+            ktc_lookup=ktc_lookup,
+            ktc_slot_lookup=ktc_slot_lookup,
+            league_size=league_size,
+        )
+        label = pick_label(
+            season=row.season,
+            round_no=row.round,
+            slot_tier=slot_tier,
+            slot_in_round_no=slot_no,
+            slot_certainty=certainty,
+        )
+        out.append(
+            {
+                "season": row.season,
+                "round": row.round,
+                "original_roster_id": row.original_roster_id,
+                "owner_roster_id": row.owner_roster_id,
+                "slot_tier": slot_tier,
+                "slot_in_round": slot_no,
+                "trade_value": trade_value,
+                "label": label,
+                "is_own_slot": is_own,
+            }
+        )
+    return out

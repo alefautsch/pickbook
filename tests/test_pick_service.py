@@ -126,19 +126,13 @@ def test_pick_slot_certainty_pre_draft_future_is_projected():
 
 
 def test_university_terrace_startup_pick_labels():
-    """Pre-draft startup: 2026 slots from draft order; 2027+ projected."""
+    """Pre-draft startup: 2026 slots from reversed startup draft order; 2027+ projected."""
     from backend.services.pick_service import (
         build_league_pick_inventory,
-        _use_startup_slots_for_season,
+        _pick_slot_fields,
         _league_is_pre_draft,
     )
-    from dynasty_draft.inseason_pick_values import (
-        infer_slot_tier,
-        pick_label,
-        pick_slot_certainty,
-        seasons_until,
-        slot_in_round,
-    )
+    from dynasty_draft.inseason_pick_values import pick_label, pick_slot_certainty, seasons_until
 
     league = {"season": "2026", "status": "pre_draft", "settings": {"draft_rounds": 3}}
     rosters = [{"roster_id": i, "owner_id": f"u{i}"} for i in range(1, 11)]
@@ -158,32 +152,24 @@ def test_university_terrace_startup_pick_labels():
 
     labels = []
     for row in my_picks:
-        use_startup = _use_startup_slots_for_season(league, row["season"])
-        startup_slot = startup_slots.get(row["original_roster_id"]) if use_startup else None
-        slot_no = slot_in_round(
-            None,
+        slot_tier, slot_no, certainty = _pick_slot_fields(
+            league_remote=league,
+            current_season="2026",
             league_size=10,
-            startup_draft_slot=startup_slot,
-            startup_is_rookie_order=use_startup,
-        )
-        certainty = pick_slot_certainty(
-            is_own_slot=row["original_roster_id"] == row["owner_roster_id"],
-            seasons_out=seasons_until("2026", row["season"]),
-            league_pre_draft=_league_is_pre_draft(league),
-        )
-        if use_startup and slot_no is not None:
-            certainty = "known"
-        tier = infer_slot_tier(
-            None,
-            league_size=10,
-            startup_draft_slot=startup_slot,
-            startup_is_rookie_order=use_startup,
+            season=row["season"],
+            round_no=row["round"],
+            original_roster_id=row["original_roster_id"],
+            owner_roster_id=row["owner_roster_id"],
+            rank_by_roster={},
+            pick_slots=startup_slots,
+            pick_slots_direct=True,
+            rookie_draft_statuses={"2026": "pre_draft"},
         )
         labels.append(
             pick_label(
                 season=row["season"],
                 round_no=row["round"],
-                slot_tier=tier,
+                slot_tier=slot_tier,
                 slot_in_round_no=slot_no,
                 slot_certainty=certainty,
             )
@@ -204,6 +190,73 @@ def test_university_terrace_startup_pick_labels():
         ),
     )
     assert y2027 == "2027 1st (proj)"
+
+
+def test_gla_pick_allocation_draft_order_is_101():
+    """GLA: Sleeper pick-allocation draft_order has roster 3 at slot 1 → 1.01."""
+    from backend.services.pick_service import _pick_slot_fields
+
+    league = {"season": "2026", "status": "pre_draft", "settings": {"draft_rounds": 3}}
+    slot_tier, slot_no, certainty = _pick_slot_fields(
+        league_remote=league,
+        current_season="2026",
+        league_size=10,
+        season="2026",
+        round_no=1,
+        original_roster_id="3",
+        owner_roster_id="3",
+        rank_by_roster={"3": 1},
+        pick_slots={"3": 1},
+        pick_slots_direct=True,
+        rookie_draft_statuses={"2026": "pre_draft"},
+    )
+    assert slot_no == 1
+    assert certainty == "known"
+    assert pick_label(
+        season="2026",
+        round_no=1,
+        slot_tier=slot_tier,
+        slot_in_round_no=slot_no,
+        slot_certainty=certainty,
+    ) == "2026 1.01"
+
+
+def test_startup_fallback_reversed_when_no_rookie_draft_order():
+    """Without rookie draft_order, infer from reversed startup slot."""
+    from backend.services.pick_service import _pick_slot_fields
+
+    league = {"season": "2026", "status": "pre_draft", "settings": {"draft_rounds": 3}}
+    slot_tier, slot_no, certainty = _pick_slot_fields(
+        league_remote=league,
+        current_season="2026",
+        league_size=10,
+        season="2026",
+        round_no=1,
+        original_roster_id="3",
+        owner_roster_id="3",
+        rank_by_roster={"3": 1},
+        pick_slots={"3": 10},
+        pick_slots_direct=False,
+        rookie_draft_statuses={"2026": "pre_draft"},
+    )
+    assert slot_no == 1
+
+
+def test_use_startup_slots_until_rookie_draft_complete():
+    from backend.services.pick_service import _use_startup_slots_for_season
+
+    league = {"season": "2026", "status": "in_season"}
+    assert _use_startup_slots_for_season(
+        league,
+        "2026",
+        rookie_draft_statuses={"2026": "pre_draft"},
+    )
+    assert not _use_startup_slots_for_season(
+        league,
+        "2026",
+        rookie_draft_statuses={"2026": "complete"},
+    )
+    assert not _use_startup_slots_for_season(league, "2027", rookie_draft_statuses={"2026": "pre_draft"})
 
 
 def test_build_inventory_applies_traded_picks():
