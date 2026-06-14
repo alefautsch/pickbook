@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { InjuryWatchItem } from "@/lib/api";
+import { PlayerName } from "./PlayerName";
 import { PositionTag } from "./PositionPill";
 
 type InjuryWatchPanelProps = {
@@ -34,9 +35,9 @@ export function InjuryWatchPanel({ injuries, leagueId, compact }: InjuryWatchPan
             <div className="min-w-0 flex-1">
               <Link
                 href={`/players/${item.player_id}?league_id=${leagueId}`}
-                className="block truncate text-sm font-medium text-white hover:text-bb-gold"
+                className="block truncate hover:text-bb-gold"
               >
-                {item.player_name}
+                <PlayerName>{item.player_name}</PlayerName>
               </Link>
               <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                 {item.position ? <PositionTag position={item.position} /> : null}

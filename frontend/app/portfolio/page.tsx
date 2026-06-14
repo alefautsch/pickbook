@@ -3,6 +3,7 @@ import { AppShell } from "@/components/AppShell";
 import { OvrBadge } from "@/components/OvrBadge";
 import { PortfolioHoldingsMobile } from "@/components/PortfolioHoldingsMobile";
 import { PlayerHeadshot } from "@/components/PlayerHeadshot";
+import { PlayerName } from "@/components/PlayerName";
 import { PositionTag } from "@/components/PositionPill";
 import { getLeagues, getPortfolio } from "@/lib/api";
 
@@ -74,9 +75,9 @@ export default async function PortfolioPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <Link
                           href={`/players/${player.player_id}?league_id=${player.leagues[0]?.league_id}`}
-                          className="font-semibold text-white hover:text-bb-gold"
+                          className="hover:text-bb-gold"
                         >
-                          {player.player_name}
+                          <PlayerName size="base">{player.player_name}</PlayerName>
                         </Link>
                         {player.position ? <PositionTag position={player.position} /> : null}
                         <span className="text-xs text-bb-muted">
@@ -148,7 +149,7 @@ export default async function PortfolioPage() {
                           sizes="40px"
                         />
                         <div>
-                          <p className="font-medium text-white">{player.player_name}</p>
+                          <PlayerName as="p" size="base">{player.player_name}</PlayerName>
                           <div className="mt-0.5">
                             {player.position ? <PositionTag position={player.position} /> : null}
                           </div>

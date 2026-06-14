@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { PortfolioPlayer } from "@/lib/api";
 import { OvrBadge } from "@/components/OvrBadge";
 import { PlayerHeadshot } from "@/components/PlayerHeadshot";
+import { PlayerName } from "@/components/PlayerName";
 import { PositionTag } from "@/components/PositionPill";
 
 const FLAG_LABELS: Record<string, string> = {
@@ -31,7 +32,7 @@ export function PortfolioHoldingsMobile({ holdings }: PortfolioHoldingsMobilePro
             sizes="40px"
           />
           <div className="min-w-0 flex-1">
-            <p className="truncate font-medium text-white">{player.player_name}</p>
+            <PlayerName as="p">{player.player_name}</PlayerName>
             <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
               {player.position ? <PositionTag position={player.position} /> : null}
               <span className="text-xs text-bb-muted">

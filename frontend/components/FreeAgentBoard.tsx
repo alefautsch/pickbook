@@ -7,6 +7,7 @@ import { formatPpg, formatTv } from "@/lib/format";
 import { OvrBadge } from "./OvrBadge";
 import { RookieBadge } from "./RookieBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
+import { PlayerName } from "./PlayerName";
 import { PositionTag } from "./PositionPill";
 
 type FreeAgentBoardProps = {
@@ -134,9 +135,7 @@ export function FreeAgentBoard({
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
-                    <p className="truncate text-sm font-medium text-white">
-                      {player.player_name}
-                    </p>
+                    <PlayerName as="p">{player.player_name}</PlayerName>
                     {player.dynasty_rookie ? <RookieBadge /> : null}
                   </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-1">
@@ -207,7 +206,7 @@ export function FreeAgentBoard({
                       />
                       <div>
                         <div className="flex items-center gap-1.5">
-                          <p className="font-medium text-white">{player.player_name}</p>
+                          <PlayerName size="base">{player.player_name}</PlayerName>
                           {player.dynasty_rookie ? <RookieBadge /> : null}
                         </div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-1.5">

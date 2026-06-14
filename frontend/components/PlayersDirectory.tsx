@@ -15,6 +15,7 @@ import { FaTag } from "./FaTag";
 import { LeagueSwitcher } from "./LeagueSwitcher";
 import { OvrBadge } from "./OvrBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
+import { PlayerName } from "./PlayerName";
 import { PositionTag } from "./PositionPill";
 import { RookieBadge } from "./RookieBadge";
 import { matchesPositionFilter } from "@/lib/positions";
@@ -134,7 +135,7 @@ function PlayerIdentity({
       />
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
-          <span className="truncate font-medium text-white">{player.player_name}</span>
+          <PlayerName as="span">{player.player_name}</PlayerName>
           {player.dynasty_rookie ? <RookieBadge /> : null}
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-1">
@@ -189,7 +190,7 @@ function DirectoryRowMobile({
           />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
-              <p className="truncate text-sm font-medium text-white">{player.player_name}</p>
+              <PlayerName as="p">{player.player_name}</PlayerName>
               {player.dynasty_rookie ? <RookieBadge /> : null}
             </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-1">

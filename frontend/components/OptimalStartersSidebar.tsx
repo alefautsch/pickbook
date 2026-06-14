@@ -3,6 +3,7 @@ import type { LineupSlot } from "@/lib/api";
 import { formatPpg } from "@/lib/format";
 import { OvrBadge } from "./OvrBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
+import { PlayerName } from "./PlayerName";
 import { PositionPill, PositionTag } from "./PositionPill";
 import { RookieBadge } from "./RookieBadge";
 
@@ -52,9 +53,9 @@ export function OptimalStartersSidebar({
               <div className="min-w-0 flex-1">
                 <Link
                   href={`/players/${player.player_id}?league_id=${leagueId}`}
-                  className="flex items-center gap-1.5 truncate text-sm font-medium text-white hover:text-bb-gold"
+                  className="flex items-center gap-1.5 truncate hover:text-bb-gold"
                 >
-                  <span className="truncate">{player.player_name}</span>
+                  <PlayerName>{player.player_name}</PlayerName>
                   {player.dynasty_rookie ? <RookieBadge /> : null}
                 </Link>
                 <div className="mt-0.5 flex flex-wrap items-center gap-1.5">

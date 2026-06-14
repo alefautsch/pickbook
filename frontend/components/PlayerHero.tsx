@@ -4,6 +4,7 @@ import { OvrBadge } from "@/components/OvrBadge";
 import { RookieBadge } from "@/components/RookieBadge";
 import { OvrGauge } from "@/components/OvrGauge";
 import { PlayerHeadshot } from "@/components/PlayerHeadshot";
+import { PlayerName } from "@/components/PlayerName";
 import { PositionTag } from "@/components/PositionPill";
 import { projectionSourceLabel } from "@/lib/archetype";
 import {
@@ -82,9 +83,9 @@ export function PlayerHero({ player }: PlayerHeroProps) {
               {player.league_name}
             </p>
             <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-              <h1 className="text-xl font-bold tracking-tight text-white sm:text-2xl">
+              <PlayerName as="h1" size="hero">
                 {player.player_name}
-              </h1>
+              </PlayerName>
               {player.dynasty_rookie ? <RookieBadge /> : null}
               {player.position ? <PositionTag position={player.position} /> : null}
             </div>
@@ -178,9 +179,9 @@ export function PlayerHero({ player }: PlayerHeroProps) {
         <div className="min-w-0 flex-1">
           <p className="text-xs uppercase tracking-wider text-bb-muted">{player.league_name}</p>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <h1 className="text-4xl font-bold tracking-tight text-white">
+            <PlayerName as="h1" size="hero">
               {player.player_name}
-            </h1>
+            </PlayerName>
             {player.dynasty_rookie ? <RookieBadge /> : null}
             {player.position ? <PositionTag position={player.position} /> : null}
             {player.trade_tag ? (

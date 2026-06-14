@@ -5,6 +5,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { searchPlayers, type PlayerSearchHit } from "@/lib/api";
 import { OvrBadge } from "./OvrBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
+import { PlayerName } from "./PlayerName";
 import { PositionTag } from "./PositionPill";
 
 type PlayerSearchProps = {
@@ -119,9 +120,7 @@ export function PlayerSearch({
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
-                          <p className="truncate text-sm font-medium text-white">
-                            {hit.player_name}
-                          </p>
+                          <PlayerName as="p">{hit.player_name}</PlayerName>
                           {hit.position ? <PositionTag position={hit.position} /> : null}
                         </div>
                         <p className="truncate text-xs text-bb-muted">

@@ -6,6 +6,7 @@ import { OvrBadge } from "./OvrBadge";
 import { RookieBadge } from "./RookieBadge";
 import { ExpendabilityBadge } from "./ExpendabilityBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
+import { PlayerName } from "./PlayerName";
 import { PositionTag } from "./PositionPill";
 
 type PlayerCardProps = {
@@ -48,13 +49,9 @@ export function PlayerCard({
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3
-              className={`truncate font-semibold text-white ${
-                isHero ? "text-2xl" : "text-base"
-              }`}
-            >
+            <PlayerName as="h3" size={isHero ? "lg" : "base"} className={isHero ? "text-2xl" : ""}>
               {player.player_name ?? "Unknown"}
-            </h3>
+            </PlayerName>
             {player.dynasty_rookie ? <RookieBadge /> : null}
             {player.position ? <PositionTag position={player.position} /> : null}
             {[player.nfl_team, player.age != null ? String(player.age) : null]

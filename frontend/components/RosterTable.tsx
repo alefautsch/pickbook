@@ -14,6 +14,7 @@ import { OvrBadge } from "./OvrBadge";
 import { RookieBadge } from "./RookieBadge";
 import { ExpendabilityBadge } from "./ExpendabilityBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
+import { PlayerName } from "./PlayerName";
 import { PositionPill, PositionTag } from "./PositionPill";
 import { RosterMobileList } from "./RosterMobileList";
 
@@ -43,9 +44,9 @@ function PlayerCell({ player, full = false }: { player: PlayerCard; full?: boole
       <div className="min-w-0">
         <Link
           href={`/players/${player.player_id}?league_id=${player.league_id}`}
-          className="flex items-center gap-1.5 truncate font-medium text-white hover:text-bb-gold"
+          className="flex items-center gap-1.5 truncate hover:text-bb-gold"
         >
-          <span className="truncate">{player.player_name}</span>
+          <PlayerName>{player.player_name}</PlayerName>
           {player.dynasty_rookie ? <RookieBadge /> : null}
         </Link>
         <div className="mt-0.5 flex flex-wrap items-center gap-1.5">

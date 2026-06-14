@@ -5,6 +5,7 @@ import { formatSlotLabel } from "@/lib/positions";
 import { OvrBadge } from "./OvrBadge";
 import { RookieBadge } from "./RookieBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
+import { PlayerName } from "./PlayerName";
 import { PositionPill, PositionTag } from "./PositionPill";
 
 type StarterLineupPanelProps = {
@@ -69,9 +70,9 @@ export function StarterLineupPanel({ starters, leagueId }: StarterLineupPanelPro
                   <div className="min-w-0 flex-1">
                     <Link
                       href={`/players/${player.player_id}?league_id=${leagueId}`}
-                      className="flex items-center gap-1.5 truncate text-sm font-medium text-white hover:text-bb-gold"
+                      className="flex items-center gap-1.5 truncate hover:text-bb-gold"
                     >
-                      <span className="truncate">{player.player_name}</span>
+                      <PlayerName>{player.player_name}</PlayerName>
                       {player.dynasty_rookie ? <RookieBadge /> : null}
                     </Link>
                     <PlayerMetaRow player={player} />
@@ -144,9 +145,7 @@ export function StarterLineupPanel({ starters, leagueId }: StarterLineupPanelPro
                         />
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <p className="truncate font-medium text-white">
-                              {player.player_name}
-                            </p>
+                            <PlayerName as="p">{player.player_name}</PlayerName>
                             {player.dynasty_rookie ? <RookieBadge /> : null}
                           </div>
                           <PlayerMetaRow player={player} />

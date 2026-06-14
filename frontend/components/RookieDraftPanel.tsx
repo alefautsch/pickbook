@@ -13,6 +13,7 @@ import { formatPpg, formatTv } from "@/lib/format";
 import { OvrBadge } from "./OvrBadge";
 import { RookieBadge } from "./RookieBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
+import { PlayerName } from "./PlayerName";
 import { PositionPill, PositionTag } from "./PositionPill";
 
 type RookieDraftPanelProps = {
@@ -89,7 +90,7 @@ function TimelineRow({ row }: { row: RookieDraftTimelineRow }) {
       <td className="px-2 py-2 text-sm text-white">
         {row.player_name ? (
           <span className="inline-flex items-center gap-1">
-            {row.player_name}
+            <PlayerName>{row.player_name}</PlayerName>
             {row.dynasty_rookie ? <RookieBadge /> : null}
           </span>
         ) : row.status === "on_clock" ? (
@@ -144,9 +145,9 @@ function BoardRowMobile({
       <div className="min-w-0 flex-1">
         <Link
           href={`/players/${row.player_id}?league_id=${encodeURIComponent(leagueId)}`}
-          className="flex items-center gap-1 truncate text-sm font-medium text-white hover:text-bb-gold"
+          className="flex items-center gap-1 truncate hover:text-bb-gold"
         >
-          <span className="truncate">{row.player_name}</span>
+          <PlayerName>{row.player_name}</PlayerName>
           {row.dynasty_rookie ? <RookieBadge /> : null}
         </Link>
         <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
@@ -201,7 +202,7 @@ function TimelineRowMobile({ row }: { row: RookieDraftTimelineRow }) {
       <p className="mt-1 text-sm text-white">
         {row.player_name ? (
           <span className="inline-flex flex-wrap items-center gap-1.5">
-            <span>{row.player_name}</span>
+            <PlayerName>{row.player_name}</PlayerName>
             {row.position ? <PositionTag position={row.position} /> : null}
           </span>
         ) : row.status === "on_clock" ? (
@@ -254,9 +255,9 @@ function BoardRow({
           <div className="min-w-0">
             <Link
               href={`/players/${row.player_id}?league_id=${encodeURIComponent(leagueId)}`}
-              className="flex items-center gap-1 truncate text-sm font-medium text-white hover:text-bb-gold"
+              className="flex items-center gap-1 truncate hover:text-bb-gold"
             >
-              <span className="truncate">{row.player_name}</span>
+              <PlayerName>{row.player_name}</PlayerName>
               {row.dynasty_rookie ? <RookieBadge /> : null}
             </Link>
             <div className="flex flex-wrap items-center gap-1.5">
@@ -434,7 +435,7 @@ export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
                     className="flex items-center justify-between text-sm"
                   >
                     <span className="text-white">
-                      {row.player_name}{" "}
+                    <PlayerName>{row.player_name}</PlayerName>{" "}
                       <span className="text-bb-muted">({row.position})</span>
                     </span>
                     <OvrBadge ovr={row.ovr} size="sm" expected={row.hppg_expected} />
@@ -450,8 +451,8 @@ export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
               <ol className="mt-2 space-y-1.5 text-sm">
                 {draft.bpa_top.slice(0, 5).map((row) => (
                   <li key={row.player_id} className="flex justify-between gap-2">
-                    <span className="truncate text-white">
-                      {row.bpa_rank}. {row.player_name}
+                    <span className="truncate">
+                      {row.bpa_rank}. <PlayerName as="span">{row.player_name}</PlayerName>
                     </span>
                     <OvrBadge ovr={row.ovr} size="sm" expected={row.hppg_expected} />
                   </li>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { PortfolioSummary } from "@/lib/api";
 import { OvrBadge } from "./OvrBadge";
+import { PlayerName } from "./PlayerName";
 import { PositionTag } from "./PositionPill";
 
 type PortfolioOverviewRowProps = {
@@ -31,8 +32,8 @@ export function PortfolioOverviewRow({ portfolio, leagueId }: PortfolioOverviewR
           </div>
           <div>
             <dt className="text-bb-muted">Top exposure</dt>
-            <dd className="truncate text-sm font-medium text-bb-gold">
-              {topExposure?.player_name ?? "—"}
+            <dd className="truncate">
+              <PlayerName className="text-bb-gold">{topExposure?.player_name ?? "—"}</PlayerName>
             </dd>
           </div>
         </dl>
@@ -55,9 +56,9 @@ export function PortfolioOverviewRow({ portfolio, leagueId }: PortfolioOverviewR
                 <div className="flex min-w-0 items-center gap-2">
                   <Link
                     href={`/players/${player.player_id}?league_id=${leagueId}`}
-                    className="min-w-0 truncate text-sm text-white hover:text-bb-gold"
+                    className="min-w-0 truncate hover:text-bb-gold"
                   >
-                    {player.player_name}
+                    <PlayerName>{player.player_name}</PlayerName>
                   </Link>
                   {player.position ? <PositionTag position={player.position} /> : null}
                 </div>

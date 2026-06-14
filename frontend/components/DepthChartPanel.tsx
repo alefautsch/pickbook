@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { DepthChartGroup } from "@/lib/api";
 import { OvrBadge } from "./OvrBadge";
+import { PlayerName } from "./PlayerName";
 
 function abbreviateName(full: string | null): string {
   if (!full) return "Unknown";
@@ -43,10 +44,10 @@ export function DepthChartPanel({
                   <span className="w-3 shrink-0 text-xs text-bb-muted">{player.depth_rank}</span>
                   <Link
                     href={`/players/${player.player_id}?league_id=${leagueId}`}
-                    className="min-w-0 flex-1 truncate text-xs text-white hover:text-bb-gold"
+                    className="min-w-0 flex-1 hover:text-bb-gold"
                     title={playerName}
                   >
-                    {abbreviateName(playerName)}
+                    <PlayerName className="text-xs">{abbreviateName(playerName)}</PlayerName>
                   </Link>
                   <OvrBadge ovr={player.ovr} size="sm" />
                 </li>
@@ -73,10 +74,10 @@ export function DepthChartPanel({
                 <span className="w-4 text-xs text-bb-muted">{player.depth_rank}</span>
                 <Link
                   href={`/players/${player.player_id}?league_id=${leagueId}`}
-                  className="min-w-0 flex-1 truncate text-sm text-white hover:text-bb-gold"
+                  className="min-w-0 flex-1 hover:text-bb-gold"
                   title={playerName}
                 >
-                  {playerName}
+                  <PlayerName>{playerName}</PlayerName>
                 </Link>
                 <OvrBadge ovr={player.ovr} size="sm" />
               </li>

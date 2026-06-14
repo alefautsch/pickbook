@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { TradeCandidate } from "@/lib/api";
 import { formatTv } from "@/lib/format";
 import { TradeTagBadge } from "@/components/ExpendabilityBadge";
+import { PlayerName } from "@/components/PlayerName";
 import { PositionTag } from "./PositionPill";
 
 type TradeCandidatesPanelProps = {
@@ -44,9 +45,9 @@ export function TradeCandidatesPanel({
               ) : (
                 <Link
                   href={`/players/${asset.player_id}?league_id=${leagueId}`}
-                  className="block truncate text-sm font-medium text-white hover:text-bb-gold"
+                  className="block truncate hover:text-bb-gold"
                 >
-                  {name}
+                  <PlayerName>{name}</PlayerName>
                 </Link>
               )}
               <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
