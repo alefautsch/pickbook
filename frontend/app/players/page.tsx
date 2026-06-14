@@ -29,6 +29,9 @@ export default async function PlayersPage({ searchParams }: PageProps) {
     leagues.find((league) => league.league_id === DEFAULT_LEAGUE_ID)?.league_id ??
     leagues[0].league_id;
 
+  const leagueTile = leagues.find((league) => league.league_id === leagueId);
+  const superflex = leagueTile?.superflex ?? false;
+
   if (!leagueIdParam) {
     redirect(`/players?league_id=${leagueId}`);
   }
@@ -49,7 +52,12 @@ export default async function PlayersPage({ searchParams }: PageProps) {
             League player directory — search, filter, and expand rows for more stats.
           </p>
         </header>
-        <PlayersDirectory leagues={leagues} leagueId={leagueId} initial={directory} />
+        <PlayersDirectory
+          leagues={leagues}
+          leagueId={leagueId}
+          superflex={superflex}
+          initial={directory}
+        />
       </div>
     </AppShell>
   );

@@ -34,3 +34,23 @@ export function formatSlotLabel(slot: string | null | undefined): string {
   if (key === "SUPER_FLEX") return "SF";
   return key || "BN";
 }
+
+const FLEX_ELIGIBLE = new Set(["RB", "WR", "TE"]);
+
+/** Match a player position against a directory filter (ALL, QB, FLEX, SUPER_FLEX, etc.). */
+export function matchesPositionFilter(
+  position: string | null | undefined,
+  filterPos: string,
+  superflex: boolean,
+): boolean {
+  if (filterPos === "ALL") return true;
+  const pos = (position ?? "").toUpperCase();
+  const filt = filterPos.toUpperCase().replace("-", "_");
+  if (filt === "SF" || filt === "SUPER_FLEX" || filt === "SUPERFLEX") {
+    return pos === "QB" && superflex;
+  }
+  if (filt === "FLEX") {
+    return FLEX_ELIGIBLE.has(pos);
+  }
+  return pos === filt;
+}

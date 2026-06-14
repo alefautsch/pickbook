@@ -17,10 +17,16 @@ import { OvrBadge } from "./OvrBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
 import { PositionTag } from "./PositionPill";
 import { RookieBadge } from "./RookieBadge";
+import { matchesPositionFilter } from "@/lib/positions";
+
+const BASE_POSITIONS = ["ALL", "QB", "RB", "WR", "TE", "FLEX"] as const;
+const ROOKIE_FILTERS = ["ALL", "ROOKIES", "VETERANS"] as const;
+type RookieFilter = (typeof ROOKIE_FILTERS)[number];
 
 type PlayersDirectoryProps = {
   leagues: LeagueTile[];
   leagueId: string;
+  superflex: boolean;
   initial: LeaguePlayerDirectory;
 };
 
@@ -142,12 +148,15 @@ function PlayerIdentity({
   );
 }
 
-function LeagueStatus({ player }: { player: LeaguePlayerRow }) {
+function TeamStatus({ player }: { player: LeaguePlayerRow }) {
   if (player.is_free_agent) {
     return <FaTag />;
   }
   return (
-    <span className="truncate text-sm text-white" title={player.roster_team_name ?? undefined}>
+    <span
+      className="truncate text-sm font-bold text-white"
+      title={player.roster_team_name ?? undefined}
+    >
       {player.roster_team_name ?? "—"}
     </span>
   );
@@ -192,7 +201,7 @@ function DirectoryRowMobile({
           </div>
           <div className="flex shrink-0 items-center gap-2 pr-1">
             <div className="hidden min-w-18 text-right sm:block">
-              <LeagueStatus player={player} />
+              <TeamStatus player={player} />
             </div>
             <OvrBadge ovr={player.ovr} expected={player.hppg_expected} size="sm" />
             <span className="w-12 text-right text-sm font-bold tabular-nums text-white">
@@ -211,8 +220,10 @@ function DirectoryRowMobile({
         </button>
       </div>
       <div className="flex items-center justify-between px-3 pb-2 sm:hidden">
-        <LeagueStatus player={player} />
-        <span className="text-xs text-bb-muted">Proj {formatPpg(player.projected_ppg)}</span>
+        <TeamStatus player={player} />
+        <span className="text-xs font-bold tabular-nums text-white">
+          Proj {formatPpg(player.projected_ppg)}
+        </span>
       </div>
       {expanded ? (
         <div className="border-t border-bb-border/20 bg-black/15 px-3 py-2.5">
@@ -223,17 +234,29 @@ function DirectoryRowMobile({
   );
 }
 
-export function PlayersDirectory({ leagues, leagueId, initial }: PlayersDirectoryProps) {
+export function PlayersDirectory({
+  leagues,
+  leagueId,
+  superflex,
+  initial,
+}: PlayersDirectoryProps) {
+  const positions = superflex
+    ? ([...BASE_POSITIONS, "SUPER_FLEX"] as const)
+    : BASE_POSITIONS;
+
   const [query, setQuery] = useState("");
+  const [positionFilter, setPositionFilter] = useState<string>("ALL");
   const [freeAgentsOnly, setFreeAgentsOnly] = useState(false);
-  const [rookiesOnly, setRookiesOnly] = useState(false);
+  const [rookieFilter, setRookieFilter] = useState<RookieFilter>("ALL");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return initial.players.filter((player) => {
+      if (!matchesPositionFilter(player.position, positionFilter, superflex)) return false;
       if (freeAgentsOnly && !player.is_free_agent) return false;
-      if (rookiesOnly && !player.dynasty_rookie) return false;
+      if (rookieFilter === "ROOKIES" && !player.dynasty_rookie) return false;
+      if (rookieFilter === "VETERANS" && player.dynasty_rookie) return false;
       if (!q) return true;
       const haystack = [
         player.player_name,
@@ -246,7 +269,7 @@ export function PlayersDirectory({ leagues, leagueId, initial }: PlayersDirector
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [initial.players, query, freeAgentsOnly, rookiesOnly]);
+  }, [initial.players, query, positionFilter, superflex, freeAgentsOnly, rookieFilter]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -270,12 +293,40 @@ export function PlayersDirectory({ leagues, leagueId, initial }: PlayersDirector
             active={freeAgentsOnly}
             onClick={() => setFreeAgentsOnly((value) => !value)}
           />
-          <FilterToggle
-            label="Rookies"
-            active={rookiesOnly}
-            onClick={() => setRookiesOnly((value) => !value)}
-          />
+          <div className="flex flex-wrap gap-1">
+            {ROOKIE_FILTERS.map((filter) => (
+              <button
+                key={filter}
+                type="button"
+                onClick={() => setRookieFilter(filter)}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                  rookieFilter === filter
+                    ? "bg-bb-gold/20 text-bb-gold"
+                    : "bg-bb-border/40 text-bb-muted hover:text-white"
+                }`}
+              >
+                {filter === "ALL" ? "All" : filter === "ROOKIES" ? "Rookies" : "Veterans"}
+              </button>
+            ))}
+          </div>
         </div>
+      </div>
+
+      <div className="flex flex-wrap gap-1">
+        {positions.map((pos) => (
+          <button
+            key={pos}
+            type="button"
+            onClick={() => setPositionFilter(pos)}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+              positionFilter === pos
+                ? "bg-bb-gold/20 text-bb-gold"
+                : "bg-bb-border/40 text-bb-muted hover:text-white"
+            }`}
+          >
+            {pos === "ALL" ? "All" : pos.replace("_", " ")}
+          </button>
+        ))}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-bb-muted">
@@ -316,7 +367,7 @@ export function PlayersDirectory({ leagues, leagueId, initial }: PlayersDirector
           <thead>
             <tr className="border-b border-bb-border/60 text-xs uppercase tracking-wide text-bb-muted">
               <th className="px-3 py-3 text-left font-medium">Player</th>
-              <th className="px-3 py-3 text-left font-medium">League</th>
+              <th className="px-3 py-3 text-left font-medium">Team</th>
               <th className="px-3 py-3 text-center font-medium">Age</th>
               <th className="px-3 py-3 text-center font-medium">OVR</th>
               <th className="px-3 py-3 text-center font-medium">Proj</th>
@@ -348,9 +399,9 @@ export function PlayersDirectory({ leagues, leagueId, initial }: PlayersDirector
                         <PlayerIdentity player={player} leagueId={leagueId} />
                       </td>
                       <td className="px-3 py-2.5">
-                        <LeagueStatus player={player} />
+                        <TeamStatus player={player} />
                       </td>
-                      <td className="px-3 py-2.5 text-center text-white">
+                      <td className="px-3 py-2.5 text-center font-bold tabular-nums text-white">
                         {player.age ?? "—"}
                       </td>
                       <td className="px-3 py-2.5">
@@ -362,7 +413,7 @@ export function PlayersDirectory({ leagues, leagueId, initial }: PlayersDirector
                           />
                         </div>
                       </td>
-                      <td className="px-3 py-2.5 text-center text-white">
+                      <td className="px-3 py-2.5 text-center font-bold tabular-nums text-white">
                         {formatPpg(player.projected_ppg)}
                       </td>
                       <td className="px-3 py-2.5 text-right text-base font-bold tabular-nums text-white">
