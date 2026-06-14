@@ -37,13 +37,17 @@ def slot_in_round(
     *,
     league_size: int,
     startup_draft_slot: int | None = None,
+    startup_is_rookie_order: bool = False,
 ) -> int | None:
     """Estimate pick number within the round (1.01 = slot 1).
 
-    Pre-season startup leagues: use startup draft order (Sleeper UI source).
+    Pre-season startup leagues: startup draft order is the rookie slot (1.04 = slot 4).
+    Post-startup: invert startup order as a proxy until standings exist (slot 1 → late pick).
     In-season: use dynasty rank (worst team → 1.01).
     """
     if startup_draft_slot is not None and league_size > 0:
+        if startup_is_rookie_order:
+            return startup_draft_slot
         return league_size + 1 - startup_draft_slot
     if original_rank is None or league_size <= 0:
         return None
@@ -55,10 +59,17 @@ def infer_slot_tier(
     *,
     league_size: int,
     startup_draft_slot: int | None = None,
+    startup_is_rookie_order: bool = False,
 ) -> SlotTier:
     """Map pick slot quality (worst / late startup slot → early pick)."""
     if startup_draft_slot is not None and league_size > 0:
         pct = (startup_draft_slot - 1) / max(league_size - 1, 1)
+        if startup_is_rookie_order:
+            if pct <= 0.33:
+                return "early"
+            if pct >= 0.67:
+                return "late"
+            return "mid"
         if pct >= 0.67:
             return "early"
         if pct <= 0.33:
@@ -134,7 +145,9 @@ def pick_slot_certainty(
     *,
     is_own_slot: bool,
     seasons_out: int,
+    league_pre_draft: bool = False,
 ) -> str:
-    if is_own_slot and seasons_out > 0:
-        return "projected"
+    if seasons_out > 0:
+        if league_pre_draft or is_own_slot:
+            return "projected"
     return "known"

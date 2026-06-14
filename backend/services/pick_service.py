@@ -127,21 +127,26 @@ def collect_league_traded_picks(
     return merged
 
 
+def _league_is_pre_draft(league_remote: dict[str, Any]) -> bool:
+    return (league_remote.get("status") or "").lower() in ("pre_draft", "drafting")
+
+
 def startup_draft_slot_by_roster(
     client: SleeperClient,
     league_id: str,
 ) -> dict[str, int]:
     """Map roster_id → startup player-draft slot (1 = first pick). Sleeper uses this for 1.01."""
     drafts = client.get_league_drafts(league_id)
-    completed_snake = [
+    player_drafts = [
         d
         for d in drafts
-        if d.get("status") == "complete" and d.get("type") == "snake"
+        if d.get("type") in ("snake", "linear")
+        and d.get("status") in ("complete", "pre_draft", "drafting")
     ]
-    if not completed_snake:
+    if not player_drafts:
         return {}
     player_draft = max(
-        completed_snake,
+        player_drafts,
         key=lambda d: int((d.get("settings") or {}).get("rounds") or 0),
     )
     draft_order = player_draft.get("draft_order") or {}
@@ -165,9 +170,8 @@ def _use_startup_slots_for_season(
     pick_season: str,
 ) -> bool:
     """Pre-season / startup: rookie slot follows startup draft order, not dynasty rank."""
-    status = (league_remote.get("status") or "").lower()
     current = str(league_remote.get("season") or "")
-    if status in ("pre_draft", "drafting"):
+    if _league_is_pre_draft(league_remote):
         return pick_season == current
     return False
 
@@ -248,17 +252,24 @@ def sync_league_draft_picks(
         seasons_out = seasons_until(current_season, row["season"])
         use_startup = _use_startup_slots_for_season(remote, row["season"])
         startup_slot = startup_slots.get(original_id) if use_startup else None
+        league_pre_draft = _league_is_pre_draft(remote)
         slot_tier = infer_slot_tier(
             original_rank,
             league_size=league_size,
             startup_draft_slot=startup_slot,
+            startup_is_rookie_order=use_startup,
         )
         slot_no = slot_in_round(
             original_rank,
             league_size=league_size,
             startup_draft_slot=startup_slot,
+            startup_is_rookie_order=use_startup,
         )
-        certainty = pick_slot_certainty(is_own_slot=is_own, seasons_out=seasons_out)
+        certainty = pick_slot_certainty(
+            is_own_slot=is_own,
+            seasons_out=seasons_out,
+            league_pre_draft=league_pre_draft,
+        )
         if use_startup and slot_no is not None:
             certainty = "known"
         owner_tier = tier_by_roster.get(owner_id)
@@ -351,6 +362,10 @@ def get_roster_draft_picks(
                 if league_remote
                 and _use_startup_slots_for_season(league_remote, row.season)
                 else None,
+                startup_is_rookie_order=bool(
+                    league_remote
+                    and _use_startup_slots_for_season(league_remote, row.season)
+                ),
             ),
             "trade_value": row.trade_value,
             "label": row.label,

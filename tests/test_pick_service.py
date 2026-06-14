@@ -62,6 +62,106 @@ def test_build_inventory_includes_current_season():
     assert _future_seasons("2026") == ["2026", "2027", "2028"]
 
 
+def test_slot_in_round_startup_rookie_order_is_direct():
+    assert slot_in_round(12, league_size=12, startup_draft_slot=4, startup_is_rookie_order=True) == 4
+    assert slot_in_round(12, league_size=12, startup_draft_slot=4, startup_is_rookie_order=False) == 9
+
+
+def test_infer_slot_tier_startup_rookie_order():
+    assert infer_slot_tier(None, league_size=10, startup_draft_slot=4, startup_is_rookie_order=True) == "mid"
+    assert infer_slot_tier(None, league_size=10, startup_draft_slot=1, startup_is_rookie_order=True) == "early"
+    assert infer_slot_tier(None, league_size=10, startup_draft_slot=10, startup_is_rookie_order=True) == "late"
+
+
+def test_pick_slot_certainty_pre_draft_future_is_projected():
+    from dynasty_draft.inseason_pick_values import pick_slot_certainty
+
+    assert pick_slot_certainty(is_own_slot=True, seasons_out=1, league_pre_draft=True) == "projected"
+    assert pick_slot_certainty(is_own_slot=False, seasons_out=1, league_pre_draft=True) == "projected"
+    assert pick_slot_certainty(is_own_slot=False, seasons_out=1, league_pre_draft=False) == "known"
+
+
+def test_university_terrace_startup_pick_labels():
+    """Pre-draft startup: 2026 slots from draft order; 2027+ projected."""
+    from backend.services.pick_service import (
+        build_league_pick_inventory,
+        _use_startup_slots_for_season,
+        _league_is_pre_draft,
+    )
+    from dynasty_draft.inseason_pick_values import (
+        infer_slot_tier,
+        pick_label,
+        pick_slot_certainty,
+        seasons_until,
+        slot_in_round,
+    )
+
+    league = {"season": "2026", "status": "pre_draft", "settings": {"draft_rounds": 3}}
+    rosters = [{"roster_id": i, "owner_id": f"u{i}"} for i in range(1, 11)]
+    rosters[2] = {"roster_id": 3, "owner_id": "205966933634326528"}
+    rosters[9] = {"roster_id": 10, "owner_id": "520790963966283776"}
+
+    startup_slots = {"3": 4, "10": 6}
+    traded = [
+        {"season": "2026", "round": 1, "roster_id": 10, "owner_id": 3},
+    ]
+    inventory = build_league_pick_inventory(
+        league_remote=league,
+        rosters=rosters,
+        traded_picks=traded,
+    )
+    my_picks = [p for p in inventory if p["owner_roster_id"] == "3" and p["round"] == 1]
+
+    labels = []
+    for row in my_picks:
+        use_startup = _use_startup_slots_for_season(league, row["season"])
+        startup_slot = startup_slots.get(row["original_roster_id"]) if use_startup else None
+        slot_no = slot_in_round(
+            None,
+            league_size=10,
+            startup_draft_slot=startup_slot,
+            startup_is_rookie_order=use_startup,
+        )
+        certainty = pick_slot_certainty(
+            is_own_slot=row["original_roster_id"] == row["owner_roster_id"],
+            seasons_out=seasons_until("2026", row["season"]),
+            league_pre_draft=_league_is_pre_draft(league),
+        )
+        if use_startup and slot_no is not None:
+            certainty = "known"
+        tier = infer_slot_tier(
+            None,
+            league_size=10,
+            startup_draft_slot=startup_slot,
+            startup_is_rookie_order=use_startup,
+        )
+        labels.append(
+            pick_label(
+                season=row["season"],
+                round_no=row["round"],
+                slot_tier=tier,
+                slot_in_round_no=slot_no,
+                slot_certainty=certainty,
+            )
+        )
+
+    assert "2026 1.04" in labels
+    assert "2026 1.06" in labels
+
+    y2027 = pick_label(
+        season="2027",
+        round_no=1,
+        slot_tier="mid",
+        slot_in_round_no=3,
+        slot_certainty=pick_slot_certainty(
+            is_own_slot=False,
+            seasons_out=1,
+            league_pre_draft=True,
+        ),
+    )
+    assert y2027 == "2027 1st (proj)"
+
+
 def test_build_inventory_applies_traded_picks():
     league = {"season": "2026", "settings": {"draft_rounds": 2}}
     rosters = [{"roster_id": 1}, {"roster_id": 2}]
