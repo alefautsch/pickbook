@@ -50,6 +50,7 @@ def test_dynasty_daddy_overlay_uses_superflex_value_and_league_worp(tmp_path):
     assert player.trade_value == 4500
     assert player.worp == 2.5
     assert player.porp == 12.0
+    assert player.upside == 0.9
     assert war.lookup_value_inputs("Existing Player")["dynasty_daddy"]["selected_format"] == "superflex"
 
 

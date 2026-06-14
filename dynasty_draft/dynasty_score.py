@@ -174,16 +174,22 @@ def _per_game_production_norm(
     """0–1: healthy-week W/g + HPPG vs pool, lightly discounted for low availability."""
     worp_ppg = metrics.get("worp_ppg")
     hppg = metrics.get("healthy_ppg")
-    if not worp_ppg and not hppg:
+    has_worp = worp_ppg is not None and float(worp_ppg) > 0
+    has_hppg = hppg is not None and float(hppg) > 0
+    if not has_worp and not has_hppg:
         return 0.0
-    w_norm = (float(worp_ppg) / max_worp_ppg) if worp_ppg and max_worp_ppg > 0 else 0.0
-    h_norm = (float(hppg) / max_hppg) if hppg and max_hppg > 0 else 0.0
-    if worp_ppg and hppg:
+    w_norm = (float(worp_ppg) / max_worp_ppg) if has_worp and max_worp_ppg > 0 else 0.0
+    h_norm = (float(hppg) / max_hppg) if has_hppg and max_hppg > 0 else 0.0
+    # Ignore noise-level W/g — otherwise 0.0048 W/g dilutes HPPG while 0.0 does not.
+    has_material_worp = has_worp and w_norm >= 0.02
+    if has_material_worp and has_hppg:
         raw = 0.55 * w_norm + 0.45 * h_norm
-    elif worp_ppg:
+    elif has_material_worp:
         raw = w_norm
-    else:
+    elif has_hppg:
         raw = h_norm
+    else:
+        raw = 0.0
     avail = float(metrics.get("availability", 1.0))
     durability = 0.82 + 0.18 * max(0.0, min(1.0, avail))
     return min(1.0, raw * durability)

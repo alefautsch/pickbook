@@ -23,6 +23,7 @@ class PlayerValue:
     spike_high_p: float | None
     spike_mid_p: float | None
     spike_low_p: float | None
+    dynasty_upside: float | None = None
 
     @property
     def has_worp(self) -> bool:
@@ -30,7 +31,9 @@ class PlayerValue:
 
     @property
     def upside(self) -> float:
-        """Blend spike probabilities when present."""
+        """Dynasty Daddy ceiling when available; else CSV spike blend."""
+        if self.dynasty_upside is not None:
+            return self.dynasty_upside
         parts = [p for p in (self.spike_high_p, self.spike_mid_p, self.spike_low_p) if p is not None]
         return sum(parts) / len(parts) if parts else 0.0
 

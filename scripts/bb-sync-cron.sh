@@ -18,7 +18,7 @@ if command -v docker >/dev/null 2>&1; then
   docker compose up -d postgres >>"$LOG_FILE" 2>&1 || log "postgres start failed (continuing)"
 fi
 
-if ! uv run python -m backend.sync_cli >>"$LOG_FILE" 2>&1; then
+if ! uv run python -m backend.sync_cli --force-refresh >>"$LOG_FILE" 2>&1; then
   log "sync failed"
   exit 1
 fi

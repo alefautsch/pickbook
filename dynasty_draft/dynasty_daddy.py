@@ -217,6 +217,17 @@ class DynastyDaddyMetric:
         )
 
 
+def _upside_from_metric(metric: DynastyDaddyMetric | None) -> float:
+    """Derive 0–1 upside from Dynasty Daddy league-format metrics."""
+    if metric is None:
+        return 0.45
+    if metric.percent is not None:
+        return max(0.0, min(1.0, float(metric.percent)))
+    if metric.porp is not None and metric.porp > 0:
+        return max(0.0, min(1.0, float(metric.porp) / 120.0))
+    return 0.45
+
+
 @dataclass
 class DynastyDaddyStore:
     market: int
@@ -298,9 +309,10 @@ class DynastyDaddyStore:
                 worp=metric.worp if metric and metric.worp is not None else (existing.worp if existing else None),
                 porp=metric.porp if metric and metric.porp is not None else (existing.porp if existing else None),
                 trade_value=trade_value,
-                spike_high_p=existing.spike_high_p if existing else None,
-                spike_mid_p=existing.spike_mid_p if existing else None,
-                spike_low_p=existing.spike_low_p if existing else None,
+                spike_high_p=None,
+                spike_mid_p=None,
+                spike_low_p=None,
+                dynasty_upside=_upside_from_metric(metric),
             )
             players_by_name[key] = player
             value_inputs[key] = {

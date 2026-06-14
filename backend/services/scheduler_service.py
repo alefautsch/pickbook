@@ -54,7 +54,7 @@ def run_scheduled_sync_once() -> None:
 
         db = SessionLocal()
         try:
-            result = run_sync_all(db)
+            result = run_sync_all(db, force_refresh=True)
             failures = [row for row in result.results if row.status != "success"]
             if failures:
                 LOGGER.warning("scheduled sync completed with %d failures", len(failures))
