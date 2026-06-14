@@ -234,9 +234,6 @@ def build_advisor_context(
         "strategy_notes": state.strategy.strategy_notes(
             state.war, tv_fn=state.blended_trade_value
         ),
-        "reserved_rookies": state.strategy.reserved_players(
-            state.war, tv_fn=state.blended_trade_value
-        ),
         "trade_value_blend": {
             "dd_weight": state.trade_blend.dd_weight,
             "ktc_weight": state.trade_blend.ktc_weight,
@@ -364,7 +361,6 @@ Use the full league context:
 
 Account for:
 - Vet-only startup vs separate reversed rookie draft
-- Reserved rookies (already penciled in — don't recommend vet RB early if Love is reserved)
 - Superflex / 2QB leagues (QB premium is real)
 - Tier cliffs in the data
 

@@ -19,7 +19,9 @@ from backend.schemas.rookie_draft import (
     RookieDraftView,
     StarterNeeds,
 )
+from backend.services.pick_service import collect_league_traded_picks
 from backend.services.read_service import headshot_url, ovr_tier
+from dynasty_draft.draft_pick_ownership import PickOwnerIndex, build_pick_owner_index
 from dynasty_draft.config import load_config
 from dynasty_draft.draft_context import build_draft_timeline, build_scoring_context
 from dynasty_draft.dynasty_score import DynastyRatingCurve, DynastyWeights
@@ -27,6 +29,12 @@ from dynasty_draft.external_adp import AdpStore
 from dynasty_draft.healthy_ppg import HealthyPpgStore
 from dynasty_draft.ktc_values import KtcStore
 from dynasty_draft.projections import SleeperProjectionStore
+from dynasty_draft.pick_projector import (
+    _available_pool,
+    _initial_roster_counts,
+    _simulate_pick,
+    _target_needs,
+)
 from dynasty_draft.recommender import DraftState
 from dynasty_draft.sleeper_client import SleeperClient
 from dynasty_draft.strategy import DraftStrategy
@@ -35,7 +43,7 @@ from dynasty_draft.worp_blend import WorpBlend
 from dynasty_draft.war_data import POSITIONS, PlayerValue, WarData
 
 ROOKIE_PLAYER_TYPE = 1
-DEFAULT_POLL_SECONDS = 20
+DEFAULT_POLL_SECONDS = 30
 
 
 class RookieDraftState(DraftState):
@@ -100,6 +108,7 @@ def build_rookie_draft_state(
     user_id: str,
     settings: dict[str, Any],
     client: SleeperClient,
+    pick_owner_index: PickOwnerIndex | None = None,
 ) -> RookieDraftState:
     war_path = Path(str(settings.get("war_csv", "war.csv")))
     if not war_path.exists():
@@ -131,6 +140,7 @@ def build_rookie_draft_state(
         dynasty_weights=DynastyWeights.from_config(settings.get("dynasty_weights")),
         dynasty_rating_curve=DynastyRatingCurve.from_config(settings.get("dynasty_rating_curve")),
         strategy=strategy,
+        pick_owner_index=pick_owner_index or {},
     )
 
     if settings.get("ktc_enabled", True):
@@ -266,14 +276,86 @@ def _board_row_from_bpa(row: dict[str, Any], rank: int) -> RookieBoardRow:
     )
 
 
+def _project_remaining_picks(state: DraftState) -> dict[int, dict[str, Any]]:
+    """Simulate unpicked slots using real Sleeper team order (ADP + positional needs)."""
+    start = len(state.picks) + 1
+    total = state._teams() * state._rounds()
+    if start > total:
+        return {}
+
+    pool = _available_pool(state)
+    if not pool:
+        return {}
+
+    roster_counts = _initial_roster_counts(state)
+    targets = _target_needs(state)
+    max_tv = pool[0][1].trade_value
+    projections: dict[int, dict[str, Any]] = {}
+    score_pool: list[tuple[str, PlayerValue]] = []
+
+    for pick_no in range(start, total + 1):
+        row, pool = _simulate_pick(
+            state,
+            pick_no,
+            pool,
+            roster_counts,
+            targets,
+            max_tv,
+            source="projected",
+        )
+        if not row:
+            break
+        player_id = row.get("player_id")
+        if player_id:
+            war_player = state._match_war(str(player_id))
+            if war_player:
+                score_pool.append((str(player_id), war_player))
+        projections[pick_no] = row
+
+    if score_pool:
+        dynasty_by_id = state.dynasty_scores(score_pool)
+        for pick_no, row in projections.items():
+            player_id = row.get("player_id")
+            if not player_id:
+                continue
+            dynasty = dynasty_by_id.get(str(player_id)) or {}
+            row["dynasty_rating"] = dynasty.get("dynasty_rating")
+            row["dynasty_rookie"] = dynasty.get("dynasty_rookie")
+
+    return projections
+
+
 def _timeline_rows(state: DraftState) -> list[RookieDraftTimelineRow]:
     raw = build_draft_timeline(state, past=None, upcoming=None)
+    projections = _project_remaining_picks(state)
     rows: list[RookieDraftTimelineRow] = []
     for row in raw:
+        pick_no = int(row["pick_no"])
+        status = str(row.get("status") or "done")
+        projection = projections.get(pick_no)
+
+        if status != "done" and projection:
+            ovr = projection.get("dynasty_rating")
+            rows.append(
+                RookieDraftTimelineRow(
+                    pick_no=pick_no,
+                    round=row.get("round"),
+                    team_name=projection.get("team") or row.get("team"),
+                    player_id=str(projection["player_id"]) if projection.get("player_id") else None,
+                    player_name=projection.get("name") or None,
+                    position=projection.get("pos") or None,
+                    ovr=int(ovr) if ovr is not None else None,
+                    dynasty_rookie=bool(projection.get("dynasty_rookie")),
+                    status="projected",
+                    is_me=bool(projection.get("is_me")),
+                )
+            )
+            continue
+
         ovr = row.get("dynasty_rating")
         rows.append(
             RookieDraftTimelineRow(
-                pick_no=int(row["pick_no"]),
+                pick_no=pick_no,
                 round=row.get("round"),
                 team_name=row.get("team"),
                 player_id=str(row["player_id"]) if row.get("player_id") else None,
@@ -281,7 +363,7 @@ def _timeline_rows(state: DraftState) -> list[RookieDraftTimelineRow]:
                 position=row.get("pos") or None,
                 ovr=int(ovr) if ovr is not None else None,
                 dynasty_rookie=bool(row.get("dynasty_rookie")),
-                status=str(row.get("status") or "done"),
+                status=status,
                 is_me=bool(row.get("is_me")),
             )
         )
@@ -316,6 +398,8 @@ def get_rookie_draft_view(
     draft = client.get_draft(resolved_draft_id)
     picks = client.get_draft_picks(resolved_draft_id)
     league_users = client.get_league_users(league_id)
+    traded_picks = collect_league_traded_picks(client, league_id)
+    pick_owner_index = build_pick_owner_index(traded_picks)
 
     state = build_rookie_draft_state(
         draft=draft,
@@ -325,6 +409,7 @@ def get_rookie_draft_view(
         user_id=user_id,
         settings=settings,
         client=client,
+        pick_owner_index=pick_owner_index,
     )
 
     rosters = db.scalars(select(Roster).where(Roster.league_id == league_id)).all()
@@ -345,10 +430,9 @@ def get_rookie_draft_view(
     on_clock_roster_id: str | None = None
     pick_no = next_info.get("pick_no")
     if pick_no is not None:
-        slot = state._pick_slot(int(pick_no))
-        rid = (draft.get("slot_to_roster_id") or {}).get(str(slot))
-        if rid is not None:
-            on_clock_roster_id = str(rid)
+        owner = state.owner_roster_for_pick(int(pick_no))
+        if owner is not None:
+            on_clock_roster_id = str(owner)
 
     on_clock = RookieDraftOnClock(
         roster_id=on_clock_roster_id,
@@ -376,8 +460,12 @@ def get_rookie_draft_view(
         )
 
     bpa_all = state.bpa_recommendations(limit=500)
-    board = [_board_row_from_bpa(row, idx + 1) for idx, row in enumerate(bpa_all)]
-    bpa_top = board[:15]
+    bpa_rows = [_board_row_from_bpa(row, idx + 1) for idx, row in enumerate(bpa_all)]
+    bpa_top = bpa_rows[:15]
+    by_ovr = sorted(bpa_rows, key=lambda row: (row.ovr is None, -(row.ovr or 0)))
+    board = [
+        row.model_copy(update={"ovr_rank": idx + 1}) for idx, row in enumerate(by_ovr)
+    ]
 
     teams = state._teams()
     rounds = state._rounds()
@@ -385,7 +473,10 @@ def get_rookie_draft_view(
     picks_made = len(picks)
 
     config = load_config()
-    poll_seconds = int(config.get("poll_seconds", DEFAULT_POLL_SECONDS))
+    poll_seconds = max(
+        DEFAULT_POLL_SECONDS,
+        int(config.get("poll_seconds", DEFAULT_POLL_SECONDS)),
+    )
 
     return RookieDraftView(
         league_id=league_id,

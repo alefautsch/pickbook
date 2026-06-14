@@ -45,8 +45,8 @@ def _bookend_question(state: DraftState) -> str:
     if len(picks) >= 2:
         return (
             f"I have picks {picks[0]} and {picks[1]} back-to-back. Already drafted: {gone}. "
-            f"Reserving Jeremiyah Love in rookie draft. Superflex startup — lead with "
-            f"bookend_dynasty_targets and dynasty_rating (age + WORP* + TV), not TV-only sim. "
+            f"Superflex startup — lead with bookend_dynasty_targets and dynasty_rating "
+            f"(age + WORP* + TV), not TV-only sim. "
             f"Best two-pick plan at this bookend. Favor young upside at QB over aging win-now vets."
         )
     return (

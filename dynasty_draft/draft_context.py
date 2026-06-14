@@ -140,7 +140,7 @@ def build_draft_timeline(
             continue
 
         slot = state._pick_slot(pick_no)
-        roster_id = _roster_id_for_slot(state, slot)
+        roster_id = state.owner_roster_for_pick(pick_no)
         is_me = state.my_roster_id is not None and roster_id == state.my_roster_id
         if pick_no == current_pick:
             status = "on_clock"
@@ -219,7 +219,6 @@ def build_draft_timeline(
 _FLEX_ELIGIBLE = frozenset({"RB", "WR", "TE"})
 _SF_ELIGIBLE = frozenset({"QB", "RB", "WR", "TE"})
 _SLOT_LABELS = {"SUPER_FLEX": "SF"}
-_JEREMIYAH_LOVE = normalize_name("Jeremiyah Love")
 
 
 def _sleeper_id_for_name(state: DraftState, name: str) -> str | None:
@@ -387,53 +386,6 @@ def _finalize_lineup(
     }
 
 
-def _inject_jeremiyah_love_starter(lineup: dict[str, Any]) -> dict[str, Any]:
-    """Show reserved Jeremiyah Love in the first RB starter slot (user's rookie pick)."""
-    love: dict[str, Any] | None = None
-    bench: list[dict[str, Any]] = []
-    for player in lineup.get("bench") or []:
-        if normalize_name(player.get("name") or "") == _JEREMIYAH_LOVE:
-            love = player
-        else:
-            bench.append(player)
-    if love is None:
-        return lineup
-
-    starters = [dict(row) for row in lineup.get("starters") or []]
-    placed = False
-    for index, row in enumerate(starters):
-        if row.get("slot") != "RB" or placed:
-            continue
-        displaced = row.get("player")
-        starters[index] = {**row, "player": love}
-        placed = True
-        if displaced:
-            bench.append(displaced)
-
-    if not placed:
-        bench.insert(0, love)
-        return {**lineup, "bench": bench}
-
-    all_players = [row["player"] for row in starters if row.get("player")] + bench
-    total_tv = sum(player.get("trade_value") or 0 for player in all_players)
-    worp_values = [player.get("worp") for player in all_players if player.get("worp") is not None]
-    starter_worp = _starter_metric(starters, "worp")
-    starter_porp = _starter_metric(starters, "porp")
-    win_now_score = None
-    if starter_worp is not None or starter_porp is not None:
-        win_now_score = (starter_worp or 0.0) + (starter_porp or 0.0) / 100.0
-    return {
-        **lineup,
-        "starters": starters,
-        "bench": sorted(bench, key=lambda row: row.get("trade_value") or 0, reverse=True),
-        "total_trade_value": total_tv,
-        "total_worp": sum(worp_values) if worp_values else None,
-        "starter_worp": starter_worp,
-        "starter_porp": starter_porp,
-        "win_now_score": win_now_score,
-    }
-
-
 def _picks_for_roster(state: DraftState, roster_id: int) -> list[dict[str, Any]]:
     return [
         pick
@@ -465,38 +417,12 @@ def _league_teams(state: DraftState) -> list[dict[str, Any]]:
     return sorted(teams, key=lambda row: row.get("draft_slot") or 99)
 
 
-def build_team_lineup(state: DraftState, roster_id: int, *, include_reserved: bool = False) -> dict[str, Any]:
+def build_team_lineup(state: DraftState, roster_id: int) -> dict[str, Any]:
     drafted = [
         _roster_player_from_pick(state, pick)
         for pick in sorted(_picks_for_roster(state, roster_id), key=lambda row: row.get("pick_no", 0))
     ]
-    reserved: list[dict[str, Any]] = []
-    if include_reserved and state.strategy.is_vet_draft and roster_id == state.my_roster_id:
-        for row in state.strategy.reserved_players(state.war):
-            war_player = state.war.lookup(row["name"])
-            player_id = _sleeper_id_for_name(state, row["name"])
-            reserved.append(
-                {
-                    "player_id": player_id,
-                    "pick_no": None,
-                    "name": row["name"],
-                    "pos": (war_player.pos if war_player else row.get("pos")) or "?",
-                    "team": (war_player.team if war_player else "") or "",
-                    "age": _player_age(state, player_id),
-                    "trade_value": (
-                        state.blended_trade_value(war_player)
-                        if war_player
-                        else row.get("trade_value")
-                    ),
-                    "worp": war_player.worp if war_player else None,
-                    "porp": war_player.porp if war_player else None,
-                    "status": "reserved",
-                }
-            )
-    lineup = _finalize_lineup(drafted, reserved, state.roster_positions)
-    if include_reserved and roster_id == state.my_roster_id:
-        lineup = _inject_jeremiyah_love_starter(lineup)
-    return lineup
+    return _finalize_lineup(drafted, [], state.roster_positions)
 
 
 def _apply_dynasty_to_lineup(state: DraftState, team: dict[str, Any]) -> dict[str, Any]:
@@ -573,11 +499,7 @@ def _apply_dynasty_to_lineup(state: DraftState, team: dict[str, Any]) -> dict[st
 def build_league_lineups(state: DraftState) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for team in _league_teams(state):
-        lineup = build_team_lineup(
-            state,
-            team["roster_id"],
-            include_reserved=team["is_me"],
-        )
+        lineup = build_team_lineup(state, team["roster_id"])
         merged = {**team, **lineup}
         merged.update(_apply_dynasty_to_lineup(state, merged))
         rows.append(merged)
@@ -594,7 +516,7 @@ def build_my_team_lineup(state: DraftState) -> dict[str, Any]:
     for team in build_league_lineups(state):
         if team.get("is_me"):
             return team
-    lineup = build_team_lineup(state, state.my_roster_id, include_reserved=True)
+    lineup = build_team_lineup(state, state.my_roster_id)
     lineup.update(_apply_dynasty_to_lineup(state, lineup))
     return lineup
 

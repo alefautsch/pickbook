@@ -18,6 +18,7 @@ import {
 import { formatPpg, formatTv } from "@/lib/format";
 import { matchesPositionFilter } from "@/lib/positions";
 import { DarkMenu, DarkSelect } from "@/components/DarkSelect";
+import { OvrBadge } from "@/components/OvrBadge";
 import { PlayerHeadshot } from "@/components/PlayerHeadshot";
 import { PlayerName } from "@/components/PlayerName";
 import { PositionPill, PositionTag } from "@/components/PositionPill";
@@ -868,6 +869,7 @@ function LineupBlock({
       name?: string | null;
       position?: string | null;
       ppg?: number | null;
+      ovr?: number | null;
       is_incoming?: boolean;
       is_changed?: boolean;
     }[];
@@ -945,9 +947,12 @@ function LineupBlock({
                   ) : null}
                 </div>
               </div>
-              <span className="shrink-0 text-xs font-medium tabular-nums text-bb-muted">
-                {formatPpg(slot.ppg)}
-              </span>
+              <div className="flex shrink-0 items-center gap-2">
+                {slot.ovr != null ? <OvrBadge ovr={slot.ovr} size="sm" /> : null}
+                <span className="text-xs font-medium tabular-nums text-bb-muted">
+                  {formatPpg(slot.ppg)}
+                </span>
+              </div>
             </li>
           );
         })}
@@ -1068,11 +1073,6 @@ function ValidationCard({
     );
   }
 
-  const fairnessText =
-    validation.fairness_label ??
-    validation.fairness_view?.replace(/_/g, " ") ??
-    "—";
-
   return (
     <div className="rounded-lg border border-bb-border/40 bg-black/20 p-4">
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -1082,7 +1082,8 @@ function ValidationCard({
         </span>
       </div>
       <p className="text-[11px] uppercase tracking-wide text-bb-muted">
-        Likely accept: {validation.accept_likelihood ?? "—"} · Fairness: {fairnessText}
+        Accept: {validation.accept_likelihood ?? "—"} · Fairness:{" "}
+        {validation.fairness_view?.replace(/_/g, " ") ?? "—"}
         {validation.would_improve_roster ? " · Improves roster" : ""}
       </p>
       {validation.reasoning ? (

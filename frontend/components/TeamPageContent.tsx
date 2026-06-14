@@ -16,6 +16,7 @@ import { AgeProfileSidebar } from "@/components/AgeProfileSidebar";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { SleeperAvatarWatermark, TeamAvatar } from "@/components/SleeperAvatarWatermark";
 import { TeamTabs } from "@/components/TeamTabs";
+import { StarterLineupPanel } from "@/components/StarterLineupPanel";
 import type { AgeProfile, PositionStrengthMap } from "@/lib/api";
 
 export type RatingMode = "dynasty" | "win_now";
@@ -455,6 +456,8 @@ export function TeamPageContent({
       {/* Roster front and center */}
       <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-5">
         <div className="min-w-0 space-y-4">
+          <StarterLineupPanel starters={team.starters} leagueId={leagueId} />
+
           <TeamTabs team={team} ratingMode={ratingMode} />
 
           <div className="grid gap-3 lg:grid-cols-2 lg:gap-4">

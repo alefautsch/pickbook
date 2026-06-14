@@ -122,6 +122,7 @@ def _compact_lineup_starter(row: dict[str, Any]) -> dict[str, Any]:
         "name": row.get("name"),
         "position": row.get("position"),
         "ppg": row.get("ppg"),
+        "ovr": row.get("ovr"),
         "is_incoming": bool(row.get("is_incoming")),
         "is_changed": bool(row.get("is_changed")),
     }

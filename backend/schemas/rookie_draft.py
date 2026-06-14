@@ -33,6 +33,7 @@ class StarterNeeds(BaseModel):
 
 class RookieBoardRow(BaseModel):
     bpa_rank: int
+    ovr_rank: int | None = None
     player_id: str
     player_name: str | None = None
     position: str | None = None

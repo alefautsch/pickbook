@@ -746,8 +746,8 @@ def _default_llm_question(state: DraftState) -> str:
     if len(picks) >= 2:
         return (
             f"I have picks {picks[0]} and {picks[1]} back-to-back. Already drafted: {gone}. "
-            f"Reserving Jeremiyah Love in rookie draft. Superflex startup — lead with "
-            f"bookend_dynasty_targets and dynasty_rating (age + WORP* + TV), not TV-only sim. "
+            f"Superflex startup — lead with bookend_dynasty_targets and dynasty_rating "
+            f"(age + WORP* + TV), not TV-only sim. "
             f"Best two-pick plan at this bookend, then who to target at my NEXT bookend (picks {next_label}). "
             "Favor young upside at QB over aging win-now vets."
         )
@@ -1539,13 +1539,11 @@ def _render_lineup_table(lineup: dict[str, Any]) -> None:
 
 def _render_my_team_tab(state: DraftState) -> None:
     lineup = build_my_team_lineup(state)
-    if lineup["pick_count"] == 0 and lineup["reserved_count"] == 0:
+    if lineup["pick_count"] == 0:
         st.info("No picks yet.")
         return
 
     _render_lineup_stats(lineup, team_count=state._teams())
-    if lineup["reserved_count"]:
-        st.caption(f"{lineup['reserved_count']} reserved for rookie draft")
     _render_lineup_table(lineup)
 
     needs = state.starter_needs()
@@ -1593,8 +1591,6 @@ def _render_league_tab(state: DraftState) -> None:
     for team in teams["by_trade_value"]:
         with st.expander(_team_expander_label(team), expanded=team["is_me"]):
             _render_team_chips(team)
-            if team.get("reserved_count"):
-                st.caption(f"{team['reserved_count']} reserved for rookie draft")
             _render_lineup_table(team)
 
 
@@ -2002,11 +1998,6 @@ def _render_settings_tab(config: dict[str, Any]) -> None:
     st.session_state.auto_refresh = st.checkbox("Auto-refresh", value=st.session_state.auto_refresh)
     strategy["startup_slot"] = st.number_input("Startup slot", 1, 16, int(strategy.get("startup_slot", 10)))
     strategy["rookie_draft_slot"] = st.number_input("Rookie slot", 1, 16, int(strategy.get("rookie_draft_slot", 1)))
-    reserved_text = st.text_area(
-        "Reserved rookies",
-        value="\n".join(strategy.get("reserved_rookies") or ["Jeremiyah Love"]),
-    )
-    strategy["reserved_rookies"] = [line.strip() for line in reserved_text.splitlines() if line.strip()]
     if not st.session_state.anthropic_api_key:
         st.session_state.anthropic_api_key = st.text_input("Anthropic API key", type="password")
     if not st.session_state.moonshot_api_key:

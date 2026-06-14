@@ -49,9 +49,21 @@ bb-migrate:
 bb-seed:
     uv run python -m backend.seed
 
-# Run Blackbook FastAPI (reload)
+# Run Blackbook FastAPI (reloads when Python files change — use bb-api-stable during draft night)
 bb-api:
     uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
+
+# Same API without auto-reload (stays up while you edit files)
+bb-api-stable:
+    uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000
+
+# API + Next.js dev servers together
+bb-dev:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    trap 'kill 0' EXIT
+    just bb-api-stable &
+    just bb-web
 
 # Sync one league (ingest + metrics + rankings); pass league_id — no API required
 bb-sync league_id:

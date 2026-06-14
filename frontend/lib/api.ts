@@ -1023,6 +1023,7 @@ export type TradeLineupStarterSlot = {
   name?: string | null;
   position?: string | null;
   ppg?: number | null;
+  ovr?: number | null;
   is_incoming?: boolean;
   is_changed?: boolean;
 };
@@ -1051,10 +1052,8 @@ export type TradeEvaluateResponse = {
 export type TradeSideValidation = {
   roster_id: string;
   team_name?: string | null;
-  view_mode?: "accept_if_offered";
   accept_likelihood?: "low" | "medium" | "high" | null;
   fairness_view?: "favors_them" | "fair" | "favors_you" | null;
-  fairness_label?: string | null;
   would_improve_roster?: boolean | null;
   reasoning?: string | null;
   blockers: string[];

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
-from dynasty_draft.war_data import POSITIONS, PlayerValue, WarData, normalize_name
+from dynasty_draft.war_data import WarData
 
 
 @dataclass
@@ -15,7 +14,6 @@ class DraftStrategy:
     teams: int = 10
     startup_slot: int = 10
     rookie_draft_slot: int = 1
-    reserved_rookies: list[str] = field(default_factory=lambda: ["Jeremiyah Love"])
     rookie_draft_reversed: bool = True
 
     @classmethod
@@ -26,7 +24,6 @@ class DraftStrategy:
             teams=int(raw.get("teams", 10)),
             startup_slot=int(raw.get("startup_slot", 10)),
             rookie_draft_slot=int(raw.get("rookie_draft_slot", 1)),
-            reserved_rookies=list(raw.get("reserved_rookies") or []),
             rookie_draft_reversed=bool(raw.get("rookie_draft_reversed", True)),
         )
 
@@ -36,7 +33,6 @@ class DraftStrategy:
             "teams": self.teams,
             "startup_slot": self.startup_slot,
             "rookie_draft_slot": self.rookie_draft_slot,
-            "reserved_rookies": self.reserved_rookies,
             "rookie_draft_reversed": self.rookie_draft_reversed,
         }
 
@@ -48,60 +44,13 @@ class DraftStrategy:
     def is_rookie_draft(self) -> bool:
         return self.draft_phase.lower() == "rookies"
 
-    def reserved_by_position(self, war: WarData) -> dict[str, int]:
-        counts = {pos: 0 for pos in POSITIONS}
-        for name in self.reserved_rookies:
-            player = war.lookup(name)
-            if player and player.pos in counts:
-                counts[player.pos] += 1
-        return counts
-
-    def reserved_players(
-        self,
-        war: WarData,
-        *,
-        tv_fn: Callable[[PlayerValue], float] | None = None,
-    ) -> list[dict[str, Any]]:
-        getter = tv_fn or (lambda player: player.trade_value)
-        rows: list[dict[str, Any]] = []
-        for name in self.reserved_rookies:
-            player = war.lookup(name)
-            if not player:
-                rows.append({"name": name, "pos": "?", "trade_value": None, "note": "not in war.csv"})
-                continue
-            rows.append(
-                {
-                    "name": player.name,
-                    "pos": player.pos,
-                    "trade_value": getter(player),
-                    "note": "locked for rookie draft",
-                }
-            )
-        return rows
-
     def strategy_notes(
         self,
         war: WarData,
         *,
-        tv_fn: Callable[[PlayerValue], float] | None = None,
+        tv_fn: object = None,
     ) -> list[str]:
         notes: list[str] = []
-        if self.is_vet_draft and self.reserved_rookies:
-            reserved = ", ".join(self.reserved_rookies)
-            notes.append(
-                f"Vet-only startup at 1.{self.startup_slot:02d}: rookies are off the board. "
-                f"You plan to take {reserved} at 1.{self.rookie_draft_slot:02d} in the reversed rookie draft — "
-                "deprioritize early RB in this draft."
-            )
-            love = war.lookup("Jeremiyah Love")
-            getter = tv_fn or (lambda player: player.trade_value)
-            if love and normalize_name("Jeremiyah Love") in {
-                normalize_name(n) for n in self.reserved_rookies
-            }:
-                notes.append(
-                    f"Jeremiyah Love (TV {getter(love):,.0f}) fills your RB1 pipeline — "
-                    "target QB/WR/TE value in rounds 1–4, then take a vet RB2 later."
-                )
         if self.is_rookie_draft:
             notes.append(
                 f"Rookie draft: you pick 1.{self.rookie_draft_slot:02d} "

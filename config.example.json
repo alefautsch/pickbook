@@ -44,7 +44,6 @@
     "teams": 10,
     "startup_slot": 10,
     "rookie_draft_slot": 1,
-    "reserved_rookies": ["Jeremiyah Love"],
     "rookie_draft_reversed": true
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getRookieDraft,
   type RookieBoardRow,
@@ -66,14 +66,17 @@ function NeedsStrip({ needs }: { needs: StarterNeeds }) {
 }
 
 function TimelineRow({ row }: { row: RookieDraftTimelineRow }) {
+  const isProjected = row.status === "projected";
   const statusClass =
     row.status === "on_clock"
       ? "bg-bb-gold/15 ring-1 ring-bb-gold/40"
-      : row.is_me
-        ? "bg-blue-500/10"
-        : row.status === "done"
-          ? ""
-          : "opacity-70";
+      : isProjected
+        ? "opacity-80 italic"
+        : row.is_me
+          ? "bg-blue-500/10"
+          : row.status === "done"
+            ? ""
+            : "opacity-70";
 
   return (
     <tr className={`border-b border-bb-border/30 ${statusClass}`}>
@@ -92,6 +95,9 @@ function TimelineRow({ row }: { row: RookieDraftTimelineRow }) {
           <span className="inline-flex items-center gap-1">
             <PlayerName>{row.player_name}</PlayerName>
             {row.dynasty_rookie ? <RookieBadge /> : null}
+            {isProjected ? (
+              <span className="text-[10px] not-italic text-bb-muted">proj</span>
+            ) : null}
           </span>
         ) : row.status === "on_clock" ? (
           <span className="text-bb-gold">On the clock</span>
@@ -109,14 +115,20 @@ function TimelineRow({ row }: { row: RookieDraftTimelineRow }) {
   );
 }
 
+function boardDisplayRank(row: RookieBoardRow, sort: "bpa" | "ovr"): number {
+  return sort === "ovr" ? (row.ovr_rank ?? row.bpa_rank) : row.bpa_rank;
+}
+
 function BoardRowMobile({
   leagueId,
   row,
+  rank,
   isTarget,
   onToggleTarget,
 }: {
   leagueId: string;
   row: RookieBoardRow;
+  rank: number;
   isTarget: boolean;
   onToggleTarget: (playerId: string) => void;
 }) {
@@ -134,7 +146,7 @@ function BoardRowMobile({
       >
         {isTarget ? "★" : "☆"}
       </button>
-      <span className="w-5 shrink-0 text-center text-xs text-bb-muted">{row.bpa_rank}</span>
+      <span className="w-5 shrink-0 text-center text-xs text-bb-muted">{rank}</span>
       <PlayerHeadshot
         src={row.headshot_url}
         alt={row.player_name ?? "Player"}
@@ -175,12 +187,15 @@ function BoardRowMobile({
 }
 
 function TimelineRowMobile({ row }: { row: RookieDraftTimelineRow }) {
+  const isProjected = row.status === "projected";
   const statusClass =
     row.status === "on_clock"
       ? "border-bb-gold/40 bg-bb-gold/10"
-      : row.is_me
-        ? "border-blue-500/30 bg-blue-500/10"
-        : "border-bb-border/30 bg-black/15";
+      : isProjected
+        ? "border-bb-border/30 border-dashed bg-black/10 opacity-80"
+        : row.is_me
+          ? "border-blue-500/30 bg-blue-500/10"
+          : "border-bb-border/30 bg-black/15";
 
   return (
     <div className={`rounded-lg border px-3 py-2 ${statusClass}`}>
@@ -204,6 +219,9 @@ function TimelineRowMobile({ row }: { row: RookieDraftTimelineRow }) {
           <span className="inline-flex flex-wrap items-center gap-1.5">
             <PlayerName>{row.player_name}</PlayerName>
             {row.position ? <PositionTag position={row.position} /> : null}
+            {isProjected ? (
+              <span className="text-[10px] text-bb-muted">proj</span>
+            ) : null}
           </span>
         ) : row.status === "on_clock" ? (
           <span className="text-bb-gold">On the clock</span>
@@ -218,11 +236,13 @@ function TimelineRowMobile({ row }: { row: RookieDraftTimelineRow }) {
 function BoardRow({
   leagueId,
   row,
+  rank,
   isTarget,
   onToggleTarget,
 }: {
   leagueId: string;
   row: RookieBoardRow;
+  rank: number;
   isTarget: boolean;
   onToggleTarget: (playerId: string) => void;
 }) {
@@ -232,7 +252,7 @@ function BoardRow({
         isTarget ? "bg-bb-gold/10 ring-1 ring-inset ring-bb-gold/25" : ""
       }`}
     >
-      <td className="px-2 py-2 text-xs text-bb-muted">{row.bpa_rank}</td>
+      <td className="px-2 py-2 text-xs text-bb-muted">{rank}</td>
       <td className="px-2 py-2">
         <button
           type="button"
@@ -307,19 +327,25 @@ function BoardRow({
 
 export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
   const [draft, setDraft] = useState(initial);
+  const [boardSort, setBoardSort] = useState<"bpa" | "ovr">("ovr");
   const [targets, setTargets] = useState<Set<string>>(() =>
     loadTargets(leagueId, initial.draft_id),
   );
   const [polling, setPolling] = useState(true);
   const [lastError, setLastError] = useState<string | null>(null);
+  const refreshInFlight = useRef(false);
 
   const refresh = useCallback(async () => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
     try {
       const next = await getRookieDraft(leagueId, { draftId: draft.draft_id });
       setDraft(next);
       setLastError(null);
     } catch {
-      setLastError("Failed to refresh draft state");
+      setLastError("Failed to refresh draft state — is the API running? (just bb-api)");
+    } finally {
+      refreshInFlight.current = false;
     }
   }, [leagueId, draft.draft_id]);
 
@@ -344,6 +370,11 @@ export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
     () => draft.board.filter((r) => targets.has(r.player_id)),
     [draft.board, targets],
   );
+
+  const sortedBoard = useMemo(() => {
+    if (boardSort === "ovr") return draft.board;
+    return [...draft.board].sort((a, b) => a.bpa_rank - b.bpa_rank);
+  }, [draft.board, boardSort]);
 
   const clockLabel = draft.is_my_pick
     ? "You're on the clock"
@@ -474,18 +505,45 @@ export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
         </aside>
 
         <section className="order-2 min-w-0 xl:order-1">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-medium text-white">BPA Board</h2>
-            <span className="text-xs text-bb-muted">
-              {draft.board.length} rookies · ☆ = my target
-            </span>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-lg font-medium text-white">Rookie Board</h2>
+            <div className="flex items-center gap-3">
+              <div className="flex rounded-lg border border-bb-border/50 p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setBoardSort("bpa")}
+                  className={`rounded-md px-2.5 py-1 ${
+                    boardSort === "bpa"
+                      ? "bg-white/10 text-white"
+                      : "text-bb-muted hover:text-white"
+                  }`}
+                >
+                  BPA
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBoardSort("ovr")}
+                  className={`rounded-md px-2.5 py-1 ${
+                    boardSort === "ovr"
+                      ? "bg-white/10 text-white"
+                      : "text-bb-muted hover:text-white"
+                  }`}
+                >
+                  OVR
+                </button>
+              </div>
+              <span className="text-xs text-bb-muted">
+                {draft.board.length} rookies · ☆ = my target
+              </span>
+            </div>
           </div>
           <div className="divide-y divide-bb-border/30 overflow-hidden rounded-xl border border-bb-border/50 md:hidden">
-            {draft.board.map((row) => (
+            {sortedBoard.map((row) => (
               <BoardRowMobile
                 key={row.player_id}
                 leagueId={leagueId}
                 row={row}
+                rank={boardDisplayRank(row, boardSort)}
                 isTarget={targets.has(row.player_id)}
                 onToggleTarget={toggleTarget}
               />
@@ -505,11 +563,12 @@ export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
                 </tr>
               </thead>
               <tbody>
-                {draft.board.map((row) => (
+                {sortedBoard.map((row) => (
                   <BoardRow
                     key={row.player_id}
                     leagueId={leagueId}
                     row={row}
+                    rank={boardDisplayRank(row, boardSort)}
                     isTarget={targets.has(row.player_id)}
                     onToggleTarget={toggleTarget}
                   />
@@ -521,7 +580,12 @@ export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
       </div>
 
       <section>
-        <h2 className="mb-3 text-lg font-medium text-white">Draft board</h2>
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-lg font-medium text-white">Draft board</h2>
+          <p className="text-xs text-bb-muted">
+            Unpicked slots show a projected pick (real team order · ADP + needs sim)
+          </p>
+        </div>
         <div className="space-y-2 md:hidden">
           {draft.timeline.map((row) => (
             <TimelineRowMobile key={row.pick_no} row={row} />

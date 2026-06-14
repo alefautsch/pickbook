@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from backend.services.analysis_service import TRADE_SURPLUS_BOTTOM_N, TRADE_SURPLUS_TOP_N
+from backend.services.analysis_service import (
+    TRADE_SURPLUS_BOTTOM_N,
+    TRADE_SURPLUS_TOP_N,
+)
 
 DEPTH_TV_DISCOUNT = 0.70
 PIECE_COUNT_PENALTY = 0.95
@@ -137,7 +140,9 @@ def package_adjusted_tv(assets: list[dict[str, Any]]) -> tuple[float, float]:
     return raw, raw + stud_value_adjustment(assets)
 
 
-def _side_consolidating(assets: list[dict[str, Any]], other: list[dict[str, Any]]) -> bool:
+def _side_consolidating(
+    assets: list[dict[str, Any]], other: list[dict[str, Any]]
+) -> bool:
     mine = _player_assets(assets)
     theirs = _player_assets(other)
     if len(mine) < len(theirs):
@@ -224,7 +229,9 @@ def _position_groups_by_production(
     return groups
 
 
-def lineup_delta_ppg(player: dict[str, Any], pos_players: list[dict[str, Any]]) -> float:
+def lineup_delta_ppg(
+    player: dict[str, Any], pos_players: list[dict[str, Any]]
+) -> float:
     """Marginal PPG vs the next realistic backup at the same position."""
     sorted_players = sorted(pos_players, key=production_ppg, reverse=True)
     pid = str(player.get("player_id") or "")
@@ -284,11 +291,7 @@ def assign_player_trade_tag(
         return "core"
 
     if tier == "contender":
-        if (
-            position_is_surplus
-            and depth_rank >= 3
-            and lineup_delta < trade_delta
-        ):
+        if position_is_surplus and depth_rank >= 3 and lineup_delta < trade_delta:
             return "trade"
         if tv_vs_production >= _SELL_HIGH_GAP and age is not None and age >= 26:
             return "trade"
@@ -563,14 +566,26 @@ def trade_fit_score(
         score += 0.15
     if acquirer_tier == "rebuild" and age is not None and age <= 24:
         score += 0.15
-    if seller_tier == "rebuild" and acquirer_tier == "contender" and age is not None and age >= 27:
+    if (
+        seller_tier == "rebuild"
+        and acquirer_tier == "contender"
+        and age is not None
+        and age >= 27
+    ):
         score += 0.10
-    if seller_tier == "contender" and acquirer_tier == "rebuild" and age is not None and age <= 25:
+    if (
+        seller_tier == "contender"
+        and acquirer_tier == "rebuild"
+        and age is not None
+        and age <= 25
+    ):
         score += 0.10
     return max(0.1, min(1.0, score))
 
 
-def _tradability_weight(asset: dict[str, Any], tradability_by_id: dict[str, float]) -> float:
+def _tradability_weight(
+    asset: dict[str, Any], tradability_by_id: dict[str, float]
+) -> float:
     if asset.get("player_id"):
         return tradability_by_id.get(str(asset.get("player_id")), 0.35)
     if asset.get("season") and asset.get("trade_tag") == "trade":
@@ -643,6 +658,7 @@ def build_starter_lineup_slots(
         if ppg is None:
             ppg = player.get("healthy_ppg")
         pid = player.get("player_id")
+        ovr = player.get("dynasty_rating")
         slots.append(
             {
                 "slot": str(row.get("slot") or "?"),
@@ -650,6 +666,7 @@ def build_starter_lineup_slots(
                 "name": player.get("name"),
                 "position": player.get("pos"),
                 "ppg": round(float(ppg), 1) if ppg is not None else None,
+                "ovr": int(ovr) if ovr is not None else None,
             }
         )
     return slots

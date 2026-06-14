@@ -54,7 +54,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "teams": 10,
         "startup_slot": 10,
         "rookie_draft_slot": 1,
-        "reserved_rookies": ["Jeremiyah Love"],
         "rookie_draft_reversed": True,
     },
 }
@@ -88,10 +87,6 @@ def _apply_env(config: dict[str, Any]) -> dict[str, Any]:
         strategy["startup_slot"] = int(os.environ["STARTUP_SLOT"])
     if os.environ.get("ROOKIE_DRAFT_SLOT"):
         strategy["rookie_draft_slot"] = int(os.environ["ROOKIE_DRAFT_SLOT"])
-    if os.environ.get("RESERVED_ROOKIES"):
-        strategy["reserved_rookies"] = [
-            name.strip() for name in os.environ["RESERVED_ROOKIES"].split(",") if name.strip()
-        ]
     return config
 
 

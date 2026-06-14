@@ -15,6 +15,7 @@ from dynasty_draft.dynasty_score import (
     compute_reference_anchors,
     curved_composite_to_rating,
 )
+from dynasty_draft.draft_pick_ownership import PickOwnerIndex, resolve_pick_owner
 from dynasty_draft.strategy import DraftStrategy
 from dynasty_draft.war_data import POSITIONS, PlayerValue, WarData, normalize_name
 from dynasty_draft.projections import SleeperProjectionStore
@@ -66,6 +67,7 @@ class DraftState:
     worp_blend: WorpBlend = field(default_factory=WorpBlend)
     strategy: DraftStrategy = field(default_factory=DraftStrategy)
     league_users: list[dict[str, Any]] = field(default_factory=list)
+    pick_owner_index: PickOwnerIndex = field(default_factory=dict)
 
     drafted_ids: set[str] = field(init=False)
     drafted_names: set[str] = field(init=False)
@@ -147,6 +149,40 @@ class DraftState:
             return teams - pos_in_round + 1
         return pos_in_round
 
+    def _draft_season(self) -> str:
+        if self.draft.get("season") is not None:
+            return str(self.draft["season"])
+        if self.league and self.league.get("season") is not None:
+            return str(self.league["season"])
+        return ""
+
+    def original_roster_for_slot(self, slot: int) -> int | None:
+        roster_id = (self.draft.get("slot_to_roster_id") or {}).get(str(slot))
+        return int(roster_id) if roster_id is not None else None
+
+    def owner_roster_for_pick(self, pick_no: int) -> int | None:
+        slot = self._pick_slot(pick_no)
+        original = self.original_roster_for_slot(slot)
+        if original is None:
+            return None
+        season = self._draft_season()
+        if not season:
+            return original
+        teams = self._teams()
+        round_no = (pick_no - 1) // teams + 1
+        return resolve_pick_owner(
+            self.pick_owner_index,
+            season=season,
+            round_no=round_no,
+            original_roster_id=original,
+        )
+
+    def is_my_pick_number(self, pick_no: int) -> bool:
+        if self.my_roster_id is None:
+            return False
+        owner = self.owner_roster_for_pick(pick_no)
+        return owner is not None and owner == self.my_roster_id
+
     def is_superflex(self) -> bool:
         if any(pos == "SUPER_FLEX" for pos in self.roster_positions):
             return True
@@ -155,13 +191,13 @@ class DraftState:
 
     def consecutive_pick_numbers(self, from_pick: int | None = None) -> list[int]:
         """Upcoming run of your picks with no other teams between (bookend pairs)."""
-        if self.my_slot is None:
+        if self.my_roster_id is None:
             return []
         total_picks = self._teams() * self._rounds()
         start = from_pick or len(self.picks) + 1
         streak: list[int] = []
         for pick_no in range(start, total_picks + 1):
-            if self._pick_slot(pick_no) == self.my_slot:
+            if self.is_my_pick_number(pick_no):
                 streak.append(pick_no)
             elif streak:
                 break
@@ -183,11 +219,11 @@ class DraftState:
             }
         round_no = (pick_no - 1) // teams + 1
         slot = self._pick_slot(pick_no)
-        is_my_pick = self.my_slot is not None and slot == self.my_slot
+        is_my_pick = self.is_my_pick_number(pick_no)
         picks_until = 0
-        if self.my_slot is not None and not is_my_pick:
+        if self.my_roster_id is not None and not is_my_pick:
             for future_pick in range(pick_no, total_picks + 1):
-                if self._pick_slot(future_pick) == self.my_slot:
+                if self.is_my_pick_number(future_pick):
                     picks_until = future_pick - pick_no
                     break
         consecutive = self.consecutive_pick_numbers(from_pick=pick_no if is_my_pick else pick_no + picks_until)
@@ -266,7 +302,6 @@ class DraftState:
 
     def _eligible_players(self) -> list[tuple[str, PlayerValue]]:
         """Full draft-eligible board (ignores who has been picked)."""
-        reserved_names = {normalize_name(name) for name in self.strategy.reserved_rookies}
         eligible: list[tuple[str, PlayerValue]] = []
         for player_id, sleeper_player in self.sleeper_players.items():
             pos = (sleeper_player.get("position") or "").upper()
@@ -281,10 +316,6 @@ class DraftState:
             if self.strategy.is_vet_draft and is_rookie:
                 continue
             if self.strategy.is_rookie_draft and not is_rookie:
-                continue
-            if self.strategy.is_rookie_draft and normalize_name(
-                sleeper_player.get("full_name") or ""
-            ) in reserved_names:
                 continue
             eligible.append((player_id, war_player))
         return eligible
@@ -352,9 +383,6 @@ class DraftState:
             pos = (meta.get("position") or "").upper()
             if pos in counts:
                 counts[pos] += 1
-        if self.strategy.is_vet_draft:
-            for pos, reserved_count in self.strategy.reserved_by_position(self.war).items():
-                counts[pos] += reserved_count
         return counts
 
     def starter_needs(self) -> dict[str, int]:
@@ -600,18 +628,6 @@ class DraftState:
             need_weights["QB"] = 0.18
             need_weights["WR"] = 0.09
 
-        if self.strategy.is_vet_draft:
-            reserved = self.strategy.reserved_by_position(self.war)
-            if reserved.get("RB", 0) > 0:
-                need_weights["RB"] = 0.03
-                if round_no <= 5:
-                    penalties["RB"] = 0.14
-                elif round_no <= 8:
-                    penalties["RB"] = 0.06
-                need_weights["WR"] = max(need_weights["WR"], 0.11)
-                need_weights["QB"] = max(need_weights["QB"], 0.15)
-                need_weights["TE"] = 0.15
-
         if self.strategy.is_rookie_draft:
             need_weights["RB"] = 0.02
             penalties["RB"] = 0.0
@@ -645,8 +661,6 @@ class DraftState:
             penalty = penalties.get(pos, 0.0)
             final = vor + need_boost + tier_bonus - penalty
             note = ""
-            if penalty > 0 and pos == "RB":
-                note = "RB deprioritized (Jeremiyah Love reserved)"
             blended_player = self.with_blended_tv(player)
             eff_worp, worp_projected = self._effective_worp(player_id, blended_player)
             adp_pick = adp.pick_no(player.name)
@@ -1163,20 +1177,6 @@ class DraftState:
                 }
             )
             if rows:
-                self.enrich_player_row(rows[-1])
-        if self.strategy.is_vet_draft:
-            for reserved in self.strategy.reserved_players(self.war, tv_fn=self.blended_trade_value):
-                rows.append(
-                    {
-                        "pick_no": None,
-                        "round": "R",
-                        "name": reserved["name"],
-                        "pos": reserved["pos"],
-                        "trade_value": reserved["trade_value"],
-                        "worp": None,
-                        "status": "reserved (rookie draft)",
-                    }
-                )
                 self.enrich_player_row(rows[-1])
         return rows
 

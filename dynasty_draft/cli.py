@@ -149,9 +149,6 @@ def cmd_setup(_: argparse.Namespace) -> None:
         }
     )
     config.setdefault("strategy", {})["startup_slot"] = int(startup_slot)
-    config["strategy"]["reserved_rookies"] = config.get("strategy", {}).get(
-        "reserved_rookies", ["Jeremiyah Love"]
-    )
     save_config(config)
     print(f"\nSaved config.json")
 
@@ -208,8 +205,7 @@ def cmd_watch(args: argparse.Namespace) -> None:
 
 def cmd_insights(_: argparse.Namespace) -> None:
     war = WarData(Path("war.csv"))
-    print("Vet startup at 1.10 with Jeremiyah Love at rookie 1.01:\n")
-    print("Deprioritize early RB. Target QB/WR/TE with trade value + WORP.\n")
+    print("Superflex startup value targets (QB/WR/TE):\n")
     candidates = [
         p
         for p in war.players
@@ -224,7 +220,7 @@ def cmd_insights(_: argparse.Namespace) -> None:
             f"{idx:>2}. {player.name:<26} {player.pos:<3} "
             f"TV {player.trade_value:>6,.0f}  WORP {player.worp:.2f}  tier {player.worp_tier}"
         )
-    print("\nVet RB targets for rounds 5+ (after Love reserved):")
+    print("\nVet RB targets for mid rounds:")
     rbs = [
         p
         for p in war.players

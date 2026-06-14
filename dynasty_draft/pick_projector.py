@@ -20,7 +20,7 @@ def _roster_id_for_slot(state: DraftState, slot: int) -> int | None:
 
 
 def _roster_id_for_pick(state: DraftState, pick_no: int) -> int | None:
-    return _roster_id_for_slot(state, state._pick_slot(pick_no))
+    return state.owner_roster_for_pick(pick_no)
 
 
 def _team_name(state: DraftState, roster_id: int) -> str:
@@ -131,6 +131,7 @@ def _simulate_pick(
     roster_counts[roster_id][player.pos] += 1
     row = {
         "pick_no": pick_no,
+        "player_id": player_id,
         "team": _team_name(state, roster_id),
         "roster_id": roster_id,
         "name": player.name,

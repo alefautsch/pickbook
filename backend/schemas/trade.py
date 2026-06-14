@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -58,6 +58,7 @@ class TradeLineupStarterSlot(BaseModel):
     name: str | None = None
     position: str | None = None
     ppg: float | None = None
+    ovr: int | None = None
     is_incoming: bool = False
     is_changed: bool = False
 
@@ -109,10 +110,8 @@ class TradeEvaluation(BaseModel):
 class TradeSideValidation(BaseModel):
     roster_id: str
     team_name: str | None = None
-    view_mode: Literal["accept_if_offered"] = "accept_if_offered"
     accept_likelihood: Literal["low", "medium", "high"] | None = None
     fairness_view: Literal["favors_them", "fair", "favors_you"] | None = None
-    fairness_label: str | None = None
     would_improve_roster: bool | None = None
     reasoning: str | None = None
     blockers: list[str] = Field(default_factory=list)

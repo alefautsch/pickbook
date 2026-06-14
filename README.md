@@ -4,7 +4,7 @@ Mobile-first dynasty draft assistant. Deploy to Railway for phone access during 
 
 # Dynasty Draft Assistant (local dev)
 
-Sync your live Sleeper dynasty startup against `war.csv` (dynasty-daddy WORP + trade values). Built for **vet-only startup** leagues with a **reversed rookie draft** — e.g. startup 1.10, then Jeremiyah Love at rookie 1.01.
+Sync your live Sleeper dynasty startup against `war.csv` (dynasty-daddy WORP + trade values). Built for **vet-only startup** leagues with a **reversed rookie draft**.
 
 ## Setup with uv
 
@@ -29,7 +29,7 @@ Sidebar: Sleeper connection, scoring weights, vet/rookie strategy, **Anthropic A
 
 ### AI pick advisor
 
-At snake bookends (picks 10 & 11, 30 & 31, …) click **Ask Claude** for a two-pick pairing plan. The prompt includes your roster, tier cliffs, reserved Love, superflex format, and live board state.
+At snake bookends (picks 10 & 11, 30 & 31, …) click **Ask Claude** for a two-pick pairing plan. The prompt includes your roster, tier cliffs, superflex format, and live board state.
 
 API key: add `ANTHROPIC_API_KEY=sk-ant-...` to `.env` in the project root (see `.env.example`). Sidebar can override per session.
 
@@ -52,26 +52,12 @@ uv run dynasty-draft insights
 | `strategy.draft_phase` | `vets` (startup) or `rookies` |
 | `strategy.startup_slot` | `10` for pick 1.10 |
 | `strategy.rookie_draft_slot` | `1` when rookie order is reversed |
-| `strategy.reserved_rookies` | Players you'll take in rookie draft (e.g. Jeremiyah Love) |
 
 Copy `config.example.json` to `config.json` and edit, or use `setup` / the Streamlit sidebar.
-
-## Strategy: 1.10 startup + Love at rookie 1.01
-
-**Vet draft (now):** Rookies are filtered out. Love counts as your future RB1 — early RB picks are deprioritized. Target QB/WR/TE with high trade value and WORP.
-
-**Your snake picks:** 10 → 11 → 30 → 31 → 50 → 51 …
-
-**Rounds 1–4:** Allen, Chase, JSN, Maye, Puka, McBride, Amon-Ra over Bijan/Gibbs.
-
-**Rounds 5+:** Vet RB2 (Taylor, Cook, Hall) when value stabilizes.
-
-**Rookie draft:** Switch `draft_phase` to `rookies`, take Love at 1.01, then BPA.
 
 ## How picks are ranked
 
 1. Normalize trade value + WORP (+ spike upside)
 2. Value over replacement by position
-3. Starter needs (reserved rookies count toward roster)
-4. RB penalty in early vet rounds when Love is reserved
-5. Tier cliffs surfaced in UI/CLI
+3. Starter needs from roster slots
+4. Tier cliffs surfaced in UI/CLI
