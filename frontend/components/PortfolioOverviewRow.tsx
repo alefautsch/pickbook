@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { PortfolioSummary } from "@/lib/api";
 import { OvrBadge } from "./OvrBadge";
+import { PositionTag } from "./PositionPill";
 
 type PortfolioOverviewRowProps = {
   portfolio: PortfolioSummary;
@@ -51,12 +52,15 @@ export function PortfolioOverviewRow({ portfolio, leagueId }: PortfolioOverviewR
                 key={player.player_id}
                 className="flex items-center justify-between gap-2 rounded-lg bg-black/20 px-2 py-1.5"
               >
-                <Link
-                  href={`/players/${player.player_id}?league_id=${leagueId}`}
-                  className="min-w-0 truncate text-sm text-white hover:text-bb-gold"
-                >
-                  {player.player_name}
-                </Link>
+                <div className="flex min-w-0 items-center gap-2">
+                  <Link
+                    href={`/players/${player.player_id}?league_id=${leagueId}`}
+                    className="min-w-0 truncate text-sm text-white hover:text-bb-gold"
+                  >
+                    {player.player_name}
+                  </Link>
+                  {player.position ? <PositionTag position={player.position} /> : null}
+                </div>
                 <div className="flex shrink-0 items-center gap-1">
                   {player.leagues.slice(0, 3).map((lg) => (
                     <OvrBadge key={lg.league_id} ovr={lg.ovr} size="sm" />

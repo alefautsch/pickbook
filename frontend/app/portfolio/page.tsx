@@ -3,6 +3,7 @@ import { AppShell } from "@/components/AppShell";
 import { OvrBadge } from "@/components/OvrBadge";
 import { PortfolioHoldingsMobile } from "@/components/PortfolioHoldingsMobile";
 import { PlayerHeadshot } from "@/components/PlayerHeadshot";
+import { PositionTag } from "@/components/PositionPill";
 import { getLeagues, getPortfolio } from "@/lib/api";
 
 const FLAG_LABELS: Record<string, string> = {
@@ -77,9 +78,9 @@ export default async function PortfolioPage() {
                         >
                           {player.player_name}
                         </Link>
+                        {player.position ? <PositionTag position={player.position} /> : null}
                         <span className="text-xs text-bb-muted">
-                          {player.position} · {player.league_count}/
-                          {portfolio.total_leagues} leagues
+                          {player.league_count}/{portfolio.total_leagues} leagues
                         </span>
                         {player.exposure_flag ? (
                           <span
@@ -147,12 +148,10 @@ export default async function PortfolioPage() {
                           sizes="40px"
                         />
                         <div>
-                          <p className="font-medium text-white">
-                            {player.player_name}
-                          </p>
-                          <p className="text-xs text-bb-muted">
-                            {player.position}
-                          </p>
+                          <p className="font-medium text-white">{player.player_name}</p>
+                          <div className="mt-0.5">
+                            {player.position ? <PositionTag position={player.position} /> : null}
+                          </div>
                         </div>
                       </Link>
                     </td>

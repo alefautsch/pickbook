@@ -1,5 +1,6 @@
 import type { AgeProfile } from "@/lib/api";
 import { formatDecimal } from "@/lib/format";
+import { PositionTag } from "./PositionPill";
 
 type AgeProfilePanelProps = {
   profiles: AgeProfile[];
@@ -81,8 +82,9 @@ export function AgeProfilePanel({ profiles }: AgeProfilePanelProps) {
                   ) : null}
                 </span>
               </div>
-              <p className="mt-0.5 text-xs text-bb-muted">
-                {s.pos} · {s.slot}
+              <p className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                {s.pos ? <PositionTag position={s.pos} /> : null}
+                <span className="text-xs text-bb-muted">{s.slot}</span>
               </p>
             </li>
           ))}

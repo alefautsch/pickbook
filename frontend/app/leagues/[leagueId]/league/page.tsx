@@ -1,10 +1,6 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
-import { AgeProfilePanel } from "@/components/AgeProfilePanel";
-import { FreeAgentBoard } from "@/components/FreeAgentBoard";
-import { PositionHeatmap } from "@/components/PositionHeatmap";
-import { TradeSurplusPanel } from "@/components/TradeSurplusPanel";
+import { LeagueAnalysisSections } from "@/components/LeagueAnalysisSections";
 import {
   getFreeAgents,
   getLeague,
@@ -12,7 +8,6 @@ import {
   getLeagues,
 } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
-import { OvrBadge } from "@/components/OvrBadge";
 
 type PageProps = {
   params: Promise<{ leagueId: string }>;
@@ -47,71 +42,12 @@ export default async function LeagueAnalysisPage({ params }: PageProps) {
           </p>
         </header>
 
-        <div className="flex flex-col gap-5 md:gap-6">
-          <div className="order-1">
-            <FreeAgentBoard
-              leagueId={leagueId}
-              superflex={league.superflex}
-              initialBoard={freeAgents}
-            />
-          </div>
-
-          <section className="bb-panel order-2 p-4 md:p-5">
-            <h2 className="bb-panel-title">All Teams</h2>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 md:mt-4">
-              {league.teams.map((team) => (
-                <Link
-                  key={team.roster_id}
-                  href={`/leagues/${leagueId}/teams/${team.roster_id}`}
-                  className="block"
-                >
-                  <article
-                    className={`flex items-center gap-3 rounded-lg border border-bb-border/40 bg-black/20 p-3 transition hover:border-bb-gold/30 ${
-                      team.is_me ? "border-bb-gold/40" : ""
-                    }`}
-                  >
-                    <OvrBadge ovr={team.avg_dynasty_rating} size="sm" />
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-white">
-                        {team.team_name}
-                      </p>
-                      <p className="text-xs text-bb-muted">
-                        Rank #{team.dynasty_rank ?? "—"}
-                      </p>
-                    </div>
-                  </article>
-                </Link>
-              ))}
-            </div>
-          </section>
-
-          <div className="order-3 grid gap-5 md:gap-6 lg:grid-cols-2">
-            <section className="bb-panel p-4 md:p-5">
-              <h2 className="bb-panel-title">Age & Window</h2>
-              <div className="mt-3 md:mt-4">
-                <AgeProfilePanel profiles={analysis.age_profiles} />
-              </div>
-            </section>
-            <section className="bb-panel p-4 md:p-5">
-              <h2 className="bb-panel-title">Trade Surplus</h2>
-              <div className="mt-3 md:mt-4">
-                <TradeSurplusPanel
-                  tradeSurplus={analysis.trade_surplus}
-                  leagueId={leagueId}
-                />
-              </div>
-            </section>
-          </div>
-
-          {analysis.position_strength ? (
-            <section className="bb-panel order-4 p-4 md:p-5">
-              <h2 className="bb-panel-title">Position Strength Heatmap</h2>
-              <div className="mt-3 md:mt-4">
-                <PositionHeatmap data={analysis.position_strength} leagueId={leagueId} />
-              </div>
-            </section>
-          ) : null}
-        </div>
+        <LeagueAnalysisSections
+          leagueId={leagueId}
+          league={league}
+          freeAgents={freeAgents}
+          analysis={analysis}
+        />
       </div>
     </AppShell>
   );

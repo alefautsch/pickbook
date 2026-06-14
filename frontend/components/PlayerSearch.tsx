@@ -5,6 +5,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { searchPlayers, type PlayerSearchHit } from "@/lib/api";
 import { OvrBadge } from "./OvrBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
+import { PositionTag } from "./PositionPill";
 
 type PlayerSearchProps = {
   dropdownPlacement?: "down" | "up" | "overlay";
@@ -117,16 +118,19 @@ export function PlayerSearch({
                         sizes="40px"
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-white">
-                          {hit.player_name}
-                          {hit.position ? (
-                            <span className="ml-2 text-xs text-bb-muted">
-                              {hit.position}
-                            </span>
-                          ) : null}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="truncate text-sm font-medium text-white">
+                            {hit.player_name}
+                          </p>
+                          {hit.position ? <PositionTag position={hit.position} /> : null}
+                        </div>
                         <p className="truncate text-xs text-bb-muted">
-                          {hit.leagues.map((l) => l.league_name).join(" · ")}
+                          {[
+                            hit.nfl_team,
+                            hit.leagues.map((l) => l.league_name).join(" · "),
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
                         </p>
                       </div>
                       {top?.ovr != null ? (

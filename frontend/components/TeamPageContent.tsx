@@ -175,10 +175,14 @@ function TeamSidebarPanels({
       </CollapsibleSection>
 
       {positionStrength ? (
-        <PositionStrengthBars data={positionStrength} myRosterId={rosterId} />
+        <CollapsibleSection title="Position Strength" subtitle="Starter OVR rank in league">
+          <PositionStrengthBars data={positionStrength} myRosterId={rosterId} embedded />
+        </CollapsibleSection>
       ) : null}
 
-      <AgeProfileSidebar profiles={ageProfiles} rosterId={rosterId} />
+      <CollapsibleSection title="Age Profile">
+        <AgeProfileSidebar profiles={ageProfiles} rosterId={rosterId} embedded />
+      </CollapsibleSection>
 
       <CollapsibleSection title="Draft Picks">
         <DraftPicksPanel picks={team.draft_picks} compact />

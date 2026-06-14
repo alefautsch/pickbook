@@ -11,8 +11,9 @@ import {
 } from "@/lib/api";
 import { formatPpg, formatTv } from "@/lib/format";
 import { OvrBadge } from "./OvrBadge";
+import { RookieBadge } from "./RookieBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
-import { PositionPill } from "./PositionPill";
+import { PositionPill, PositionTag } from "./PositionPill";
 
 type RookieDraftPanelProps = {
   leagueId: string;
@@ -87,11 +88,9 @@ function TimelineRow({ row }: { row: RookieDraftTimelineRow }) {
       </td>
       <td className="px-2 py-2 text-sm text-white">
         {row.player_name ? (
-          <span>
+          <span className="inline-flex items-center gap-1">
             {row.player_name}
-            {row.dynasty_rookie ? (
-              <span className="text-bb-muted">*</span>
-            ) : null}
+            {row.dynasty_rookie ? <RookieBadge /> : null}
           </span>
         ) : row.status === "on_clock" ? (
           <span className="text-bb-gold">On the clock</span>
@@ -99,7 +98,9 @@ function TimelineRow({ row }: { row: RookieDraftTimelineRow }) {
           <span className="text-bb-muted">—</span>
         )}
       </td>
-      <td className="px-2 py-2 text-xs">{row.position ?? ""}</td>
+      <td className="px-2 py-2 text-xs">
+        {row.position ? <PositionTag position={row.position} /> : null}
+      </td>
       <td className="px-2 py-2 text-right">
         {row.ovr != null ? <OvrBadge ovr={row.ovr} size="sm" /> : "—"}
       </td>
@@ -143,14 +144,16 @@ function BoardRowMobile({
       <div className="min-w-0 flex-1">
         <Link
           href={`/players/${row.player_id}?league_id=${encodeURIComponent(leagueId)}`}
-          className="truncate text-sm font-medium text-white hover:text-bb-gold"
+          className="flex items-center gap-1 truncate text-sm font-medium text-white hover:text-bb-gold"
         >
-          {row.player_name}
-          {row.dynasty_rookie ? <span className="text-bb-muted">*</span> : null}
+          <span className="truncate">{row.player_name}</span>
+          {row.dynasty_rookie ? <RookieBadge /> : null}
         </Link>
-        <div className="mt-0.5 flex items-center gap-1.5">
-          {row.position ? <PositionPill slot={row.position} /> : null}
-          <span className="text-[10px] text-bb-muted">{row.nfl_team}</span>
+        <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+          {row.position ? <PositionTag position={row.position} /> : null}
+          <span className="text-[10px] text-bb-muted">
+            {[row.nfl_team, row.age != null ? String(row.age) : null].filter(Boolean).join(" · ")}
+          </span>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2 pr-1">
@@ -197,12 +200,10 @@ function TimelineRowMobile({ row }: { row: RookieDraftTimelineRow }) {
       </div>
       <p className="mt-1 text-sm text-white">
         {row.player_name ? (
-          <>
-            {row.player_name}
-            {row.position ? (
-              <span className="text-bb-muted"> · {row.position}</span>
-            ) : null}
-          </>
+          <span className="inline-flex flex-wrap items-center gap-1.5">
+            <span>{row.player_name}</span>
+            {row.position ? <PositionTag position={row.position} /> : null}
+          </span>
         ) : row.status === "on_clock" ? (
           <span className="text-bb-gold">On the clock</span>
         ) : (
@@ -253,16 +254,18 @@ function BoardRow({
           <div className="min-w-0">
             <Link
               href={`/players/${row.player_id}?league_id=${encodeURIComponent(leagueId)}`}
-              className="truncate text-sm font-medium text-white hover:text-bb-gold"
+              className="flex items-center gap-1 truncate text-sm font-medium text-white hover:text-bb-gold"
             >
-              {row.player_name}
-              {row.dynasty_rookie ? (
-                <span className="text-bb-muted">*</span>
-              ) : null}
+              <span className="truncate">{row.player_name}</span>
+              {row.dynasty_rookie ? <RookieBadge /> : null}
             </Link>
-            <div className="flex items-center gap-1.5">
-              {row.position ? <PositionPill slot={row.position} /> : null}
-              <span className="text-[10px] text-bb-muted">{row.nfl_team}</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {row.position ? <PositionTag position={row.position} /> : null}
+              <span className="text-[10px] text-bb-muted">
+                {[row.nfl_team, row.age != null ? String(row.age) : null]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
             </div>
           </div>
         </div>

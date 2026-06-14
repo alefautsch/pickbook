@@ -2,11 +2,11 @@ import Link from "next/link";
 import type { PlayerCard as PlayerCardData } from "@/lib/api";
 import { projectionSourceLabel } from "@/lib/archetype";
 import { formatActv, formatPpg, formatTv, formatWorpPpg } from "@/lib/format";
-import { positionColor } from "@/lib/ovr";
 import { OvrBadge } from "./OvrBadge";
 import { RookieBadge } from "./RookieBadge";
 import { ExpendabilityBadge } from "./ExpendabilityBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
+import { PositionTag } from "./PositionPill";
 
 type PlayerCardProps = {
   player: PlayerCardData;
@@ -56,22 +56,15 @@ export function PlayerCard({
               {player.player_name ?? "Unknown"}
             </h3>
             {player.dynasty_rookie ? <RookieBadge /> : null}
-            {player.position ? (
-              <span
-                className="rounded px-1.5 py-0.5 text-xs font-semibold"
-                style={{
-                  background: `color-mix(in srgb, ${positionColor(player.position)} 20%, transparent)`,
-                  color: positionColor(player.position),
-                }}
-              >
-                {player.position}
+            {player.position ? <PositionTag position={player.position} /> : null}
+            {[player.nfl_team, player.age != null ? String(player.age) : null]
+              .filter(Boolean)
+              .join(" · ") ? (
+              <span className="text-xs text-bb-muted">
+                {[player.nfl_team, player.age != null ? String(player.age) : null]
+                  .filter(Boolean)
+                  .join(" · ")}
               </span>
-            ) : null}
-            {player.nfl_team ? (
-              <span className="text-xs text-bb-muted">{player.nfl_team}</span>
-            ) : null}
-            {player.age != null ? (
-              <span className="text-xs text-bb-muted">Age {player.age}</span>
             ) : null}
             <ExpendabilityBadge
               tag={player.trade_tag}

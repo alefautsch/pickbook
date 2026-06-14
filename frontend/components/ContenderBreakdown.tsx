@@ -2,13 +2,27 @@ import type { ContenderTeam } from "@/lib/api";
 
 type ContenderBreakdownProps = {
   team: ContenderTeam | null;
+  embedded?: boolean;
+  showTitleOnDesktop?: boolean;
 };
 
-export function ContenderBreakdown({ team }: ContenderBreakdownProps) {
+function panelTitleClass(embedded?: boolean, showTitleOnDesktop?: boolean): string {
+  if (embedded) return "hidden";
+  if (showTitleOnDesktop) return "hidden lg:block";
+  return "";
+}
+
+export function ContenderBreakdown({
+  team,
+  embedded = false,
+  showTitleOnDesktop = false,
+}: ContenderBreakdownProps) {
   if (!team) {
     return (
       <section className="bb-panel p-4">
-        <h2 className="bb-panel-title">Contender Breakdown</h2>
+        <h2 className={`bb-panel-title ${panelTitleClass(embedded, showTitleOnDesktop)}`}>
+          Contender Breakdown
+        </h2>
         <p className="mt-3 text-sm text-bb-muted">No contender data for your team yet.</p>
       </section>
     );
@@ -22,7 +36,9 @@ export function ContenderBreakdown({ team }: ContenderBreakdownProps) {
 
   return (
     <section className="bb-panel p-4">
-      <h2 className="bb-panel-title">Contender Breakdown</h2>
+      <h2 className={`bb-panel-title ${panelTitleClass(embedded, showTitleOnDesktop)}`}>
+        Contender Breakdown
+      </h2>
       <p className="mt-1 text-xs text-bb-muted">
         {team.tier} · composite {team.composite_score.toFixed(0)}
       </p>

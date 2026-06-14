@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { InjuryWatchItem } from "@/lib/api";
+import { PositionTag } from "./PositionPill";
 
 type InjuryWatchPanelProps = {
   injuries: InjuryWatchItem[];
@@ -37,10 +38,12 @@ export function InjuryWatchPanel({ injuries, leagueId, compact }: InjuryWatchPan
               >
                 {item.player_name}
               </Link>
-              <p className="text-xs text-bb-muted">
-                {item.position}
-                {item.injury_body_part ? ` · ${item.injury_body_part}` : ""}
-              </p>
+              <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                {item.position ? <PositionTag position={item.position} /> : null}
+                {item.injury_body_part ? (
+                  <span className="text-xs text-bb-muted">{item.injury_body_part}</span>
+                ) : null}
+              </div>
             </div>
             <span className="shrink-0 rounded bg-red-900/40 px-2 py-0.5 text-xs uppercase text-red-200">
               {item.injury_status}

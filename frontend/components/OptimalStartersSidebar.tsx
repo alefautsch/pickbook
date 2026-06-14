@@ -3,15 +3,28 @@ import type { LineupSlot } from "@/lib/api";
 import { formatPpg } from "@/lib/format";
 import { OvrBadge } from "./OvrBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
-import { PositionPill } from "./PositionPill";
+import { PositionPill, PositionTag } from "./PositionPill";
 import { RookieBadge } from "./RookieBadge";
 
 type OptimalStartersSidebarProps = {
   starters: LineupSlot[];
   leagueId: string;
+  embedded?: boolean;
+  showTitleOnDesktop?: boolean;
 };
 
-export function OptimalStartersSidebar({ starters, leagueId }: OptimalStartersSidebarProps) {
+function panelTitleClass(embedded?: boolean, showTitleOnDesktop?: boolean): string {
+  if (embedded) return "hidden";
+  if (showTitleOnDesktop) return "hidden lg:block";
+  return "";
+}
+
+export function OptimalStartersSidebar({
+  starters,
+  leagueId,
+  embedded = false,
+  showTitleOnDesktop = false,
+}: OptimalStartersSidebarProps) {
   const withPlayers = starters.filter((s) => s.player);
   const totalProj = withPlayers.reduce(
     (sum, s) => sum + (s.player?.projected_ppg ?? 0),
@@ -20,7 +33,9 @@ export function OptimalStartersSidebar({ starters, leagueId }: OptimalStartersSi
 
   return (
     <section className="bb-panel p-4">
-      <h2 className="bb-panel-title">My Optimal Starters</h2>
+      <h2 className={`bb-panel-title ${panelTitleClass(embedded, showTitleOnDesktop)}`}>
+        My Optimal Starters
+      </h2>
       <ul className="mt-4 space-y-3">
         {withPlayers.map((slot) => {
           const player = slot.player!;
@@ -42,11 +57,14 @@ export function OptimalStartersSidebar({ starters, leagueId }: OptimalStartersSi
                   <span className="truncate">{player.player_name}</span>
                   {player.dynasty_rookie ? <RookieBadge /> : null}
                 </Link>
-                <p className="text-xs text-bb-muted">
-                  {[player.nfl_team, `Proj ${formatPpg(player.projected_ppg)}`]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
+                <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                  {player.position ? <PositionTag position={player.position} /> : null}
+                  <span className="text-xs text-bb-muted">
+                    {[player.nfl_team, `Proj ${formatPpg(player.projected_ppg)}`]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                </div>
               </div>
               <OvrBadge ovr={player.ovr} expected={player.hppg_expected} size="sm" />
             </li>

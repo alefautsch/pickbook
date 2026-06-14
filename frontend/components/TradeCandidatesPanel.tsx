@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { TradeCandidate } from "@/lib/api";
 import { formatTv } from "@/lib/format";
 import { TradeTagBadge } from "@/components/ExpendabilityBadge";
+import { PositionTag } from "./PositionPill";
 
 type TradeCandidatesPanelProps = {
   candidates: TradeCandidate[];
@@ -48,20 +49,28 @@ export function TradeCandidatesPanel({
                   {name}
                 </Link>
               )}
-              <p className="text-xs text-bb-muted">
-                {isPick
-                  ? `Pick${asset.is_own_slot ? " · own slot" : " · via trade"}`
-                  : [
-                      asset.position ?? "—",
-                      asset.depth_rank != null
-                        ? ` · ${asset.position}${asset.depth_rank}`
-                        : "",
-                      asset.lineup_delta_ppg != null
-                        ? ` · +${asset.lineup_delta_ppg.toFixed(1)} PPG cliff`
-                        : "",
-                      asset.trade_value != null ? ` · ${formatTv(asset.trade_value)}` : "",
-                    ].join("")}
-              </p>
+              <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                {isPick ? (
+                  <span className="text-xs text-bb-muted">
+                    Pick{asset.is_own_slot ? " · own slot" : " · via trade"}
+                  </span>
+                ) : (
+                  <>
+                    {asset.position ? <PositionTag position={asset.position} /> : null}
+                    <span className="text-xs text-bb-muted">
+                      {[
+                        asset.depth_rank != null ? `Depth ${asset.depth_rank}` : null,
+                        asset.lineup_delta_ppg != null
+                          ? `+${asset.lineup_delta_ppg.toFixed(1)} PPG cliff`
+                          : null,
+                        asset.trade_value != null ? formatTv(asset.trade_value) : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  </>
+                )}
+              </div>
             </div>
             <TradeTagBadge
               tag={asset.trade_tag ?? "trade"}

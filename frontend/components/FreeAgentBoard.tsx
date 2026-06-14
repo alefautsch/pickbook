@@ -13,6 +13,7 @@ type FreeAgentBoardProps = {
   leagueId: string;
   superflex: boolean;
   initialBoard: FreeAgentBoardData;
+  embedded?: boolean;
 };
 
 const BASE_POSITIONS = ["ALL", "QB", "RB", "WR", "TE", "FLEX"] as const;
@@ -21,6 +22,7 @@ export function FreeAgentBoard({
   leagueId,
   superflex,
   initialBoard,
+  embedded = false,
 }: FreeAgentBoardProps) {
   const positions = superflex
     ? ([...BASE_POSITIONS, "SUPER_FLEX"] as const)
@@ -59,31 +61,56 @@ export function FreeAgentBoard({
 
   return (
     <section>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-medium text-white">Free Agents</h2>
-          <p className="text-sm text-bb-muted">
-            Top {activeBoard.fa_pool_size} unrostered by trade value ·{" "}
+      {!embedded ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-medium text-white">Free Agents</h2>
+            <p className="text-sm text-bb-muted">
+              Top {activeBoard.fa_pool_size} unrostered by trade value ·{" "}
+              {loading ? "…" : activeBoard.total_available} shown
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {positions.map((pos) => (
+              <button
+                key={pos}
+                type="button"
+                onClick={() => handleFilter(pos)}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                  filter === pos
+                    ? "bg-bb-gold/20 text-bb-gold"
+                    : "bg-bb-border/40 text-bb-muted hover:text-white"
+                }`}
+              >
+                {pos === "ALL" ? "All" : pos.replace("_", " ")}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-bb-muted">
+            Top {activeBoard.fa_pool_size} unrostered ·{" "}
             {loading ? "…" : activeBoard.total_available} shown
           </p>
+          <div className="flex flex-wrap gap-1">
+            {positions.map((pos) => (
+              <button
+                key={pos}
+                type="button"
+                onClick={() => handleFilter(pos)}
+                className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition ${
+                  filter === pos
+                    ? "bg-bb-gold/20 text-bb-gold"
+                    : "bg-bb-border/40 text-bb-muted hover:text-white"
+                }`}
+              >
+                {pos === "ALL" ? "All" : pos.replace("_", " ")}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex flex-wrap gap-1">
-          {positions.map((pos) => (
-            <button
-              key={pos}
-              type="button"
-              onClick={() => handleFilter(pos)}
-              className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                filter === pos
-                  ? "bg-bb-gold/20 text-bb-gold"
-                  : "bg-bb-border/40 text-bb-muted hover:text-white"
-              }`}
-            >
-              {pos === "ALL" ? "All" : pos.replace("_", " ")}
-            </button>
-          ))}
-        </div>
-      </div>
+      )}
 
       <div className="bb-card overflow-hidden">
         <div className="divide-y divide-bb-border/30 md:hidden">
@@ -183,11 +210,14 @@ export function FreeAgentBoard({
                           <p className="font-medium text-white">{player.player_name}</p>
                           {player.dynasty_rookie ? <RookieBadge /> : null}
                         </div>
-                        <p className="text-xs text-bb-muted">
-                          {player.position}
-                          {player.nfl_team ? ` · ${player.nfl_team}` : ""}
-                          {player.age != null ? ` · ${player.age}y` : ""}
-                        </p>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                          {player.position ? <PositionTag position={player.position} /> : null}
+                          <span className="text-xs text-bb-muted">
+                            {[player.nfl_team, player.age != null ? `${player.age}y` : null]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        </div>
                       </div>
                     </Link>
                   </td>

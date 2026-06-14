@@ -5,16 +5,21 @@ import { formatSlotLabel } from "@/lib/positions";
 import { OvrBadge } from "./OvrBadge";
 import { RookieBadge } from "./RookieBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
-import { PositionPill } from "./PositionPill";
+import { PositionPill, PositionTag } from "./PositionPill";
 
 type StarterLineupPanelProps = {
   starters: LineupSlot[];
   leagueId: string;
 };
 
-function playerMeta(player: NonNullable<LineupSlot["player"]>): string {
-  const parts = [player.position, player.nfl_team].filter(Boolean);
-  return parts.join(" · ");
+function PlayerMetaRow({ player }: { player: NonNullable<LineupSlot["player"]> }) {
+  const meta = [player.nfl_team, player.age != null ? String(player.age) : null].filter(Boolean);
+  return (
+    <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+      {player.position ? <PositionTag position={player.position} /> : null}
+      {meta.length > 0 ? <span className="text-xs text-bb-muted">{meta.join(" · ")}</span> : null}
+    </div>
+  );
 }
 
 export function StarterLineupPanel({ starters, leagueId }: StarterLineupPanelProps) {
@@ -69,7 +74,7 @@ export function StarterLineupPanel({ starters, leagueId }: StarterLineupPanelPro
                       <span className="truncate">{player.player_name}</span>
                       {player.dynasty_rookie ? <RookieBadge /> : null}
                     </Link>
-                    <p className="text-xs text-bb-muted">{playerMeta(player)}</p>
+                    <PlayerMetaRow player={player} />
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     <OvrBadge
@@ -144,7 +149,7 @@ export function StarterLineupPanel({ starters, leagueId }: StarterLineupPanelPro
                             </p>
                             {player.dynasty_rookie ? <RookieBadge /> : null}
                           </div>
-                          <p className="text-xs text-bb-muted">{playerMeta(player)}</p>
+                          <PlayerMetaRow player={player} />
                         </div>
                       </Link>
                     ) : (

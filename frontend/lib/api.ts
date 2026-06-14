@@ -618,6 +618,7 @@ export type FreeAgentRow = {
   age: number | null;
   ovr: number | null;
   tier: string | null;
+  dynasty_rookie: boolean;
   hppg: number | null;
   projected_ppg: number | null;
   worp_ppg: number | null;

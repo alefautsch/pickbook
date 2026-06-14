@@ -21,7 +21,15 @@ function rankClass(rank: number | null, numTeams: number): string {
 type PositionStrengthBarsProps = {
   data: PositionStrengthMap;
   myRosterId?: string | null;
+  embedded?: boolean;
+  showTitleOnDesktop?: boolean;
 };
+
+function panelTitleClass(embedded?: boolean, showTitleOnDesktop?: boolean): string {
+  if (embedded) return "hidden";
+  if (showTitleOnDesktop) return "hidden lg:block";
+  return "";
+}
 
 function rankInLeague(values: (number | null)[], mine: number | null): number | null {
   if (mine == null) return null;
@@ -32,7 +40,12 @@ function rankInLeague(values: (number | null)[], mine: number | null): number | 
   return idx >= 0 ? idx + 1 : null;
 }
 
-export function PositionStrengthBars({ data, myRosterId }: PositionStrengthBarsProps) {
+export function PositionStrengthBars({
+  data,
+  myRosterId,
+  embedded = false,
+  showTitleOnDesktop = false,
+}: PositionStrengthBarsProps) {
   const myTeam = data.teams.find((t) => t.is_me || t.roster_id === myRosterId);
   if (!myTeam || !data.positions.length) {
     return <p className="text-sm text-bb-muted">No position data yet.</p>;
@@ -42,8 +55,12 @@ export function PositionStrengthBars({ data, myRosterId }: PositionStrengthBarsP
 
   return (
     <section className="bb-panel">
-      <h2 className="bb-panel-title px-4 pt-4">Position Strength</h2>
-      <p className="px-4 pb-2 text-xs text-bb-muted">Starter OVR rank in league</p>
+      <h2 className={`bb-panel-title px-4 pt-4 ${panelTitleClass(embedded, showTitleOnDesktop)}`}>
+        Position Strength
+      </h2>
+      <p className={`px-4 pb-2 text-xs text-bb-muted ${embedded ? "lg:px-4" : ""}`}>
+        Starter OVR rank in league
+      </p>
       <ul className="space-y-3 px-4 pb-4">
         {data.positions.map((pos) => {
           const ovr = myTeam.by_position[pos] ?? null;

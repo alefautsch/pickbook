@@ -28,19 +28,23 @@ export function LeagueOverviewAside({
     <aside className="order-2 space-y-3 xl:order-2">
       {myTeam ? (
         <MobilePanelCollapse title="My Optimal Starters" defaultOpen>
-          <OptimalStartersSidebar starters={myTeam.starters} leagueId={leagueId} />
+          <OptimalStartersSidebar
+            starters={myTeam.starters}
+            leagueId={leagueId}
+            showTitleOnDesktop
+          />
         </MobilePanelCollapse>
       ) : null}
       {positionStrength ? (
         <MobilePanelCollapse title="Position Strength">
-          <PositionStrengthBars data={positionStrength} myRosterId={myRosterId} />
+          <PositionStrengthBars data={positionStrength} myRosterId={myRosterId} showTitleOnDesktop />
         </MobilePanelCollapse>
       ) : null}
       <MobilePanelCollapse title="Age Profile">
-        <AgeProfileSidebar profiles={ageProfiles} />
+        <AgeProfileSidebar profiles={ageProfiles} showTitleOnDesktop />
       </MobilePanelCollapse>
       <MobilePanelCollapse title="Contender Breakdown" defaultOpen>
-        <ContenderBreakdown team={myContender} />
+        <ContenderBreakdown team={myContender} showTitleOnDesktop />
       </MobilePanelCollapse>
     </aside>
   );

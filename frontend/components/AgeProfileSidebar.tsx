@@ -3,7 +3,15 @@ import type { AgeProfile } from "@/lib/api";
 type AgeProfileSidebarProps = {
   profiles: AgeProfile[];
   rosterId?: string | null;
+  embedded?: boolean;
+  showTitleOnDesktop?: boolean;
 };
+
+function panelTitleClass(embedded?: boolean, showTitleOnDesktop?: boolean): string {
+  if (embedded) return "hidden";
+  if (showTitleOnDesktop) return "hidden lg:block";
+  return "";
+}
 
 const BUCKETS = [
   { label: "≤24", test: (age: number) => age <= 24 },
@@ -12,7 +20,12 @@ const BUCKETS = [
   { label: "31+", test: (age: number) => age >= 31 },
 ];
 
-export function AgeProfileSidebar({ profiles, rosterId }: AgeProfileSidebarProps) {
+export function AgeProfileSidebar({
+  profiles,
+  rosterId,
+  embedded = false,
+  showTitleOnDesktop = false,
+}: AgeProfileSidebarProps) {
   const profile =
     profiles.find((p) => p.roster_id === rosterId) ??
     profiles.find((p) => p.is_me);
@@ -33,7 +46,7 @@ export function AgeProfileSidebar({ profiles, rosterId }: AgeProfileSidebarProps
 
   return (
     <section className="bb-panel p-4">
-      <h2 className="bb-panel-title">Age Profile</h2>
+      <h2 className={`bb-panel-title ${panelTitleClass(embedded, showTitleOnDesktop)}`}>Age Profile</h2>
       <p className="mt-1 text-xs text-bb-muted">Starters · avg {avg.toFixed(1)}</p>
       <div className="mt-4 flex items-center justify-center">
         <div className="relative flex h-24 w-24 items-center justify-center rounded-full border-4 border-bb-border/60">

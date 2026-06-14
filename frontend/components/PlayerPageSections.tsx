@@ -302,6 +302,7 @@ export function PlayerPageSections({
           </div>
         </Card>
         <LensPanel player={player} />
+        <SecondaryStats player={player} />
         {holdings && holdings.leagues.length > 0 ? (
           <Card>
             <h2 className="text-lg font-medium text-white">Owned in leagues</h2>
