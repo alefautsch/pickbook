@@ -8,6 +8,7 @@ from backend.services.trade_validation_service import (
     build_validation_payload,
     validate_trade_with_llm,
     validation_accept_score,
+    _fairness_label_for_counterparty,
     _parse_validation_json,
 )
 
@@ -20,48 +21,120 @@ def test_build_validation_payload_shapes_counterparty_context():
             "team_name": "Mine",
             "contender_tier": "contender",
             "dynasty_rank": 2,
+            "starter_total_ppg": 118.5,
             "surplus": [{"position": "WR"}],
             "needs": [{"position": "RB"}],
+            "starter_needs": [{"position": "RB"}],
+            "players": [
+                {
+                    "player_id": "wr-depth",
+                    "name": "Depth WR",
+                    "position": "WR",
+                    "tv": 4200,
+                    "hppg": 5.0,
+                    "lineup_delta_ppg": 1.2,
+                    "trade_tag": "trade",
+                }
+            ],
             "draft_picks": [{"label": "2027 1.12", "trade_value": 4200, "slot_tier": "late"}],
         },
         counterparty_team={
             "team_name": "Theirs",
             "contender_tier": "rebuild",
             "dynasty_rank": 10,
+            "starter_total_ppg": 104.0,
             "surplus": [{"position": "RB"}],
             "needs": [{"position": "WR"}],
+            "starter_needs": [{"position": "WR"}],
             "players": [
                 {
+                    "player_id": "rb-stud",
                     "name": "Stud RB",
                     "position": "RB",
                     "tv": 6800,
                     "hppg": 14.0,
                     "trade_tag": "core",
+                    "lineup_delta_ppg": 9.5,
                 }
             ],
             "draft_picks": [{"label": "2026 1.01", "trade_value": 10880, "slot_tier": "early"}],
         },
         give={
-            "players": [{"name": "Depth WR", "position": "WR", "tv": 4200, "hppg": 5.0}],
+            "players": [
+                {
+                    "player_id": "wr-depth",
+                    "name": "Depth WR",
+                    "position": "WR",
+                    "tv": 4200,
+                    "hppg": 5.0,
+                }
+            ],
             "picks": [],
         },
         receive={
-            "players": [{"name": "Stud RB", "position": "RB", "tv": 6800, "hppg": 14.0}],
+            "players": [
+                {
+                    "player_id": "rb-stud",
+                    "name": "Stud RB",
+                    "position": "RB",
+                    "tv": 6800,
+                    "hppg": 14.0,
+                }
+            ],
             "picks": [],
         },
         tv_evaluation={
+            "tv_fairness_grade": "C+",
             "give_total_tv": 4200,
             "receive_total_tv": 6800,
-            "net_delta_adjusted_pct": -18.0,
-            "fairness": "favors_counterparty",
+            "give_adjusted_tv": 4200,
+            "receive_adjusted_tv": 6800,
+            "net_delta_adjusted_pct": 18.0,
+            "fairness": "favors_you",
             "within_band": False,
             "positional_notes": ["Receive 1 RB — fills a roster hole"],
+        },
+        proposer_lineup={
+            "before": 118.5,
+            "after": 127.0,
+            "delta": 8.5,
+            "starters": [
+                {
+                    "slot": "RB",
+                    "name": "Stud RB",
+                    "position": "RB",
+                    "ppg": 14.0,
+                    "is_incoming": True,
+                    "is_changed": True,
+                }
+            ],
+            "incoming_picks": [],
+        },
+        counterparty_lineup={
+            "before": 104.0,
+            "after": 95.5,
+            "delta": -8.5,
+            "starters": [],
+            "incoming_picks": [],
         },
     )
 
     assert payload["counterparty"]["team_name"] == "Theirs"
-    assert payload["trade_from_proposer_view"]["proposer_gives"]["players"][0]["name"] == "Depth WR"
-    assert payload["deterministic_tv"]["fairness"] == "favors_counterparty"
+    assert payload["review_for_team"] == "Theirs"
+    assert payload["the_other_team"] == "Mine"
+    assert payload["counterparty"]["starter_total_ppg"] == 104.0
+    assert payload["trade_from_proposer_view"]["proposer_gives"]["players"][0]["lineup_delta_ppg"] == 1.2
+    assert payload["trade_from_proposer_view"]["proposer_receives"]["players"][0]["lineup_delta_ppg"] == 9.5
+    assert payload["deterministic_tv"]["tv_fairness_grade"] == "C+"
+    assert payload["lineup_impact"]["counterparty"]["starter_ppg_delta"] == -8.5
+    assert payload["lineup_impact"]["proposer"]["starter_ppg_delta"] == 8.5
+
+    cp_tv = payload["counterparty_tv"]
+    assert cp_tv["counterparty_gives"]["total_tv"] == 6800
+    assert cp_tv["counterparty_receives"]["total_tv"] == 4200
+    assert cp_tv["net_tv_delta"] == -2600
+    assert cp_tv["tv_favors"] == "proposer"
+    assert payload["lineup_impact"]["proposer"]["post_trade_starters"][0]["is_incoming"] is True
 
 
 def test_parse_validation_json_from_fenced_block():
@@ -141,3 +214,12 @@ def test_validate_trade_with_llm_mocked():
     assert result["accept_likelihood"] == "medium"
     assert result["would_improve_their_roster"] is True
     mock_client.messages.create.assert_called_once()
+
+
+def test_fairness_label_uses_team_names():
+    assert _fairness_label_for_counterparty(
+        "favors_them", counterparty_name="mcalver", proposer_name="sailboat"
+    ) == "Favors mcalver"
+    assert _fairness_label_for_counterparty(
+        "favors_you", counterparty_name="mcalver", proposer_name="sailboat"
+    ) == "Favors sailboat"

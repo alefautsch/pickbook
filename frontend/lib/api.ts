@@ -942,3 +942,152 @@ export async function streamAdvisorChat(
     }
   }
 }
+
+export type TradePickRef = {
+  season: string;
+  round: number;
+  original_roster_id: string;
+};
+
+export type TradeSideInput = {
+  players: string[];
+  picks: TradePickRef[];
+};
+
+export type TradeEvaluateRequest = {
+  side_a_roster_id: string;
+  side_b_roster_id: string;
+  side_a_gives: TradeSideInput;
+  side_b_gives: TradeSideInput;
+};
+
+export type TradeAssetPlayer = {
+  player_id: string;
+  name?: string | null;
+  position?: string | null;
+  ovr?: number | null;
+  tv?: number | null;
+  hppg?: number | null;
+  injury?: string | null;
+};
+
+export type TradeAssetPick = {
+  season: string;
+  round: number;
+  original_roster_id: string;
+  owner_roster_id?: string | null;
+  slot_tier?: string | null;
+  trade_value?: number | null;
+  label?: string | null;
+};
+
+export type TradeResolvedSide = {
+  players: TradeAssetPlayer[];
+  picks: TradeAssetPick[];
+};
+
+export type TradeEvaluation = {
+  give_total_tv: number;
+  receive_total_tv: number;
+  give_value_adjustment: number;
+  receive_value_adjustment: number;
+  give_adjusted_tv: number;
+  receive_adjusted_tv: number;
+  give_effective_tv: number;
+  receive_effective_tv: number;
+  consolidation_tax_tv: number;
+  consolidation_premium_pct: number;
+  give_consolidating: boolean;
+  receive_consolidating: boolean;
+  net_delta_tv: number;
+  net_delta_adjusted_tv: number;
+  net_delta_effective_tv: number;
+  net_delta_adjusted_total_tv: number;
+  net_delta_pct: number;
+  net_delta_adjusted_pct: number;
+  fairness_band: string;
+  within_band: boolean;
+  fairness: "fair" | "favors_you" | "favors_counterparty";
+  positional_notes: string[];
+  missing_assets: string[];
+  give: TradeResolvedSide;
+  receive: TradeResolvedSide;
+  tv_fairness_grade: string;
+  favors_roster_id?: string | null;
+  lineup?: TradeLineupImpact | null;
+};
+
+export type TradeLineupStarterSlot = {
+  slot: string;
+  player_id?: string | null;
+  name?: string | null;
+  position?: string | null;
+  ppg?: number | null;
+  is_incoming?: boolean;
+  is_changed?: boolean;
+};
+
+export type TradeLineupSide = {
+  before?: number | null;
+  after?: number | null;
+  delta?: number | null;
+  starters?: TradeLineupStarterSlot[];
+  incoming_picks?: TradeAssetPick[];
+};
+
+export type TradeLineupImpact = {
+  side_a: TradeLineupSide;
+  side_b: TradeLineupSide;
+};
+
+export type TradeEvaluateResponse = {
+  side_a_roster_id: string;
+  side_b_roster_id: string;
+  side_a_team_name?: string | null;
+  side_b_team_name?: string | null;
+  evaluation: TradeEvaluation;
+};
+
+export type TradeSideValidation = {
+  roster_id: string;
+  team_name?: string | null;
+  view_mode?: "accept_if_offered";
+  accept_likelihood?: "low" | "medium" | "high" | null;
+  fairness_view?: "favors_them" | "fair" | "favors_you" | null;
+  fairness_label?: string | null;
+  would_improve_roster?: boolean | null;
+  reasoning?: string | null;
+  blockers: string[];
+  suggested_tweak?: string | null;
+  grade?: string | null;
+  skipped?: boolean;
+  error?: string | null;
+};
+
+export type TradeValidationResult = {
+  evaluation: TradeEvaluation;
+  side_a: TradeSideValidation;
+  side_b: TradeSideValidation;
+  overall_grade: string;
+  summary?: string | null;
+};
+
+export function evaluateTrade(
+  leagueId: string,
+  body: TradeEvaluateRequest,
+): Promise<TradeEvaluateResponse> {
+  return apiFetch<TradeEvaluateResponse>(`/leagues/${leagueId}/trade/evaluate`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function validateTrade(
+  leagueId: string,
+  body: TradeEvaluateRequest,
+): Promise<TradeValidationResult> {
+  return apiFetch<TradeValidationResult>(`/leagues/${leagueId}/trade/validate`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}

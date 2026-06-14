@@ -9,6 +9,7 @@ from typing import Any
 
 import requests
 
+from dynasty_draft.ktc_pick_slots import expand_slot_values, parse_tier_pick_name, tier_values_for_season
 from dynasty_draft.sleeper_client import CACHE_DIR
 from dynasty_draft.war_data import normalize_name
 
@@ -66,23 +67,78 @@ def _fetch_dynasty(*, superflex: bool, max_pages: int = 10) -> list[dict[str, An
     return list(by_name.values())
 
 
+def _parse_pick_name(name: str) -> tuple[str, int, str] | None:
+    parsed = parse_tier_pick_name(name)
+    if parsed is None:
+        return None
+    season, round_no, tier = parsed
+    return season, round_no, tier
+
+
 @dataclass
 class KtcStore:
     superflex: bool
     by_name: dict[str, int]
+    by_pick: dict[tuple[str, int, str], int]
     fetched_at: float
+    _rows: list[dict[str, Any]]
 
     def lookup(self, name: str) -> int | None:
         return self.by_name.get(normalize_name(name))
 
+    def lookup_pick(self, season: str | int, round_no: int, slot_tier: str) -> int | None:
+        key = (str(season), int(round_no), str(slot_tier).lower())
+        return self.by_pick.get(key)
+
+    def tier_values(self, season: str | int) -> list[float]:
+        return tier_values_for_season(self._rows, season, superflex=self.superflex)
+
+    def slot_value(
+        self,
+        season: str | int,
+        round_no: int,
+        slot_in_round: int,
+        *,
+        league_size: int = 12,
+        rounds: int = 4,
+        rookie_values: list[float] | None = None,
+        use_rookie_mode: bool = False,
+    ) -> float | None:
+        """Slot-specific pick TV (e.g. 2026 1.03) — mirrors KTC trade calculator."""
+        tiers = self.tier_values(season)
+        if not tiers:
+            return None
+        slots = expand_slot_values(
+            tiers,
+            season=season,
+            league_size=league_size,
+            rounds=rounds,
+            rookie_values=rookie_values,
+            use_rookie_mode=use_rookie_mode,
+        )
+        return slots.get((int(round_no), int(slot_in_round)))
+
     @classmethod
     def from_rows(cls, rows: list[dict[str, Any]], *, superflex: bool, fetched_at: float) -> KtcStore:
         by_name: dict[str, int] = {}
+        by_pick: dict[tuple[str, int, str], int] = {}
         for row in rows:
-            key = normalize_name(row["name"])
+            name = str(row.get("name") or "")
+            value = int(row["value"])
+            pick_key = _parse_pick_name(name)
+            if pick_key is not None:
+                by_pick[pick_key] = value
+                continue
+            key = normalize_name(name)
             if key and key not in by_name:
-                by_name[key] = int(row["value"])
-        return cls(superflex=superflex, by_name=by_name, fetched_at=fetched_at)
+                by_name[key] = value
+        return cls(
+            superflex=superflex,
+            by_name=by_name,
+            by_pick=by_pick,
+            fetched_at=fetched_at,
+            _rows=list(rows),
+        )
 
     @classmethod
     def load(

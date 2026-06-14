@@ -16,6 +16,7 @@ from backend.api.portfolio import router as portfolio_router
 from backend.api.settings import router as settings_router
 from backend.api.sync import router as sync_router
 from backend.api.teams import router as teams_router
+from backend.api.trade import router as trade_router
 from backend.config import get_settings
 from backend.schemas.settings import HealthResponse
 from backend.services.scheduler_service import scheduled_sync_loop
@@ -58,6 +59,7 @@ app.include_router(rookie_draft_router)
 app.include_router(players_router)
 app.include_router(portfolio_router)
 app.include_router(teams_router)
+app.include_router(trade_router)
 
 
 @app.get("/health", response_model=HealthResponse)

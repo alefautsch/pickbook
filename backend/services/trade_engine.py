@@ -610,3 +610,179 @@ def package_quality_score(
     avg_fit = sum(fit_vals) / len(fit_vals) if fit_vals else 0.0
     delta_penalty = 1.0 + abs(fairness.get("net_delta_adjusted_pct") or 0) / 10.0
     return round(avg_exp * avg_fit / delta_penalty, 4)
+
+
+def starter_lineup_ppg(
+    players: list[dict[str, Any]],
+    roster_positions: list[str],
+) -> float | None:
+    """Sum of optimal-starter PPG (same logic as league starter_total_ppg)."""
+    if not players or not roster_positions:
+        return None
+    from backend.services.analysis_service import _finalize_team_lineup
+
+    return _finalize_team_lineup(players, roster_positions).get("starter_total_ppg")
+
+
+def build_starter_lineup_slots(
+    players: list[dict[str, Any]],
+    roster_positions: list[str],
+) -> list[dict[str, Any]]:
+    """Optimal starters in roster slot order (QB, RB, WR, …)."""
+    if not players or not roster_positions:
+        return []
+    from backend.services.analysis_service import _finalize_team_lineup
+
+    lineup = _finalize_team_lineup(players, roster_positions)
+    slots: list[dict[str, Any]] = []
+    for row in lineup.get("starters") or []:
+        player = row.get("player") or {}
+        if not player:
+            continue
+        ppg = player.get("projected_ppg")
+        if ppg is None:
+            ppg = player.get("healthy_ppg")
+        pid = player.get("player_id")
+        slots.append(
+            {
+                "slot": str(row.get("slot") or "?"),
+                "player_id": str(pid) if pid else None,
+                "name": player.get("name"),
+                "position": player.get("pos"),
+                "ppg": round(float(ppg), 1) if ppg is not None else None,
+            }
+        )
+    return slots
+
+
+def _annotate_lineup_slots(
+    after_slots: list[dict[str, Any]],
+    *,
+    before_starter_ids: set[str],
+    incoming_player_ids: set[str],
+) -> list[dict[str, Any]]:
+    annotated: list[dict[str, Any]] = []
+    for slot in after_slots:
+        pid = slot.get("player_id")
+        pid_str = str(pid) if pid else ""
+        is_incoming = pid_str in incoming_player_ids if pid_str else False
+        is_changed = pid_str not in before_starter_ids if pid_str else False
+        annotated.append(
+            {
+                **slot,
+                "is_incoming": is_incoming,
+                "is_changed": is_changed,
+            }
+        )
+    return annotated
+
+
+def _apply_trade_to_roster(
+    roster: list[dict[str, Any]],
+    *,
+    remove_ids: set[str],
+    add_players: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    remaining = [
+        player
+        for player in roster
+        if str(player.get("player_id") or "") not in remove_ids
+    ]
+    existing = {str(player.get("player_id") or "") for player in remaining}
+    for player in add_players:
+        pid = str(player.get("player_id") or "")
+        if pid and pid not in existing:
+            remaining.append(player)
+            existing.add(pid)
+    return remaining
+
+
+def evaluate_trade_lineup_deltas(
+    side_a_roster: list[dict[str, Any]],
+    side_b_roster: list[dict[str, Any]],
+    *,
+    give_players: list[dict[str, Any]],
+    receive_players: list[dict[str, Any]],
+    roster_positions: list[str],
+    side_a_incoming_player_ids: set[str] | None = None,
+    side_b_incoming_player_ids: set[str] | None = None,
+    side_a_incoming_picks: list[dict[str, Any]] | None = None,
+    side_b_incoming_picks: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Ideal starter PPG and post-trade lineup for each side (players only affect slots)."""
+    give_ids = {str(p["player_id"]) for p in give_players if p.get("player_id")}
+    recv_ids = {str(p["player_id"]) for p in receive_players if p.get("player_id")}
+    incoming_a = side_a_incoming_player_ids or set()
+    incoming_b = side_b_incoming_player_ids or set()
+
+    a_after_roster = _apply_trade_to_roster(
+        side_a_roster,
+        remove_ids=give_ids,
+        add_players=receive_players,
+    )
+    b_after_roster = _apply_trade_to_roster(
+        side_b_roster,
+        remove_ids=recv_ids,
+        add_players=give_players,
+    )
+
+    before_a_slots = build_starter_lineup_slots(side_a_roster, roster_positions)
+    after_a_slots = build_starter_lineup_slots(a_after_roster, roster_positions)
+    before_b_slots = build_starter_lineup_slots(side_b_roster, roster_positions)
+    after_b_slots = build_starter_lineup_slots(b_after_roster, roster_positions)
+
+    before_a_ids = {str(s["player_id"]) for s in before_a_slots if s.get("player_id")}
+    before_b_ids = {str(s["player_id"]) for s in before_b_slots if s.get("player_id")}
+
+    a_before = starter_lineup_ppg(side_a_roster, roster_positions)
+    a_after = starter_lineup_ppg(a_after_roster, roster_positions)
+    b_before = starter_lineup_ppg(side_b_roster, roster_positions)
+    b_after = starter_lineup_ppg(b_after_roster, roster_positions)
+
+    def _side(
+        before: float | None,
+        after: float | None,
+        after_slots: list[dict[str, Any]],
+        before_ids: set[str],
+        incoming_ids: set[str],
+        incoming_picks: list[dict[str, Any]] | None,
+    ) -> dict[str, Any]:
+        if before is None and after is None and not after_slots:
+            return {
+                "before": None,
+                "after": None,
+                "delta": None,
+                "starters": [],
+                "incoming_picks": incoming_picks or [],
+            }
+        delta = round((after or 0.0) - (before or 0.0), 1)
+        return {
+            "before": before,
+            "after": after,
+            "delta": delta,
+            "starters": _annotate_lineup_slots(
+                after_slots,
+                before_starter_ids=before_ids,
+                incoming_player_ids=incoming_ids,
+            ),
+            "incoming_picks": incoming_picks or [],
+        }
+
+    return {
+        "side_a": _side(
+            a_before,
+            a_after,
+            after_a_slots,
+            before_a_ids,
+            incoming_a,
+            side_a_incoming_picks,
+        ),
+        "side_b": _side(
+            b_before,
+            b_after,
+            after_b_slots,
+            before_b_ids,
+            incoming_b,
+            side_b_incoming_picks,
+        ),
+    }

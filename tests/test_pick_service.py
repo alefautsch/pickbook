@@ -30,6 +30,50 @@ def test_value_pick_premium_for_top_slot():
         slot_in_round_no=1,
     )
     assert top > generic
+    assert generic == 5600
+    assert top == round(5600 * 1.08, 1)
+
+
+def test_value_pick_uses_ktc_with_slot_spread():
+    def ktc_lookup(season: str, round_no: int, slot_tier: str) -> float | None:
+        table = {
+            ("2026", 1, "early"): 5573.0,
+            ("2026", 1, "mid"): 4550.0,
+            ("2026", 1, "late"): 3878.0,
+        }
+        return table.get((season, round_no, slot_tier))
+
+    def ktc_slot_lookup(season: str, round_no: int, slot_in_round: int) -> float | None:
+        table = {
+            ("2026", 1, 1): 6471.0,
+            ("2026", 1, 2): 5958.0,
+            ("2026", 1, 3): 5445.0,
+        }
+        return table.get((season, round_no, slot_in_round))
+
+    top = value_pick(
+        round_no=1,
+        slot_tier="early",
+        seasons_out=1,
+        slot_in_round_no=1,
+        pick_season="2026",
+        ktc_lookup=ktc_lookup,
+        ktc_slot_lookup=ktc_slot_lookup,
+        league_size=12,
+    )
+    third = value_pick(
+        round_no=1,
+        slot_tier="early",
+        seasons_out=1,
+        slot_in_round_no=3,
+        pick_season="2026",
+        ktc_lookup=ktc_lookup,
+        ktc_slot_lookup=ktc_slot_lookup,
+        league_size=12,
+    )
+    assert top == 6471.0
+    assert third == 5445.0
+    assert third < top
 
 
 def test_slot_in_round_worst_team_is_first_pick():

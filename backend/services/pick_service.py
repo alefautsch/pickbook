@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import delete, desc, inspect, select
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
 
+from backend.api.settings import _read_settings
 from backend.db.models import League, LeagueSnapshot, RosterDraftPick
 from dynasty_draft.inseason_pick_values import (
+    SlotTier,
     infer_slot_tier,
     pick_label,
     pick_slot_certainty,
@@ -17,7 +20,10 @@ from dynasty_draft.inseason_pick_values import (
     slot_in_round,
     value_pick,
 )
+from dynasty_draft.ktc_pick_slots import rookie_prospect_values
+from dynasty_draft.ktc_values import KtcStore
 from dynasty_draft.sleeper_client import SleeperClient
+from dynasty_draft.war_data import WarData
 
 
 def _draft_rounds(league_remote: dict[str, Any]) -> int:
@@ -203,6 +209,58 @@ def _table_exists(db: Session, table_name: str) -> bool:
     return inspect(bind).has_table(table_name)
 
 
+def _load_ktc_for_league(league_row: League | None) -> KtcStore | None:
+    if league_row is None:
+        return None
+    try:
+        return KtcStore.load(superflex=bool(league_row.superflex))
+    except Exception:
+        return None
+
+
+def _load_war(db: Session) -> WarData:
+    settings = _read_settings(db)
+    return WarData(Path(str(settings.get("war_csv") or "war.csv")))
+
+
+def _ktc_pick_lookup(store: KtcStore | None):
+    if store is None:
+        return None, None
+
+    def _tier_lookup(season: str, round_no: int, slot_tier: SlotTier) -> float | None:
+        value = store.lookup_pick(season, round_no, slot_tier)
+        return float(value) if value is not None else None
+
+    return _tier_lookup, store
+
+
+def _ktc_slot_lookup(
+    store: KtcStore | None,
+    *,
+    league_size: int,
+    draft_rounds: int,
+    current_season: str | int,
+    rookie_values: list[float] | None,
+):
+    if store is None:
+        return None
+
+    def _lookup(season: str, round_no: int, slot_in_round: int) -> float | None:
+        use_rookie = str(season) == str(current_season)
+        value = store.slot_value(
+            season,
+            round_no,
+            slot_in_round,
+            league_size=league_size,
+            rounds=draft_rounds,
+            rookie_values=rookie_values,
+            use_rookie_mode=use_rookie,
+        )
+        return float(value) if value is not None else None
+
+    return _lookup
+
+
 def sync_league_draft_picks(
     db: Session,
     league_id: str,
@@ -240,6 +298,21 @@ def sync_league_draft_picks(
     startup_slots = startup_draft_slot_by_roster(client, league_id)
     league_size = league_row.total_rosters or len(rosters) or 12
     current_season = league_row.season
+    draft_rounds = _draft_rounds(remote)
+    ktc_store = _load_ktc_for_league(league_row)
+    war = _load_war(db)
+    rookie_values = rookie_prospect_values(
+        war.players,
+        ktc_lookup=ktc_store.lookup if ktc_store else None,
+    )
+    ktc_lookup, _ = _ktc_pick_lookup(ktc_store)
+    ktc_slot_lookup = _ktc_slot_lookup(
+        ktc_store,
+        league_size=league_size,
+        draft_rounds=draft_rounds,
+        current_season=current_season,
+        rookie_values=rookie_values,
+    )
 
     db.execute(delete(RosterDraftPick).where(RosterDraftPick.league_id == league_id))
 
@@ -281,6 +354,10 @@ def sync_league_draft_picks(
             is_own_slot=is_own,
             owner_contender_tier=owner_tier,
             slot_certainty=certainty,
+            pick_season=row["season"],
+            ktc_lookup=ktc_lookup,
+            ktc_slot_lookup=ktc_slot_lookup,
+            league_size=league_size,
         )
         label = pick_label(
             season=row["season"],

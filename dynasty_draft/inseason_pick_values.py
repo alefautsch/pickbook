@@ -1,21 +1,22 @@
-"""In-season draft pick trade values — static chart aligned to player TV scale."""
+"""In-season draft pick trade values — KTC-backed when available, static fallback."""
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Callable, Literal
 
 SlotTier = Literal["early", "mid", "late"]
 
-# Round × tier base TV for picks in the next draft season (year+1).
-# Calibrated to dynasty-daddy / KTC player scale (~8500 ≈ low-end elite asset).
+# Fallback round×tier chart when KTC pick cache is unavailable.
+# Scaled to approximate KTC crowdsourced pick values (not elite-player TV).
 _BASE_TV: dict[int, dict[SlotTier, float]] = {
-    1: {"early": 8500, "mid": 6200, "late": 4200},
-    2: {"early": 3200, "mid": 2400, "late": 1700},
+    1: {"early": 5600, "mid": 4550, "late": 3900},
+    2: {"early": 3300, "mid": 2500, "late": 1800},
     3: {"early": 1500, "mid": 1100, "late": 800},
     4: {"early": 700, "mid": 500, "late": 350},
 }
 
 # Discount by seasons until the pick (0 = current draft year, 1 = next rookie draft).
+# Not applied when using KTC per-season pick values.
 _SEASON_DISCOUNT: dict[int, float] = {
     0: 1.0,
     1: 1.0,
@@ -24,11 +25,11 @@ _SEASON_DISCOUNT: dict[int, float] = {
     4: 0.55,
 }
 
-# Premium for specific round-1 slots (1.01 ≈ elite rookie QB/RB class).
+# Small 1.01 premium within early tier when using static fallback only.
 _TOP_SLOT_PREMIUM: dict[int, float] = {
-    1: 1.28,
-    2: 1.18,
-    3: 1.10,
+    1: 1.08,
+    2: 1.04,
+    3: 1.02,
 }
 
 
@@ -90,6 +91,31 @@ def seasons_until(current_season: str | int, pick_season: str | int) -> int:
     return max(0, int(pick_season) - int(current_season))
 
 
+def _early_slots_in_round(league_size: int) -> int:
+    return max(league_size // 3, 1)
+
+
+def _slot_adjust_within_early_tier(
+    tier_value: float,
+    *,
+    slot_in_round_no: int | None,
+    mid_tier_value: float | None,
+    league_size: int,
+) -> float:
+    """Spread early-tier picks between KTC early and mid (1.01 high, 1.04 low in 12-team)."""
+    if slot_in_round_no is None:
+        return tier_value
+    early_slots = _early_slots_in_round(league_size)
+    if slot_in_round_no > early_slots:
+        return tier_value
+    if early_slots <= 1 or mid_tier_value is None:
+        if slot_in_round_no == 1:
+            return tier_value * 1.04
+        return tier_value
+    pct = (slot_in_round_no - 1) / (early_slots - 1)
+    return tier_value * (1.0 - pct) + mid_tier_value * pct
+
+
 def value_pick(
     *,
     round_no: int,
@@ -99,9 +125,12 @@ def value_pick(
     is_own_slot: bool = False,
     owner_contender_tier: str | None = None,
     slot_certainty: str = "known",
+    pick_season: str | int | None = None,
+    ktc_lookup: Callable[[str, int, SlotTier], float | None] | None = None,
+    ktc_slot_lookup: Callable[[str, int, int], float | None] | None = None,
+    league_size: int = 12,
 ) -> float:
     """Trade value for a single draft pick."""
-    round_vals = _BASE_TV.get(min(round_no, 4), _BASE_TV[4])
     tier = slot_tier
     slot_no = slot_in_round_no
 
@@ -110,14 +139,48 @@ def value_pick(
         tier = "mid"
         slot_no = None
 
+    # Slot-specific KTC values (2026 Pick 1.03) when the slot is known.
+    if (
+        ktc_slot_lookup is not None
+        and pick_season is not None
+        and slot_no is not None
+        and slot_certainty == "known"
+    ):
+        slot_val = ktc_slot_lookup(str(pick_season), round_no, slot_no)
+        if slot_val is not None:
+            value = float(slot_val)
+            if is_own_slot and seasons_out > 0 and owner_contender_tier == "contender":
+                value *= 1.03
+            return round(value, 1)
+
+    ktc_base: float | None = None
+    if ktc_lookup is not None and pick_season is not None:
+        raw = ktc_lookup(str(pick_season), round_no, tier)
+        if raw is not None:
+            ktc_base = float(raw)
+
+    if ktc_base is not None:
+        value = ktc_base
+        if round_no == 1 and tier == "early" and slot_no is not None:
+            mid_val = ktc_lookup(str(pick_season), round_no, "mid") if ktc_lookup else None
+            value = _slot_adjust_within_early_tier(
+                ktc_base,
+                slot_in_round_no=slot_no,
+                mid_tier_value=float(mid_val) if mid_val is not None else None,
+                league_size=league_size,
+            )
+        if is_own_slot and seasons_out > 0 and owner_contender_tier == "contender":
+            value *= 1.03
+        return round(value, 1)
+
+    round_vals = _BASE_TV.get(min(round_no, 4), _BASE_TV[4])
     base = round_vals.get(tier, round_vals["mid"])
     discount = _SEASON_DISCOUNT.get(min(seasons_out, 4), 0.45)
     multiplier = 1.0
     if round_no == 1 and slot_no is not None and tier == "early":
         multiplier = _TOP_SLOT_PREMIUM.get(slot_no, 1.0)
-    # Contenders' own future picks: slight bump (still liquid win-now currency).
     if is_own_slot and seasons_out > 0 and owner_contender_tier == "contender":
-        multiplier *= 1.06
+        multiplier *= 1.03
     return round(base * discount * multiplier, 1)
 
 

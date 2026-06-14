@@ -1,0 +1,138 @@
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
+
+
+class TradePickRef(BaseModel):
+    season: str
+    round: int
+    original_roster_id: str
+
+
+class TradeSideInput(BaseModel):
+    players: list[str] = Field(default_factory=list)
+    picks: list[TradePickRef] = Field(default_factory=list)
+
+
+class TradeEvaluateRequest(BaseModel):
+    side_a_roster_id: str
+    side_b_roster_id: str
+    side_a_gives: TradeSideInput
+    side_b_gives: TradeSideInput
+
+
+class TradeValidateRequest(TradeEvaluateRequest):
+    pass
+
+
+class TradeAssetPlayer(BaseModel):
+    player_id: str
+    name: str | None = None
+    position: str | None = None
+    ovr: int | None = None
+    tv: float | None = None
+    hppg: float | None = None
+    injury: str | None = None
+
+
+class TradeAssetPick(BaseModel):
+    season: str
+    round: int
+    original_roster_id: str
+    owner_roster_id: str | None = None
+    slot_tier: str | None = None
+    trade_value: float | None = None
+    label: str | None = None
+
+
+class TradeResolvedSide(BaseModel):
+    players: list[TradeAssetPlayer] = Field(default_factory=list)
+    picks: list[TradeAssetPick] = Field(default_factory=list)
+
+
+class TradeLineupStarterSlot(BaseModel):
+    slot: str
+    player_id: str | None = None
+    name: str | None = None
+    position: str | None = None
+    ppg: float | None = None
+    is_incoming: bool = False
+    is_changed: bool = False
+
+
+class TradeLineupSide(BaseModel):
+    before: float | None = None
+    after: float | None = None
+    delta: float | None = None
+    starters: list[TradeLineupStarterSlot] = Field(default_factory=list)
+    incoming_picks: list[TradeAssetPick] = Field(default_factory=list)
+
+
+class TradeLineupImpact(BaseModel):
+    side_a: TradeLineupSide
+    side_b: TradeLineupSide
+
+
+class TradeEvaluation(BaseModel):
+    give_total_tv: float
+    receive_total_tv: float
+    give_value_adjustment: float
+    receive_value_adjustment: float
+    give_adjusted_tv: float
+    receive_adjusted_tv: float
+    give_effective_tv: float
+    receive_effective_tv: float
+    consolidation_tax_tv: float
+    consolidation_premium_pct: int
+    give_consolidating: bool
+    receive_consolidating: bool
+    net_delta_tv: float
+    net_delta_adjusted_tv: float
+    net_delta_effective_tv: float
+    net_delta_adjusted_total_tv: float
+    net_delta_pct: float
+    net_delta_adjusted_pct: float
+    fairness_band: str
+    within_band: bool
+    fairness: Literal["fair", "favors_you", "favors_counterparty"]
+    positional_notes: list[str] = Field(default_factory=list)
+    missing_assets: list[str] = Field(default_factory=list)
+    give: TradeResolvedSide
+    receive: TradeResolvedSide
+    tv_fairness_grade: str
+    favors_roster_id: str | None = None
+    lineup: TradeLineupImpact | None = None
+
+
+class TradeSideValidation(BaseModel):
+    roster_id: str
+    team_name: str | None = None
+    view_mode: Literal["accept_if_offered"] = "accept_if_offered"
+    accept_likelihood: Literal["low", "medium", "high"] | None = None
+    fairness_view: Literal["favors_them", "fair", "favors_you"] | None = None
+    fairness_label: str | None = None
+    would_improve_roster: bool | None = None
+    reasoning: str | None = None
+    blockers: list[str] = Field(default_factory=list)
+    suggested_tweak: str | None = None
+    grade: str | None = None
+    skipped: bool = False
+    error: str | None = None
+
+
+class TradeValidationResult(BaseModel):
+    evaluation: TradeEvaluation
+    side_a: TradeSideValidation
+    side_b: TradeSideValidation
+    overall_grade: str
+    summary: str | None = None
+
+
+class TradeEvaluateResponse(BaseModel):
+    side_a_roster_id: str
+    side_b_roster_id: str
+    side_a_team_name: str | None = None
+    side_b_team_name: str | None = None
+    evaluation: TradeEvaluation

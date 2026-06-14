@@ -187,3 +187,63 @@ def test_trade_fit_need_position():
         seller_tier="rebuild",
     )
     assert fit > low_fit
+
+
+def _lineup_player(pid: str, pos: str, ppg: float, tv: float = 5000, ovr: int = 80) -> dict:
+    return {
+        "player_id": pid,
+        "pos": pos,
+        "dynasty_rating": ovr,
+        "projected_ppg": ppg,
+        "healthy_ppg": ppg,
+        "trade_value": tv,
+    }
+
+
+def test_evaluate_trade_lineup_deltas_upgrades_starter():
+    from backend.services.trade_engine import evaluate_trade_lineup_deltas, starter_lineup_ppg
+
+    roster_positions = ["QB", "RB", "WR", "TE", "FLEX"]
+    side_a = [
+        _lineup_player("qb1", "QB", 22.0, 9000, 92),
+        _lineup_player("rb1", "RB", 17.0, 8000, 88),
+        _lineup_player("wr1", "WR", 15.0, 7500, 85),
+        _lineup_player("wr2", "WR", 11.0, 4500, 72),
+    ]
+    side_b = [
+        _lineup_player("qb2", "QB", 20.0, 8500, 90),
+        _lineup_player("wr3", "WR", 19.0, 8200, 87),
+    ]
+
+    before = starter_lineup_ppg(side_a, roster_positions)
+    assert before is not None
+
+    result = evaluate_trade_lineup_deltas(
+        side_a,
+        side_b,
+        give_players=[_lineup_player("wr2", "WR", 11.0, 4500, 72)],
+        receive_players=[_lineup_player("wr3", "WR", 19.0, 8200, 87)],
+        roster_positions=roster_positions,
+        side_a_incoming_player_ids={"wr3"},
+        side_b_incoming_player_ids={"wr2"},
+    )
+
+    after_a = starter_lineup_ppg(
+        [p for p in side_a if p["player_id"] != "wr2"]
+        + [_lineup_player("wr3", "WR", 19.0, 8200, 87)],
+        roster_positions,
+    )
+
+    assert result["side_a"]["before"] == before
+    assert result["side_a"]["after"] == after_a
+    assert result["side_a"]["delta"] == round((after_a or 0) - (before or 0), 1)
+    assert result["side_a"]["delta"] > 0
+    assert result["side_b"]["delta"] < 0
+
+    a_starters = result["side_a"]["starters"]
+    assert len(a_starters) > 0
+    wr3_slot = next(s for s in a_starters if s["player_id"] == "wr3")
+    assert wr3_slot["is_incoming"] is True
+    assert wr3_slot["is_changed"] is True
+    wr2_slot = next((s for s in a_starters if s["player_id"] == "wr2"), None)
+    assert wr2_slot is None

@@ -2,6 +2,7 @@ export type NavKey =
   | "overview"
   | "league"
   | "my-team"
+  | "trade"
   | "rankings"
   | "players"
   | "portfolio"
@@ -24,6 +25,9 @@ export function resolveActiveNav(
     const leagueBase = `/leagues/${leagueId}`;
     if (pathname.startsWith(`${leagueBase}/rookie-draft`)) {
       return "rookie-draft";
+    }
+    if (pathname.startsWith(`${leagueBase}/trade`)) {
+      return "trade";
     }
     const leagueAnalysis = `${leagueBase}/league`;
 
@@ -59,6 +63,7 @@ export function buildNavItems(
     { key: "overview", label: "Overview", href: leagueBase },
     { key: "league", label: "League", href: `${leagueBase}/league` },
     { key: "my-team", label: "My Team", href: myTeamHref },
+    { key: "trade", label: "Trade Calc", href: `${leagueBase}/trade` },
     { key: "rankings", label: "Rankings", href: `${leagueBase}#rankings` },
     {
       key: "players",
