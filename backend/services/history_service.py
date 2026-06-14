@@ -175,6 +175,10 @@ def team_ovr_delta(
     if len(rows) < 2:
         return None
 
+    current_formula = compute_formula_version(_read_settings(db))
+    if rows[0].formula_version != current_formula or rows[1].formula_version != current_formula:
+        return None
+
     prev = (rows[1].team_ovr_json or {}).get(str(roster_id))
     if prev is None:
         return None

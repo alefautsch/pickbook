@@ -23,7 +23,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${htmlFontClassName} h-full antialiased`} data-font="geist">
+    <html
+      lang="en"
+      className={`${htmlFontClassName} h-full antialiased`}
+      data-font="geist"
+      suppressHydrationWarning
+    >
       <head>
         <script dangerouslySetInnerHTML={{ __html: fontBootstrapScript }} />
       </head>
