@@ -47,8 +47,7 @@ class RookieDraftState(DraftState):
             pos = (sleeper_player.get("position") or "").upper()
             if pos not in POSITIONS:
                 continue
-            name = sleeper_player.get("full_name") or ""
-            war_player = self.war.lookup(name)
+            war_player = self._match_war(str(player_id))
             if war_player is None:
                 continue
             if self.blended_trade_value(war_player) <= 0:

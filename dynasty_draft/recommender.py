@@ -219,10 +219,17 @@ class DraftState:
         return war_player is not None and war_player.worp is None
 
     def _match_war(self, player_id: str) -> PlayerValue | None:
+        sleeper = self.sleeper_players.get(player_id) or {}
         name = self._sleeper_name(player_id)
         if not name:
             return None
-        return self.war.lookup(name)
+        war_player = self.war.lookup(name)
+        if war_player is None:
+            return None
+        sleeper_pos = (sleeper.get("position") or "").upper()
+        if sleeper_pos and war_player.pos and sleeper_pos != war_player.pos:
+            return None
+        return war_player
 
     def ktc_value(self, name: str) -> int | None:
         if self.ktc is None or not name:
@@ -265,8 +272,7 @@ class DraftState:
             pos = (sleeper_player.get("position") or "").upper()
             if pos not in POSITIONS:
                 continue
-            name = sleeper_player.get("full_name") or ""
-            war_player = self.war.lookup(name)
+            war_player = self._match_war(str(player_id))
             if war_player is None:
                 continue
             if self.blended_trade_value(war_player) <= 0:
@@ -276,7 +282,9 @@ class DraftState:
                 continue
             if self.strategy.is_rookie_draft and not is_rookie:
                 continue
-            if self.strategy.is_rookie_draft and normalize_name(name) in reserved_names:
+            if self.strategy.is_rookie_draft and normalize_name(
+                sleeper_player.get("full_name") or ""
+            ) in reserved_names:
                 continue
             eligible.append((player_id, war_player))
         return eligible

@@ -14,7 +14,8 @@ from dynasty_draft.recommender import DraftState
 from dynasty_draft.sleeper_client import SleeperClient
 from dynasty_draft.trade_value_blend import TradeValueBlend
 from dynasty_draft.worp_blend import WorpBlend
-from dynasty_draft.war_data import POSITIONS, PlayerValue, WarData
+from dynasty_draft.player_identity import sleeper_identity_score
+from dynasty_draft.war_data import POSITIONS, PlayerValue, WarData, normalize_name
 
 from backend.db.models import League
 from backend.services.league_context import LeagueScoringContext, build_league_scoring_context
@@ -119,8 +120,7 @@ class LeagueScoringState(DraftState):
             pos = (sleeper_player.get("position") or "").upper()
             if pos not in POSITIONS:
                 continue
-            name = sleeper_player.get("full_name") or ""
-            war_player = self.war.lookup(name)
+            war_player = self._match_war(str(player_id))
             if war_player is None:
                 continue
             if self.blended_trade_value(war_player) <= 0:
@@ -149,14 +149,18 @@ class LeagueScoringState(DraftState):
 
     def fa_scoring_pool(self, top_n: int = 150) -> list[tuple[str, PlayerValue]]:
         """Top-N unrostered players by blended TV — snapshotted at sync (§14.2 Phase 3)."""
-        candidates: list[tuple[str, PlayerValue, float]] = []
+        best_by_name: dict[str, tuple[str, PlayerValue, float, int]] = {}
         for player_id, war_player in self._universe_pool():
             if player_id in self._roster_player_ids:
                 continue
+            name_key = normalize_name(war_player.name)
             tv = self.blended_trade_value(war_player)
-            candidates.append((player_id, war_player, tv))
-        candidates.sort(key=lambda row: row[2], reverse=True)
-        return [(player_id, war_player) for player_id, war_player, _ in candidates[:top_n]]
+            identity = sleeper_identity_score(self, player_id, war_player)
+            prev = best_by_name.get(name_key)
+            if prev is None or identity > prev[3] or (identity == prev[3] and tv > prev[2]):
+                best_by_name[name_key] = (player_id, war_player, tv, identity)
+        candidates = sorted(best_by_name.values(), key=lambda row: row[2], reverse=True)
+        return [(player_id, war_player) for player_id, war_player, _, _ in candidates[:top_n]]
 
     def snapshot_pool(self, fa_top_n: int = 150) -> list[tuple[str, PlayerValue]]:
         """Rostered + FA pool for player_snapshots (deduped, roster wins)."""

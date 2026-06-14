@@ -21,6 +21,8 @@ from backend.schemas.portfolio import (
     PositionExposure,
 )
 from backend.services.read_service import headshot_url, ovr_tier
+from dynasty_draft.player_identity import snapshot_identity_score
+from dynasty_draft.war_data import normalize_name
 
 
 def _rostered_player_ids(db: Session, league_id: str) -> set[str]:
@@ -30,6 +32,39 @@ def _rostered_player_ids(db: Session, league_id: str) -> set[str]:
         .where(Roster.league_id == league_id)
     ).all()
     return {str(row[0]) for row in rows}
+
+
+def _rostered_normalized_names(db: Session, league_id: str) -> set[str]:
+    rows = db.execute(
+        select(RosterPlayer.player_name)
+        .join(Roster, Roster.id == RosterPlayer.roster_id)
+        .where(Roster.league_id == league_id)
+    ).all()
+    names: set[str] = set()
+    for row in rows:
+        key = normalize_name(row[0] or "")
+        if key:
+            names.add(key)
+    return names
+
+
+def _canonical_snapshot_ids(snapshots: list[PlayerSnapshot]) -> set[str]:
+    best: dict[str, tuple[str, int, int]] = {}
+    for snap in snapshots:
+        key = normalize_name(snap.player_name or "")
+        if not key:
+            continue
+        identity = snapshot_identity_score(
+            dynasty_rookie=snap.dynasty_rookie,
+            years_exp=snap.years_exp,
+            position=snap.position,
+            nfl_team=snap.nfl_team,
+        )
+        ovr = snap.dynasty_rating or 0
+        prev = best.get(key)
+        if prev is None or identity > prev[1] or (identity == prev[1] and ovr > prev[2]):
+            best[key] = (snap.sleeper_player_id, identity, ovr)
+    return {player_id for player_id, _, _ in best.values()}
 
 
 def _my_roster_player_ids(db: Session, league_id: str) -> set[str]:
@@ -200,6 +235,7 @@ def search_players(db: Session, query: str, *, limit: int = 25) -> PlayerSearchR
         .where(PlayerSnapshot.player_name.ilike(pattern))
         .order_by(PlayerSnapshot.dynasty_rating.desc().nullslast())
     ).all()
+    canonical_ids = _canonical_snapshot_ids(snapshots)
 
     leagues = {row.sleeper_league_id: row for row in db.scalars(select(League)).all()}
     owned_by_league: dict[str, set[str]] = {}
@@ -212,6 +248,8 @@ def search_players(db: Session, query: str, *, limit: int = 25) -> PlayerSearchR
 
     hits: list[PlayerSearchHit] = []
     for player_id, snaps in by_player.items():
+        if player_id not in canonical_ids:
+            continue
         if len(hits) >= limit:
             break
         snaps_sorted = sorted(
@@ -272,6 +310,7 @@ def get_free_agents(
         return None
 
     rostered = _rostered_player_ids(db, league_id)
+    rostered_names = _rostered_normalized_names(db, league_id)
     fa_pool_size = get_settings().fa_pool_size
 
     snapshots = db.scalars(
@@ -279,10 +318,16 @@ def get_free_agents(
         .where(PlayerSnapshot.league_id == league_id)
         .order_by(PlayerSnapshot.dynasty_rating.desc().nullslast())
     ).all()
+    canonical_ids = _canonical_snapshot_ids(snapshots)
 
     fa_rows: list[FreeAgentRow] = []
     for snap in snapshots:
+        if snap.sleeper_player_id not in canonical_ids:
+            continue
         if snap.sleeper_player_id in rostered:
+            continue
+        snap_name = normalize_name(snap.player_name or "")
+        if snap_name and snap_name in rostered_names:
             continue
         if not _position_matches_filter(snap.position, position, league.superflex):
             continue
