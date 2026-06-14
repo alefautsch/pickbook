@@ -52,7 +52,7 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
         summary: `${player.player_name ?? "Player"} · OVR ${player.ovr ?? "—"}`,
       }}
     >
-      <div className="flex flex-1 flex-col px-3 py-4 sm:px-6 sm:py-8 md:px-10">
+      <div className="flex flex-1 flex-col bg-[#0d1117]/40 px-3 py-3 sm:px-6 sm:py-6 md:px-8 md:py-6">
         <PlayerHero player={player} />
         <PlayerPageSections
           player={player}

@@ -37,7 +37,25 @@ type PlayerPageSectionsProps = {
 
 function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <section className={`bb-card p-4 md:p-5 ${className}`}>{children}</section>
+    <section className={`bb-panel p-4 md:p-5 ${className}`}>{children}</section>
+  );
+}
+
+function GradeTrendSection({ history }: { history: PlayerHistorySeries | null }) {
+  return (
+    <Card>
+      <h2 className="text-base font-medium text-white md:text-lg">Grade trend</h2>
+      <p className="mt-1 text-xs text-bb-muted md:text-sm">
+        OVR changes across daily syncs
+      </p>
+      <div className="mt-4">
+        {history && history.points.length > 0 ? (
+          <OvrTrendSparkline points={history.points} />
+        ) : (
+          <p className="text-sm text-bb-muted">No history yet — sync twice to see trends.</p>
+        )}
+      </div>
+    </Card>
   );
 }
 
@@ -191,6 +209,7 @@ export function PlayerPageSections({
   const snapshot = (
     <div className="space-y-4">
       <StatisticalProfile player={player} />
+      <GradeTrendSection history={history} />
       <Card>
         <h2 className="text-base font-medium text-white md:text-lg">Dynasty breakdown</h2>
         <p className="mt-1 text-xs text-bb-muted md:text-sm">Weighted component inputs</p>
@@ -241,16 +260,6 @@ export function PlayerPageSections({
   const outlook = (
     <div className="space-y-4">
       <AgeOutlookTimeline player={player} />
-      <Card>
-        <h2 className="text-base font-medium text-white md:text-lg">Grade trend</h2>
-        <div className="mt-4">
-          {history && history.points.length > 0 ? (
-            <OvrTrendSparkline points={history.points} />
-          ) : (
-            <p className="text-sm text-bb-muted">No history yet — sync twice to see trends.</p>
-          )}
-        </div>
-      </Card>
     </div>
   );
 
@@ -330,6 +339,7 @@ export function PlayerPageSections({
         ) : null}
         <Card className="lg:col-span-2">
           <h2 className="text-lg font-medium text-white">Grade trend</h2>
+          <p className="mt-1 text-sm text-bb-muted">OVR changes across daily syncs</p>
           <div className="mt-4">
             {history && history.points.length > 0 ? (
               <OvrTrendSparkline points={history.points} />
