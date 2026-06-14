@@ -11,6 +11,7 @@ import {
 } from "@/lib/format";
 import { formatSlotLabel } from "@/lib/positions";
 import { OvrBadge } from "./OvrBadge";
+import { RookieBadge } from "./RookieBadge";
 import { ExpendabilityBadge } from "./ExpendabilityBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
 import { PositionPill, PositionTag } from "./PositionPill";
@@ -42,9 +43,10 @@ function PlayerCell({ player }: { player: PlayerCard }) {
       <div className="min-w-0">
         <Link
           href={`/players/${player.player_id}?league_id=${player.league_id}`}
-          className="block truncate font-medium text-white hover:text-bb-gold"
+          className="flex items-center gap-1.5 truncate font-medium text-white hover:text-bb-gold"
         >
-          {player.player_name}
+          <span className="truncate">{player.player_name}</span>
+          {player.dynasty_rookie ? <RookieBadge /> : null}
         </Link>
         <div className="mt-0.5 flex flex-wrap items-center gap-1.5 md:hidden">
           {player.position ? <PositionTag position={player.position} /> : null}

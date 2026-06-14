@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { getFreeAgents, type FreeAgentBoard as FreeAgentBoardData } from "@/lib/api";
 import { formatPpg, formatTv } from "@/lib/format";
 import { OvrBadge } from "./OvrBadge";
+import { RookieBadge } from "./RookieBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
 import { PositionTag } from "./PositionPill";
 
@@ -105,9 +106,12 @@ export function FreeAgentBoard({
                   sizes="36px"
                 />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-white">
-                    {player.player_name}
-                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="truncate text-sm font-medium text-white">
+                      {player.player_name}
+                    </p>
+                    {player.dynasty_rookie ? <RookieBadge /> : null}
+                  </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-1">
                     {player.position ? <PositionTag position={player.position} /> : null}
                     <span className="text-[11px] text-bb-muted">
@@ -175,9 +179,10 @@ export function FreeAgentBoard({
                         sizes="40px"
                       />
                       <div>
-                        <p className="font-medium text-white">
-                          {player.player_name}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-medium text-white">{player.player_name}</p>
+                          {player.dynasty_rookie ? <RookieBadge /> : null}
+                        </div>
                         <p className="text-xs text-bb-muted">
                           {player.position}
                           {player.nfl_team ? ` · ${player.nfl_team}` : ""}

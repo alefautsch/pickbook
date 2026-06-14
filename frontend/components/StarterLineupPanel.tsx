@@ -3,6 +3,7 @@ import type { LineupSlot } from "@/lib/api";
 import { formatPpg, formatWorpPpg } from "@/lib/format";
 import { formatSlotLabel } from "@/lib/positions";
 import { OvrBadge } from "./OvrBadge";
+import { RookieBadge } from "./RookieBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
 import { PositionPill } from "./PositionPill";
 
@@ -63,9 +64,10 @@ export function StarterLineupPanel({ starters, leagueId }: StarterLineupPanelPro
                   <div className="min-w-0 flex-1">
                     <Link
                       href={`/players/${player.player_id}?league_id=${leagueId}`}
-                      className="block truncate text-sm font-medium text-white hover:text-bb-gold"
+                      className="flex items-center gap-1.5 truncate text-sm font-medium text-white hover:text-bb-gold"
                     >
-                      {player.player_name}
+                      <span className="truncate">{player.player_name}</span>
+                      {player.dynasty_rookie ? <RookieBadge /> : null}
                     </Link>
                     <p className="text-xs text-bb-muted">{playerMeta(player)}</p>
                   </div>
@@ -136,9 +138,12 @@ export function StarterLineupPanel({ starters, leagueId }: StarterLineupPanelPro
                           sizes="40px"
                         />
                         <div className="min-w-0">
-                          <p className="truncate font-medium text-white">
-                            {player.player_name}
-                          </p>
+                          <div className="flex items-center gap-1.5">
+                            <p className="truncate font-medium text-white">
+                              {player.player_name}
+                            </p>
+                            {player.dynasty_rookie ? <RookieBadge /> : null}
+                          </div>
                           <p className="text-xs text-bb-muted">{playerMeta(player)}</p>
                         </div>
                       </Link>

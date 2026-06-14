@@ -157,7 +157,7 @@ function BoardRowMobile({
         <OvrBadge
           ovr={row.ovr}
           size="sm"
-          expected={row.dynasty_rookie || row.hppg_expected}
+          expected={row.hppg_expected}
         />
         <div className="w-10 text-right">
           <p className="text-[9px] uppercase text-bb-muted">Proj</p>
@@ -271,7 +271,7 @@ function BoardRow({
         <OvrBadge
           ovr={row.ovr}
           size="sm"
-          expected={row.dynasty_rookie || row.hppg_expected}
+          expected={row.hppg_expected}
         />
       </td>
       <td className="px-2 py-2 text-right text-xs text-white">
@@ -434,7 +434,7 @@ export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
                       {row.player_name}{" "}
                       <span className="text-bb-muted">({row.position})</span>
                     </span>
-                    <OvrBadge ovr={row.ovr} size="sm" expected={row.dynasty_rookie} />
+                    <OvrBadge ovr={row.ovr} size="sm" expected={row.hppg_expected} />
                   </li>
                 ))}
               </ul>
@@ -450,7 +450,7 @@ export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
                     <span className="truncate text-white">
                       {row.bpa_rank}. {row.player_name}
                     </span>
-                    <OvrBadge ovr={row.ovr} size="sm" expected={row.dynasty_rookie} />
+                    <OvrBadge ovr={row.ovr} size="sm" expected={row.hppg_expected} />
                   </li>
                 ))}
               </ol>

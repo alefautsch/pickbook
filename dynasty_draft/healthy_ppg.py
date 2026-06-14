@@ -22,7 +22,7 @@ SNAP_MIN = 8
 DEFAULT_SEASONS = (2024, 2025)
 RECENCY_DECAY = 0.97
 _WORP_PER_VOR_PPG = 0.012
-_CACHE_VERSION = "v6"
+_CACHE_VERSION = "v7"
 
 _NFLVERSE = "https://github.com/nflverse/nflverse-data/releases/download"
 _USER_AGENT = "pickbook/0.3 (personal dynasty draft tool)"
@@ -35,6 +35,7 @@ class HealthyPpgRow:
     availability: float
     healthy_games: int
     total_games: int
+    nfl_team: str | None = None
 
 
 class HealthyPpgStore:
@@ -108,12 +109,14 @@ class HealthyPpgStore:
 
 def _row_from_dict(raw: dict[str, Any]) -> HealthyPpgRow | None:
     try:
+        nfl_team = raw.get("nfl_team")
         return HealthyPpgRow(
             healthy_ppg=float(raw["healthy_ppg"]),
             worp_ppg=float(raw["worp_ppg"]),
             availability=float(raw["availability"]),
             healthy_games=int(raw["healthy_games"]),
             total_games=int(raw["total_games"]),
+            nfl_team=str(nfl_team).upper() if nfl_team else None,
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -206,12 +209,20 @@ def _build_metrics(
 
     worp_per_vor = _calibrate_worp_per_vor(grouped, replacement_ppg, war)
 
+    team_by_gsis: dict[str, str] = {}
+    for key_values, group in healthy_only.groupby(keys, dropna=False):
+        team = _most_common_team(group, team_col)
+        if team:
+            gsis_id = key_values[0] if isinstance(key_values, tuple) else str(key_values)
+            team_by_gsis[str(gsis_id)] = team
+
     metrics: dict[str, dict[str, Any]] = {}
     for _, row in grouped.iterrows():
         pos = str(row["position"])
         healthy_ppg = float(row["healthy_ppg"])
         vor_ppg = max(0.0, healthy_ppg - replacement_ppg.get(pos, 0.0))
         worp_ppg = vor_ppg * worp_per_vor.get(pos, _WORP_PER_VOR_PPG)
+        nfl_team = team_by_gsis.get(str(row["player_id"]))
         payload = {
             "healthy_ppg": round(healthy_ppg, 2),
             "worp_ppg": round(worp_ppg, 4),
@@ -222,6 +233,8 @@ def _build_metrics(
             "gsis_id": str(row["player_id"]),
             "pos": pos,
         }
+        if nfl_team:
+            payload["nfl_team"] = nfl_team
         metrics[f"gsis:{row['player_id']}"] = payload
         metrics[f"name:{normalize_name(str(row['player_display_name']))}"] = payload
     return metrics

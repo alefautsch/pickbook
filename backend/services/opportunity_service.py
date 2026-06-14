@@ -25,7 +25,7 @@ OPPORTUNITY_TTL_SECONDS = 7 * 24 * 60 * 60
 _NFLVERSE = "https://github.com/nflverse/nflverse-data/releases/download"
 _USER_AGENT = "blackbook/0.1 (dynasty portfolio tool)"
 RECENCY_DECAY = 0.97
-_CACHE_VERSION = "v6"
+_CACHE_VERSION = "v7"
 _YOUNG_UPSIDE_TV_MIN = 3000.0
 
 
@@ -39,6 +39,7 @@ class OpportunityRow:
     efficiency: float | None
     nflverse_ppg: float | None
     sample_games: int | None
+    nfl_team: str | None = None
 
 
 @dataclass(frozen=True)
@@ -266,6 +267,8 @@ def _build_opportunity_metrics(
             "gsis_id": str(row["player_id"]),
             "pos": pos,
         }
+        if team:
+            payload["nfl_team"] = team.upper()
         metrics[f"gsis:{row['player_id']}"] = payload
         metrics[f"name:{normalize_name(str(row['player_display_name']))}"] = payload
 
@@ -351,6 +354,7 @@ def _opportunity_rows(data: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
 
 def _row_from_dict(raw: dict[str, Any]) -> OpportunityRow | None:
     try:
+        nfl_team = raw.get("nfl_team")
         return OpportunityRow(
             opportunity_score=float(raw["opportunity_score"]),
             target_share=raw.get("target_share"),
@@ -360,6 +364,7 @@ def _row_from_dict(raw: dict[str, Any]) -> OpportunityRow | None:
             efficiency=raw.get("efficiency"),
             nflverse_ppg=raw.get("nflverse_ppg"),
             sample_games=raw.get("sample_games"),
+            nfl_team=str(nfl_team).upper() if nfl_team else None,
         )
     except (KeyError, TypeError, ValueError):
         return None

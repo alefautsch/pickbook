@@ -19,6 +19,7 @@ from backend.services.opportunity_service import (
     position_percentiles,
     win_now_relative_ratings,
 )
+from backend.services.player_team import resolve_nfl_team
 from backend.services.sync_service import _resolve_my_user_id
 from dynasty_draft.sleeper_client import SleeperClient
 
@@ -207,7 +208,13 @@ def compute_player_snapshots(
                 "player_id": player_id,
                 "player_name": war_player.name,
                 "position": war_player.pos,
-                "nfl_team": (war_player.team or sleeper.get("team") or "").upper() or None,
+                "nfl_team": resolve_nfl_team(
+                    player_id=player_id,
+                    sleeper=sleeper,
+                    war_player=war_player,
+                    healthy_ppg_store=getattr(state, "healthy_ppg_store", None),
+                    opportunity_store=opportunity_store,
+                ),
                 "age": age,
                 "dynasty_rating": scored.get("dynasty_rating"),
                 "dynasty_score": scored.get("dynasty_score"),

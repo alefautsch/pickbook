@@ -4,6 +4,7 @@ import { projectionSourceLabel } from "@/lib/archetype";
 import { formatActv, formatPpg, formatTv, formatWorpPpg } from "@/lib/format";
 import { positionColor } from "@/lib/ovr";
 import { OvrBadge } from "./OvrBadge";
+import { RookieBadge } from "./RookieBadge";
 import { ExpendabilityBadge } from "./ExpendabilityBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
 
@@ -54,6 +55,7 @@ export function PlayerCard({
             >
               {player.player_name ?? "Unknown"}
             </h3>
+            {player.dynasty_rookie ? <RookieBadge /> : null}
             {player.position ? (
               <span
                 className="rounded px-1.5 py-0.5 text-xs font-semibold"

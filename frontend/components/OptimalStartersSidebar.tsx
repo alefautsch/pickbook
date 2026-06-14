@@ -4,6 +4,7 @@ import { formatPpg } from "@/lib/format";
 import { OvrBadge } from "./OvrBadge";
 import { PlayerHeadshot } from "./PlayerHeadshot";
 import { PositionPill } from "./PositionPill";
+import { RookieBadge } from "./RookieBadge";
 
 type OptimalStartersSidebarProps = {
   starters: LineupSlot[];
@@ -36,12 +37,15 @@ export function OptimalStartersSidebar({ starters, leagueId }: OptimalStartersSi
               <div className="min-w-0 flex-1">
                 <Link
                   href={`/players/${player.player_id}?league_id=${leagueId}`}
-                  className="block truncate text-sm font-medium text-white hover:text-bb-gold"
+                  className="flex items-center gap-1.5 truncate text-sm font-medium text-white hover:text-bb-gold"
                 >
-                  {player.player_name}
+                  <span className="truncate">{player.player_name}</span>
+                  {player.dynasty_rookie ? <RookieBadge /> : null}
                 </Link>
                 <p className="text-xs text-bb-muted">
-                  {player.nfl_team} · Proj {formatPpg(player.projected_ppg)}
+                  {[player.nfl_team, `Proj ${formatPpg(player.projected_ppg)}`]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </p>
               </div>
               <OvrBadge ovr={player.ovr} expected={player.hppg_expected} size="sm" />

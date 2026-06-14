@@ -1,6 +1,7 @@
 import type { PlayerCard } from "@/lib/api";
 import { ExpendabilityBadge } from "@/components/ExpendabilityBadge";
 import { OvrBadge } from "@/components/OvrBadge";
+import { RookieBadge } from "@/components/RookieBadge";
 import { OvrGauge } from "@/components/OvrGauge";
 import { PlayerHeadshot } from "@/components/PlayerHeadshot";
 import { PositionTag } from "@/components/PositionPill";
@@ -82,6 +83,7 @@ export function PlayerHero({ player }: PlayerHeroProps) {
               <h1 className="text-xl font-bold tracking-tight text-white sm:text-2xl">
                 {player.player_name}
               </h1>
+              {player.dynasty_rookie ? <RookieBadge /> : null}
               {player.position ? <PositionTag position={player.position} /> : null}
             </div>
             <p className="mt-0.5 text-xs text-bb-muted sm:text-sm">{player.nfl_team}</p>
@@ -177,6 +179,7 @@ export function PlayerHero({ player }: PlayerHeroProps) {
             <h1 className="text-4xl font-bold tracking-tight text-white">
               {player.player_name}
             </h1>
+            {player.dynasty_rookie ? <RookieBadge /> : null}
             {player.position ? <PositionTag position={player.position} /> : null}
             {player.trade_tag ? (
               <ExpendabilityBadge

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from functools import lru_cache
 from typing import Any
 
 from sqlalchemy import desc, select
@@ -10,6 +11,10 @@ from sqlalchemy.orm import Session
 
 from backend.db.models import League, LeagueSnapshot, PlayerSnapshot, Roster, RosterPlayer, SyncRun
 from backend.services.history_service import team_ovr_delta
+from backend.services.player_team import resolve_nfl_team
+from dynasty_draft.healthy_ppg import HealthyPpgStore
+from dynasty_draft.sleeper_client import SleeperClient
+from backend.services.opportunity_service import OpportunityStore
 from backend.schemas.analysis import LeagueAnalysis
 from backend.schemas.league import LeagueDetail, LeagueRankings, LeagueTeamSummary, LeagueTile
 from backend.schemas.player import (
@@ -100,11 +105,15 @@ def _outlook_from_snapshot(snapshot: PlayerSnapshot) -> PlayerOutlook:
 
 def _player_card_from_snapshot(snapshot: PlayerSnapshot, league_name: str) -> PlayerCard:
     components_raw = snapshot.components_json or {}
+    nfl_team = snapshot.nfl_team or _fallback_nfl_team(
+        snapshot.sleeper_player_id,
+        snapshot.player_name,
+    )
     return PlayerCard(
         player_id=snapshot.sleeper_player_id,
         player_name=snapshot.player_name,
         position=snapshot.position,
-        nfl_team=snapshot.nfl_team,
+        nfl_team=nfl_team,
         age=snapshot.age,
         ovr=snapshot.dynasty_rating,
         tier=ovr_tier(snapshot.dynasty_rating),
@@ -149,6 +158,36 @@ def _player_card_from_snapshot(snapshot: PlayerSnapshot, league_name: str) -> Pl
         league_id=snapshot.league_id,
         league_name=league_name,
         computed_at=snapshot.computed_at,
+    )
+
+
+@lru_cache(maxsize=1)
+def _team_lookup_stores() -> tuple[Any | None, Any | None, dict[str, dict[str, Any]]]:
+    try:
+        sleeper_players = SleeperClient().get_players()
+    except Exception:
+        return None, None, {}
+    healthy_store = None
+    opportunity_store = None
+    try:
+        healthy_store = HealthyPpgStore.load(sleeper_players=sleeper_players)
+    except Exception:
+        pass
+    try:
+        opportunity_store = OpportunityStore.load(sleeper_players=sleeper_players)
+    except Exception:
+        pass
+    return healthy_store, opportunity_store, sleeper_players
+
+
+def _fallback_nfl_team(player_id: str, player_name: str | None) -> str | None:
+    healthy_store, opportunity_store, sleeper_players = _team_lookup_stores()
+    return resolve_nfl_team(
+        player_id=str(player_id),
+        sleeper=sleeper_players.get(str(player_id)) or {},
+        player_name=player_name,
+        healthy_ppg_store=healthy_store,
+        opportunity_store=opportunity_store,
     )
 
 
