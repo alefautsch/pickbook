@@ -1,18 +1,18 @@
 import Link from "next/link";
 import type { PositionStrengthMap } from "@/lib/api";
+import { ovrTier, tierColors } from "@/lib/ovr";
 
 type PositionHeatmapProps = {
   data: PositionStrengthMap;
   leagueId: string;
 };
 
-function ovrColor(ovr: number | null | undefined): string {
-  if (ovr == null) return "bg-black/30 text-bb-muted";
-  if (ovr >= 90) return "bg-emerald-600/50 text-emerald-100";
-  if (ovr >= 85) return "bg-emerald-500/30 text-emerald-200";
-  if (ovr >= 80) return "bg-sky-500/30 text-sky-200";
-  if (ovr >= 75) return "bg-amber-500/25 text-amber-200";
-  return "bg-red-500/20 text-red-200";
+function ovrCellStyle(ovr: number): React.CSSProperties {
+  const color = tierColors[ovrTier(ovr)];
+  return {
+    backgroundColor: `color-mix(in srgb, ${color} 30%, transparent)`,
+    color: "white",
+  };
 }
 
 export function PositionHeatmap({ data, leagueId }: PositionHeatmapProps) {
@@ -51,7 +51,10 @@ export function PositionHeatmap({ data, leagueId }: PositionHeatmapProps) {
                       {pos}
                     </p>
                     <span
-                      className={`mt-0.5 inline-block min-w-[2rem] rounded px-1 py-0.5 text-xs font-semibold ${ovrColor(ovr)}`}
+                      className={`mt-0.5 inline-block min-w-[2rem] rounded px-1 py-0.5 text-xs font-semibold ${
+                        ovr == null ? "bg-black/30 text-bb-muted" : ""
+                      }`}
+                      style={ovr != null ? ovrCellStyle(ovr) : undefined}
                     >
                       {ovr ?? "—"}
                     </span>
@@ -101,7 +104,10 @@ export function PositionHeatmap({ data, leagueId }: PositionHeatmapProps) {
                 return (
                   <td key={pos} className="border-t border-bb-border px-1 py-1 text-center">
                     <span
-                      className={`inline-block min-w-[2.25rem] rounded px-1.5 py-0.5 text-xs font-semibold ${ovrColor(ovr)}`}
+                      className={`inline-block min-w-[2.25rem] rounded px-1.5 py-0.5 text-xs font-semibold ${
+                        ovr == null ? "bg-black/30 text-bb-muted" : ""
+                      }`}
+                      style={ovr != null ? ovrCellStyle(ovr) : undefined}
                       title={ovr != null ? `Avg starter OVR ${ovr}` : "No starter"}
                     >
                       {ovr ?? "—"}
