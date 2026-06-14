@@ -3,13 +3,14 @@ import { ovrTier, tierColors, tierLabels } from "@/lib/ovr";
 type OvrGaugeProps = {
   ovr: number | null | undefined;
   expected?: boolean;
-  size?: "hero" | "md";
+  size?: "hero" | "md" | "sm";
   showTier?: boolean;
 };
 
 const sizes = {
   hero: { outer: 140, stroke: 10, font: "text-3xl", label: "text-xs" },
   md: { outer: 96, stroke: 8, font: "text-xl", label: "text-[10px]" },
+  sm: { outer: 72, stroke: 6, font: "text-lg", label: "text-[8px]" },
 };
 
 export function OvrGauge({

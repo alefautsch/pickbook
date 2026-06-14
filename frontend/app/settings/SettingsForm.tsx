@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FontPicker } from "@/components/FontPicker";
 import { getSettings, putSettings, type UserSettings } from "@/lib/api";
 
 export default function SettingsPageClient() {
@@ -47,6 +48,14 @@ export default function SettingsPageClient() {
             className="mt-1 w-full rounded-lg border border-bb-border bg-black/30 px-3 py-2 text-white"
           />
         </label>
+      </section>
+
+      <section className="bb-card p-5">
+        <h2 className="text-lg font-medium text-white">Appearance</h2>
+        <p className="mt-1 text-sm text-bb-muted">
+          Try different UI fonts — saved in this browser only, applied instantly.
+        </p>
+        <FontPicker />
       </section>
 
       {settings ? (

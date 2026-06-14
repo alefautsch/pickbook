@@ -4,16 +4,17 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import type { TeamDetail } from "@/lib/api";
 import { formatPpg, formatTv, ordinal } from "@/lib/format";
-import { AgeProfileSidebar } from "@/components/AgeProfileSidebar";
+import { OvrGauge } from "@/components/OvrGauge";
 import { ComponentDonut } from "@/components/DonutChart";
 import { ContenderTag } from "@/components/ContenderTag";
 import { DepthChartPanel } from "@/components/DepthChartPanel";
 import { DraftPicksPanel } from "@/components/DraftPicksPanel";
 import { InjuryWatchPanel } from "@/components/InjuryWatchPanel";
 import { TradeCandidatesPanel } from "@/components/TradeCandidatesPanel";
-import { OvrGauge } from "@/components/OvrGauge";
 import { PositionStrengthBars } from "@/components/PositionStrengthBars";
+import { AgeProfileSidebar } from "@/components/AgeProfileSidebar";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
+import { SleeperAvatarWatermark, TeamAvatar } from "@/components/SleeperAvatarWatermark";
 import { TeamTabs } from "@/components/TeamTabs";
 import type { AgeProfile, PositionStrengthMap } from "@/lib/api";
 
@@ -39,36 +40,224 @@ function rankSubClass(sub: ReactNode): string {
   return "text-bb-muted";
 }
 
-function Metric({
-  label,
-  value,
-  sub,
-  tone = "default",
-}: {
+type TeamStat = {
   label: string;
   value: ReactNode;
   sub?: ReactNode;
   tone?: "default" | "good" | "bad";
+};
+
+function StatStrip({ stats }: { stats: TeamStat[] }) {
+  return (
+    <>
+      <dl className="scrollbar-none -mx-0.5 flex gap-2 overflow-x-auto px-0.5 pb-0.5 sm:hidden">
+        {stats.map((stat) => (
+          <StatCell key={stat.label} stat={stat} className="min-w-[5.25rem] shrink-0" />
+        ))}
+      </dl>
+      <dl className="hidden gap-2 sm:grid sm:grid-cols-5 lg:hidden">
+        {stats.map((stat) => (
+          <StatCell key={stat.label} stat={stat} />
+        ))}
+      </dl>
+      <dl className="hidden lg:grid lg:grid-cols-5 lg:divide-x lg:divide-white/8">
+        {stats.map((stat) => (
+          <StatCell
+            key={stat.label}
+            stat={stat}
+            className="lg:rounded-none lg:bg-transparent lg:px-4 lg:py-0 lg:ring-0 lg:first:pl-0 lg:last:pr-0"
+          />
+        ))}
+      </dl>
+    </>
+  );
+}
+
+function StatCell({
+  stat,
+  className = "",
+}: {
+  stat: TeamStat;
+  className?: string;
 }) {
   const toneClass =
-    tone === "good"
+    stat.tone === "good"
       ? "text-emerald-400"
-      : tone === "bad"
+      : stat.tone === "bad"
         ? "text-red-400"
         : "text-white";
 
   return (
-    <div className="min-w-0 rounded-lg bg-white/4 px-2 py-1.5 ring-1 ring-inset ring-white/[0.07] md:px-2 md:py-2">
-      <dt className="truncate text-[9px] uppercase tracking-wide text-bb-muted">
-        {label}
+    <div
+      className={`min-w-0 rounded-lg bg-white/3 px-2.5 py-2 ring-1 ring-inset ring-white/6 ${className}`}
+    >
+      <dt className="truncate text-[9px] uppercase tracking-wider text-bb-muted">
+        {stat.label}
       </dt>
-      <dd className={`mt-0.5 truncate text-lg font-bold tabular-nums leading-none md:text-xl ${toneClass}`}>
-        {value}
+      <dd
+        className={`mt-0.5 truncate text-base font-bold tabular-nums leading-none ${toneClass}`}
+      >
+        {stat.value}
       </dd>
-      {sub ? (
-        <p className={`mt-0.5 truncate text-[10px] ${rankSubClass(sub)}`}>{sub}</p>
+      {stat.sub ? (
+        <p className={`mt-0.5 truncate text-[10px] ${rankSubClass(stat.sub)}`}>
+          {stat.sub}
+        </p>
       ) : null}
     </div>
+  );
+}
+
+function HeroRankTile({
+  label,
+  value,
+  accent = "default",
+}: {
+  label: string;
+  value: ReactNode;
+  accent?: "default" | "gold";
+}) {
+  const valueClass = accent === "gold" ? "text-bb-gold" : "text-white";
+
+  return (
+    <div className="flex h-[4.25rem] w-[4.25rem] shrink-0 flex-col items-center justify-center rounded-lg bg-white/4 px-1 text-center ring-1 ring-inset ring-white/[0.07] xl:h-[4.75rem] xl:w-[4.75rem]">
+      <p className={`text-lg font-bold tabular-nums leading-none xl:text-xl ${valueClass}`}>
+        {value}
+      </p>
+      <p className="mt-1 line-clamp-2 px-0.5 text-[8px] leading-tight uppercase tracking-wider text-bb-muted xl:text-[9px]">
+        {label}
+      </p>
+    </div>
+  );
+}
+
+function OvrGaugeTile({ ovr }: { ovr: number | null | undefined }) {
+  return (
+    <div className="flex shrink-0 items-center justify-center">
+      <div className="xl:hidden">
+        <OvrGauge ovr={ovr} size="sm" showTier />
+      </div>
+      <div className="hidden xl:block">
+        <OvrGauge ovr={ovr} size="md" showTier />
+      </div>
+    </div>
+  );
+}
+
+function TeamHero({
+  team,
+  displayOvr,
+  displayStarterOvr,
+  ovrDelta,
+  ovrTone,
+  leagueRosterCount,
+  ratingMode,
+  onRatingModeChange,
+}: {
+  team: TeamDetail;
+  displayOvr: number | null | undefined;
+  displayStarterOvr: number | null | undefined;
+  ovrDelta: number | null;
+  ovrTone: "default" | "good" | "bad";
+  leagueRosterCount: number | string;
+  ratingMode: RatingMode;
+  onRatingModeChange: (mode: RatingMode) => void;
+}) {
+  const stats: TeamStat[] = [
+    { label: "Start OVR", value: displayStarterOvr ?? "—", sub: "avg" },
+    {
+      label: "Start PPG",
+      value: formatPpg(team.starter_total_ppg),
+      sub: team.starter_ppg_rank ? ordinal(team.starter_ppg_rank) : undefined,
+    },
+    {
+      label: "Trade Value",
+      value: formatTv(team.total_trade_value),
+      sub: team.tv_rank ? ordinal(team.tv_rank) : undefined,
+    },
+    { label: "Pick Value", value: formatTv(team.draft_pick_value) },
+    {
+      label: "Trend",
+      value:
+        ovrDelta != null && ovrDelta !== 0
+          ? `${ovrDelta > 0 ? "+" : ""}${ovrDelta}`
+          : "—",
+      tone: ovrTone,
+    },
+  ];
+
+  const metaLine = [
+    team.owner ?? "Unknown owner",
+    team.is_me ? "(me)" : null,
+    team.dynasty_rank ? `${ordinal(team.dynasty_rank)} of ${leagueRosterCount}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <section className="bb-panel relative mb-3 overflow-hidden md:mb-5">
+      {team.avatar_url ? (
+        <>
+          <SleeperAvatarWatermark
+            avatarUrl={team.avatar_url}
+            className="hidden opacity-[0.14] md:block md:right-2 md:top-1/2 md:h-52 md:w-52 md:-translate-y-1/2 lg:right-4 lg:h-64 lg:w-64 lg:opacity-[0.18] xl:h-72 xl:w-72 xl:opacity-[0.22]"
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 hidden bg-[linear-gradient(105deg,#0d1117_0%,#0d1117_48%,rgba(13,17,23,0.72)_70%,rgba(13,17,23,0.15)_100%)] md:block"
+          />
+        </>
+      ) : null}
+
+      <div className="relative p-3 sm:p-4 lg:p-5">
+        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 sm:gap-4 md:items-center md:gap-4 lg:gap-5">
+          <TeamAvatar
+            avatarUrl={team.avatar_url}
+            teamName={team.team_name}
+            className="h-12 w-12 rounded-xl shadow-md ring-1 ring-white/15 sm:h-14 sm:w-14 lg:h-16 lg:w-16 lg:rounded-2xl"
+          />
+
+          <div className="min-w-0">
+            <p className="truncate text-[10px] uppercase tracking-wider text-bb-muted sm:text-xs">
+              {team.league_name}
+            </p>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h1 className="text-lg font-semibold leading-tight text-white sm:text-xl lg:text-2xl">
+                {team.team_name ?? "Team"}
+              </h1>
+              <ContenderTag tier={team.contender_tier} size="md" />
+            </div>
+            <p className="mt-0.5 truncate text-xs text-bb-muted sm:text-sm">{metaLine}</p>
+            <div className="mt-2 w-fit lg:mt-3">
+              <RatingToggle ratingMode={ratingMode} onChange={onRatingModeChange} />
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2 self-start md:self-center">
+            <div className="md:hidden">
+              <OvrGauge ovr={displayOvr} size="sm" showTier />
+            </div>
+            <div className="hidden items-center gap-2 md:flex">
+              {team.dynasty_rank ? (
+                <HeroRankTile label="Dynasty" value={ordinal(team.dynasty_rank)} />
+              ) : null}
+              {team.tv_rank ? (
+                <HeroRankTile
+                  label="Trade Value"
+                  value={ordinal(team.tv_rank)}
+                  accent="gold"
+                />
+              ) : null}
+              <OvrGaugeTile ovr={displayOvr} />
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 border-t border-bb-border/40 pt-3 sm:mt-4 lg:mt-5 lg:pt-4">
+          <StatStrip stats={stats} />
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -80,7 +269,7 @@ function RatingToggle({
   onChange: (mode: RatingMode) => void;
 }) {
   return (
-    <div className="flex items-center gap-0.5 rounded-lg bg-white/4 p-0.5 ring-1 ring-inset ring-white/[0.07]">
+    <div className="inline-flex w-fit items-center gap-0.5 rounded-lg bg-white/4 p-0.5 ring-1 ring-inset ring-white/[0.07]">
       <button
         type="button"
         onClick={() => onChange("dynasty")}
@@ -224,55 +413,16 @@ export function TeamPageContent({
 
   return (
     <div className="flex flex-1 flex-col bg-[#0d1117]/40 px-3 py-3 md:px-4 md:py-5">
-      {/* Compact hero — team identity only */}
-      <section className="bb-panel mb-3 p-3 md:mb-5 md:p-4">
-        <div className="flex items-start gap-3">
-          <div className="shrink-0 scale-90 md:scale-100">
-            <OvrGauge ovr={displayOvr} size="md" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-lg font-semibold leading-tight text-white md:text-2xl">
-                {team.team_name ?? "Team"}
-              </h1>
-              <ContenderTag tier={team.contender_tier} />
-            </div>
-            <p className="mt-0.5 text-xs text-bb-muted md:text-sm">
-              {team.owner ?? "Unknown owner"}
-              {team.is_me ? " · (me)" : ""}
-              {team.dynasty_rank
-                ? ` · ${ordinal(team.dynasty_rank)} of ${leagueRosterCount}`
-                : ""}
-            </p>
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <RatingToggle ratingMode={ratingMode} onChange={setRatingMode} />
-            </div>
-            <dl className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3 md:mt-3 md:gap-2">
-              <Metric label="Start OVR" value={displayStarterOvr ?? "—"} sub="avg" />
-              <Metric
-                label="Start PPG"
-                value={formatPpg(team.starter_total_ppg)}
-                sub={team.starter_ppg_rank ? ordinal(team.starter_ppg_rank) : undefined}
-              />
-              <Metric
-                label="Trade Value"
-                value={formatTv(team.total_trade_value)}
-                sub={team.tv_rank ? ordinal(team.tv_rank) : undefined}
-              />
-              <Metric label="Pick Value" value={formatTv(team.draft_pick_value)} />
-              <Metric
-                label="Trend"
-                value={
-                  ovrDelta != null && ovrDelta !== 0
-                    ? `${ovrDelta > 0 ? "+" : ""}${ovrDelta}`
-                    : "—"
-                }
-                tone={ovrTone}
-              />
-            </dl>
-          </div>
-        </div>
-      </section>
+      <TeamHero
+        team={team}
+        displayOvr={displayOvr}
+        displayStarterOvr={displayStarterOvr}
+        ovrDelta={ovrDelta}
+        ovrTone={ovrTone}
+        leagueRosterCount={leagueRosterCount}
+        ratingMode={ratingMode}
+        onRatingModeChange={setRatingMode}
+      />
 
       {/* Roster front and center */}
       <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-5">

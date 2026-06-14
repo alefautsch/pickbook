@@ -397,6 +397,7 @@ export type TeamDetail = {
   roster_id: string;
   team_name: string | null;
   owner: string | null;
+  avatar_url: string | null;
   is_me: boolean;
   avg_dynasty_rating: number | null;
   starter_avg_dynasty_rating: number | null;

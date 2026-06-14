@@ -71,6 +71,7 @@ class TeamDetail(BaseModel):
     roster_id: str
     team_name: str | None = None
     owner: str | None = None
+    avatar_url: str | None = None
     is_me: bool = False
     avg_dynasty_rating: int | None = None
     starter_avg_dynasty_rating: int | None = None

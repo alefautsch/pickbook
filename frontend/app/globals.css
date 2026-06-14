@@ -24,7 +24,28 @@
 }
 
 html {
+  --font-sans: var(--font-geist-sans);
   overflow-x: hidden;
+}
+
+html[data-font="geist"] {
+  --font-sans: var(--font-geist-sans);
+}
+
+html[data-font="plex"] {
+  --font-sans: var(--font-plex-sans);
+}
+
+html[data-font="dm"] {
+  --font-sans: var(--font-dm-sans);
+}
+
+html[data-font="sora"] {
+  --font-sans: var(--font-sora);
+}
+
+html[data-font="figtree"] {
+  --font-sans: var(--font-figtree);
 }
 
 body {
@@ -33,7 +54,7 @@ body {
   overflow-x: hidden;
   background: linear-gradient(180deg, var(--bb-bg-start) 0%, var(--bb-bg-end) 100%);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   padding-left: env(safe-area-inset-left);
@@ -42,7 +63,7 @@ body {
 
 .player-name {
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.015em;
   color: #fff;
 }
 

@@ -46,6 +46,7 @@ from backend.services.trade_engine import (
 )
 
 SLEEPER_HEADSHOT = "https://sleepercdn.com/content/nfl/players/thumb/{player_id}.jpg"
+SLEEPER_AVATAR = "https://sleepercdn.com/avatars/{avatar_id}"
 
 
 def ovr_tier(ovr: int | None) -> str | None:
@@ -64,6 +65,12 @@ def ovr_tier(ovr: int | None) -> str | None:
 
 def headshot_url(player_id: str) -> str:
     return SLEEPER_HEADSHOT.format(player_id=player_id)
+
+
+def sleeper_avatar_url(avatar_id: str | None) -> str | None:
+    if not avatar_id:
+        return None
+    return SLEEPER_AVATAR.format(avatar_id=avatar_id)
 
 
 def _last_synced(db: Session, league_id: str) -> datetime | None:
@@ -675,6 +682,7 @@ def get_team_detail(db: Session, league_id: str, roster_id: str) -> TeamDetail |
         roster_id=roster_id,
         team_name=roster.team_name or dynasty_row.get("team_name"),
         owner=roster.owner_name or dynasty_row.get("owner"),
+        avatar_url=sleeper_avatar_url(roster.owner_avatar),
         is_me=roster.is_me,
         avg_dynasty_rating=dynasty_row.get("avg_dynasty_rating"),
         starter_avg_dynasty_rating=dynasty_row.get("starter_avg_dynasty_rating"),

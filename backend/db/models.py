@@ -67,6 +67,7 @@ class Roster(Base):
     sleeper_roster_id: Mapped[str] = mapped_column(String(32), nullable=False)
     owner_user_id: Mapped[str | None] = mapped_column(String(32))
     owner_name: Mapped[str | None] = mapped_column(String(255))
+    owner_avatar: Mapped[str | None] = mapped_column(String(64))
     team_name: Mapped[str | None] = mapped_column(String(255))
     is_me: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

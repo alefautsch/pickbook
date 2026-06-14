@@ -1,16 +1,8 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { FontBootstrap } from "@/components/FontBootstrap";
+import { FONT_IDS } from "@/lib/fonts";
+import { htmlFontClassName } from "@/lib/fontFaces";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Dynasty Blackbook",
@@ -23,17 +15,22 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
+const fontBootstrapScript = `(function(){try{var k="bb-font-preference";var f=localStorage.getItem(k);var ok=${JSON.stringify(FONT_IDS)};if(f&&ok.indexOf(f)!==-1)document.documentElement.dataset.font=f}catch(e){}})();`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="flex min-h-full flex-col overflow-x-hidden">{children}</body>
+    <html lang="en" className={`${htmlFontClassName} h-full antialiased`} data-font="geist">
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: fontBootstrapScript }} />
+      </head>
+      <body className="flex min-h-full flex-col overflow-x-hidden">
+        <FontBootstrap />
+        {children}
+      </body>
     </html>
   );
 }

@@ -123,6 +123,7 @@ def sync_league_from_sleeper(
 
             roster_row.owner_user_id = owner_id or None
             roster_row.owner_name = (user or {}).get("display_name")
+            roster_row.owner_avatar = (user or {}).get("avatar")
             roster_row.team_name = _team_display_name(user, sleeper_roster_id)
             roster_row.is_me = owner_id == my_user_id
             roster_count += 1
