@@ -210,46 +210,74 @@ function TeamHero({
       ) : null}
 
       <div className="relative p-3 sm:p-4 lg:p-5">
-        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 sm:gap-4 md:items-center md:gap-4 lg:gap-5">
+        {/* Mobile: avatar + full-width text; OVR sits with rating toggle, not a third column */}
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 md:hidden">
           <TeamAvatar
             avatarUrl={team.avatar_url}
             teamName={team.team_name}
-            className="h-12 w-12 rounded-xl shadow-md ring-1 ring-white/15 sm:h-14 sm:w-14 lg:h-16 lg:w-16 lg:rounded-2xl"
+            className="h-12 w-12 shrink-0 rounded-xl shadow-md ring-1 ring-white/15 sm:h-14 sm:w-14"
           />
 
           <div className="min-w-0">
             <p className="truncate text-[10px] uppercase tracking-wider text-bb-muted sm:text-xs">
               {team.league_name}
             </p>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-              <h1 className="text-lg font-semibold leading-tight text-white sm:text-xl lg:text-2xl">
+            <div className="mt-0.5 flex min-w-0 items-center gap-x-2">
+              <h1
+                className="min-w-0 truncate text-lg font-semibold leading-tight text-white sm:text-xl"
+                title={team.team_name ?? "Team"}
+              >
                 {team.team_name ?? "Team"}
               </h1>
               <ContenderTag tier={team.contender_tier} size="md" />
             </div>
             <p className="mt-0.5 truncate text-xs text-bb-muted sm:text-sm">{metaLine}</p>
-            <div className="mt-2 w-fit lg:mt-3">
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <RatingToggle ratingMode={ratingMode} onChange={onRatingModeChange} />
+              <OvrGauge ovr={displayOvr} size="sm" showTier />
+            </div>
+          </div>
+        </div>
+
+        {/* Desktop */}
+        <div className="hidden grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 md:grid lg:gap-5">
+          <TeamAvatar
+            avatarUrl={team.avatar_url}
+            teamName={team.team_name}
+            className="h-14 w-14 rounded-xl shadow-md ring-1 ring-white/15 lg:h-16 lg:w-16 lg:rounded-2xl"
+          />
+
+          <div className="min-w-0">
+            <p className="truncate text-xs uppercase tracking-wider text-bb-muted">
+              {team.league_name}
+            </p>
+            <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <h1
+                className="min-w-0 text-xl font-semibold leading-tight text-white lg:text-2xl"
+                title={team.team_name ?? "Team"}
+              >
+                {team.team_name ?? "Team"}
+              </h1>
+              <ContenderTag tier={team.contender_tier} size="md" />
+            </div>
+            <p className="mt-0.5 truncate text-sm text-bb-muted">{metaLine}</p>
+            <div className="mt-3 w-fit">
               <RatingToggle ratingMode={ratingMode} onChange={onRatingModeChange} />
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2 self-start md:self-center">
-            <div className="md:hidden">
-              <OvrGauge ovr={displayOvr} size="sm" showTier />
-            </div>
-            <div className="hidden items-center gap-2 md:flex">
-              {team.dynasty_rank ? (
-                <HeroRankTile label="Dynasty" value={ordinal(team.dynasty_rank)} />
-              ) : null}
-              {team.tv_rank ? (
-                <HeroRankTile
-                  label="Trade Value"
-                  value={ordinal(team.tv_rank)}
-                  accent="gold"
-                />
-              ) : null}
-              <OvrGaugeTile ovr={displayOvr} />
-            </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {team.dynasty_rank ? (
+              <HeroRankTile label="Dynasty" value={ordinal(team.dynasty_rank)} />
+            ) : null}
+            {team.tv_rank ? (
+              <HeroRankTile
+                label="Trade Value"
+                value={ordinal(team.tv_rank)}
+                accent="gold"
+              />
+            ) : null}
+            <OvrGaugeTile ovr={displayOvr} />
           </div>
         </div>
 
