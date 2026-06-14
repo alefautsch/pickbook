@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import statistics
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,43 @@ LINEUP_PPG_FIELDS = ("dynasty_rating", "projected_ppg", "healthy_ppg", "trade_va
 TEAM_CORE_BENCH_COUNT = 5
 TEAM_CORE_BENCH_WEIGHT = 0.15
 TEAM_DEPTH_WEIGHT = 0.0
+# League-relative team OVR: amplify deviation from the league mean (~70–90 band) while
+# blending back toward the raw roster average so tight leagues don't look artificially pinned.
+TEAM_OVR_ANCHOR = 80.0
+TEAM_OVR_FLOOR = 70
+TEAM_OVR_CEILING = 90
+TEAM_OVR_RAW_BLEND = 0.30
+TEAM_OVR_AMPLIFY_MIN = 5.0
+TEAM_OVR_AMPLIFY_MAX = 11.0
+TEAM_OVR_STD_FLOOR = 0.85
+TEAM_OVR_STD_TARGET = 8.0
+
+
+def _league_adjust_team_ovrs(teams: list[dict[str, Any]]) -> None:
+    """Widen team OVR spread in-place; tighter leagues get more amplification."""
+    raw_values: list[float] = []
+    for team in teams:
+        raw = team.get("avg_dynasty_rating")
+        if raw is not None and raw > 0:
+            raw_values.append(float(raw))
+    if not raw_values:
+        return
+
+    mean = sum(raw_values) / len(raw_values)
+    std = statistics.pstdev(raw_values) if len(raw_values) > 1 else 1.0
+    std = max(std, TEAM_OVR_STD_FLOOR)
+    amplify = min(TEAM_OVR_AMPLIFY_MAX, max(TEAM_OVR_AMPLIFY_MIN, TEAM_OVR_STD_TARGET / std))
+
+    for team in teams:
+        raw = team.get("avg_dynasty_rating")
+        if raw is None or raw <= 0:
+            continue
+        raw_f = float(raw)
+        amplified = TEAM_OVR_ANCHOR + amplify * (raw_f - mean)
+        amplified = max(TEAM_OVR_FLOOR, min(TEAM_OVR_CEILING, amplified))
+        team["avg_dynasty_rating"] = round(
+            TEAM_OVR_RAW_BLEND * raw_f + (1.0 - TEAM_OVR_RAW_BLEND) * amplified
+        )
 
 
 def _player_row_from_snapshot(snapshot: PlayerSnapshot, war: WarData) -> dict[str, Any]:
@@ -698,6 +736,8 @@ def compute_league_rankings(db: Session, league_id: str, *, war_csv: str = "war.
             "is_me": roster.is_me,
         }
         teams.append({**_compact_team_row(team_meta, lineup), **lineup})
+
+    _league_adjust_team_ovrs(teams)
 
     def _rank(teams_list: list[dict[str, Any]], key: str, rank_field: str) -> list[dict[str, Any]]:
         ranked = sorted(teams_list, key=lambda row: float(row.get(key) or -1), reverse=True)
