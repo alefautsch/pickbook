@@ -16,6 +16,8 @@ from backend.services.trade_validation_service import (
     _parse_validation_json,
     _sanitize_fix_against_inventory,
     _inverted_pick_swap_claim,
+    _give_pick_upgrade_substitution,
+    _wrong_team_pick_violations,
 )
 
 
@@ -294,6 +296,54 @@ def test_build_fix_payload_includes_both_validations():
     assert payload["pick_tv_catalog"]["2026 1.04"] == 7200
 
 
+def test_build_fix_payload_pick_downgrade_options_excludes_higher_tv_first():
+    payload = build_fix_payload(
+        side_a_team={
+            "team_name": "Alpha",
+            "draft_picks": [
+                {"label": "2026 1.04", "trade_value": 6087},
+                {"label": "2026 1.06", "trade_value": 4684},
+                {"label": "2026 1.08", "trade_value": 3900},
+            ],
+        },
+        side_b_team={"team_name": "Beta", "draft_picks": []},
+        give={
+            "players": [],
+            "picks": [{"label": "2026 1.06", "trade_value": 4684}],
+        },
+        receive={"players": [], "picks": []},
+        tv_evaluation={"give_adjusted_tv": 4684, "receive_adjusted_tv": 0},
+        side_a_validation={"accept_likelihood": "low"},
+        side_b_validation={"accept_likelihood": "high"},
+    )
+    assert payload["pick_downgrade_options"]["Alpha"] == [
+        {"label": "2026 1.08", "tv": 3900.0}
+    ]
+    assert payload["pick_downgrade_options"]["Beta"] == []
+
+
+def test_build_fix_payload_pick_downgrade_empty_when_only_higher_first_owned():
+    payload = build_fix_payload(
+        side_a_team={
+            "team_name": "bruno caboclo",
+            "draft_picks": [
+                {"label": "2026 1.04", "trade_value": 6087},
+                {"label": "2026 1.06", "trade_value": 4684},
+            ],
+        },
+        side_b_team={"team_name": "4chan Achane 5head", "draft_picks": []},
+        give={
+            "players": [{"name": "Emeka Egbuka", "tv": 4279}],
+            "picks": [{"label": "2026 1.06", "trade_value": 4684}],
+        },
+        receive={"players": [{"name": "Quinshon Judkins", "tv": 3698}], "picks": []},
+        tv_evaluation={"give_adjusted_tv": 8963, "receive_adjusted_tv": 3698},
+        side_a_validation={"accept_likelihood": "low"},
+        side_b_validation={"accept_likelihood": "medium"},
+    )
+    assert payload["pick_downgrade_options"]["bruno caboclo"] == []
+
+
 def test_inverted_pick_swap_claim_detects_backwards_tv_reasoning():
     catalog = {
         "2026 1.06": 2468.0,
@@ -307,6 +357,14 @@ def test_inverted_pick_swap_claim_detects_backwards_tv_reasoning():
     assert warning is not None
     assert "does not reduce bleed" in warning
     assert "3,151" in warning or "3,151" in warning.replace(",", "")
+
+
+def test_give_pick_upgrade_substitution_detects_104_for_106():
+    catalog = {"2026 1.04": 6087.0, "2026 1.06": 4684.0}
+    text = "Offer Side gives Egbuka + 2026 1.04 (instead of 2026 1.06)"
+    warning = _give_pick_upgrade_substitution(text, catalog)
+    assert warning is not None
+    assert "later/weaker pick" in warning
 
 
 def test_sanitize_fix_drops_picks_not_owned():
@@ -326,7 +384,99 @@ def test_sanitize_fix_drops_picks_not_owned():
     cleaned = _sanitize_fix_against_inventory(fix, tradable_inventory=inventory)
     assert cleaned["adjustments"] == ["Jackson Nine gives: Jahmyr Gibbs"]
     assert cleaned["both_sides_likely_accept"] is False
-    assert "2.05" in cleaned["reasoning"] or "Removed suggestions" in cleaned["reasoning"]
+    assert "2.05" in cleaned["reasoning"] or "Removed invalid trade-role" in cleaned["reasoning"]
+
+
+def test_sanitize_fix_rejects_pick_assigned_to_wrong_team():
+    """Egbuka + 1.06 for Judkins — 1.06 belongs to the Egbuka side, not Judkins side."""
+    inventory = {
+        "4chan Achane 5head": {"pick_labels": ["2026 1.04", "2026 1.06"]},
+        "bruno caboclo": {"pick_labels": ["2026 1.04", "2026 1.06"]},
+    }
+    trade_package = {
+        "4chan Achane 5head": {
+            "gives": {
+                "players": [{"name": "Emeka Egbuka"}],
+                "picks": [{"label": "2026 1.06"}],
+            },
+            "receives": {
+                "players": [{"name": "Quinshon Judkins"}],
+                "picks": [],
+            },
+        },
+        "bruno caboclo": {
+            "gives": {
+                "players": [{"name": "Quinshon Judkins"}],
+                "picks": [],
+            },
+            "receives": {
+                "players": [{"name": "Emeka Egbuka"}],
+                "picks": [{"label": "2026 1.06"}],
+            },
+        },
+    }
+    fix = {
+        "headline": "Swap 2026 1.06 for 2026 1.04",
+        "reasoning": (
+            "bruno caboclo overpays. Swapping 2026 1.06 for 2026 1.04 closes the TV gap."
+        ),
+        "adjustments": [
+            "bruno caboclo gives Quinshon Judkins + 2026 1.04 (instead of 2026 1.06); "
+            "receives Emeka Egbuka"
+        ],
+        "both_sides_likely_accept": True,
+    }
+    cleaned = _sanitize_fix_against_inventory(
+        fix,
+        tradable_inventory=inventory,
+        trade_package=trade_package,
+    )
+    assert cleaned["adjustments"] == []
+    assert cleaned["both_sides_likely_accept"] is False
+    assert "2026 1.06 is given by 4chan Achane 5head" in cleaned["reasoning"]
+
+
+def test_wrong_team_pick_violations_allows_later_pick_on_correct_side():
+    trade_package = {
+        "4chan Achane 5head": {
+            "gives": {
+                "players": [{"name": "Emeka Egbuka"}],
+                "picks": [{"label": "2026 1.06"}],
+            },
+            "receives": {"players": [], "picks": []},
+        },
+        "bruno caboclo": {
+            "gives": {"players": [{"name": "Quinshon Judkins"}], "picks": []},
+            "receives": {"players": [], "picks": []},
+        },
+    }
+    trade_give = {
+        team: {p["label"] for p in sides["gives"]["picks"]}
+        for team, sides in trade_package.items()
+    }
+    violations = _wrong_team_pick_violations(
+        "4chan Achane 5head gives Emeka Egbuka + 2026 1.08 (instead of 2026 1.06)",
+        trade_give_picks=trade_give,
+        team_names=list(trade_package.keys()),
+    )
+    assert violations == []
+
+
+def test_build_fix_payload_includes_picks_given_in_trade():
+    payload = build_fix_payload(
+        side_a_team={"team_name": "Alpha", "draft_picks": []},
+        side_b_team={"team_name": "Beta", "draft_picks": []},
+        give={
+            "players": [],
+            "picks": [{"label": "2026 1.06", "trade_value": 4684}],
+        },
+        receive={"players": [], "picks": []},
+        tv_evaluation={"give_adjusted_tv": 4684, "receive_adjusted_tv": 0},
+        side_a_validation={"accept_likelihood": "low"},
+        side_b_validation={"accept_likelihood": "high"},
+    )
+    assert payload["picks_given_in_trade"]["Alpha"] == ["2026 1.06"]
+    assert payload["picks_given_in_trade"]["Beta"] == []
 
 
 def test_suggest_trade_fix_with_llm_mocked():

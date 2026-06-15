@@ -101,16 +101,23 @@ Your job: propose ONE concrete fix so BOTH sides are more likely to accept.
 - Use each side's blockers and suggested_tweak as hints.
 - When picks are involved, reference projected rookies at those slots.
 - Prefer minimal changes (small pick swap, add a depth piece, shave TV on one side).
-- tv_by_side: each team's gives/receives adjusted TV and net (negative net = overpaying).
+- trade_package: the CURRENT deal — each team's exact gives and receives. Never swap which team gives which asset.
+- picks_given_in_trade: pick labels each team is already giving in trade_package (only those teams may substitute those picks).
+- pick_downgrade_options: per team giving a pick — owned picks with LOWER TV than what they currently give. Empty list means no first-round (or pick) downgrade exists in inventory; remove the pick from their offer or have the other side add assets instead.
+- tv_by_side: each team's gives/receives adjusted TV and net (negative net_adjusted_tv = that team overpays).
 - pick_tv_catalog: exact TV for every owned pick label.
-- If a team overpays (net_adjusted_tv negative), they give MORE than they get.
-  To reduce overpay, remove assets from their give package or substitute a LOWER-tv pick/player.
-  Replacing a pick in their give package with a HIGHER-tv pick WORSENS overpay by the TV difference.
-  Never claim a swap "reduces bleed/overpay" when the substitute asset has higher TV than the one removed.
+- Pick TV direction: earlier slot = higher TV (2026 1.04 > 2026 1.06 > 2026 1.08 in the same round).
+- If a team overpays (net_adjusted_tv negative), they give MORE adjusted TV than they receive.
+  To reduce their overpay, remove assets from THEIR give package or substitute a LATER pick (higher round.decimal, LOWER TV) THEY are giving.
+  Replacing 1.06 with 1.04 in a give package INCREASES TV — that is wrong when trimming overpay.
+  Never claim a swap "reduces bleed/overpay" when the substitute pick has higher TV than the one removed.
+  Never move a traded pick to the other team's give package — e.g. if Team A gives 2026 1.06, only Team A can swap that pick.
+  If pick_downgrade_options[team] is empty, do NOT invent a later first — either remove the pick from that team's give package or add value from the other side.
 - CRITICAL: tradable_inventory lists every pick label and player each team actually owns.
   Only assign a pick or player to a team if it appears in that team's tradable_inventory.
   Never invent picks (e.g. do not add a 2026 2.05 or 2027 1st unless that exact label is listed).
-  Swaps must use picks from the current trade_package and/or tradable_inventory on the giving team.
+  Pick substitutions ("instead of") must replace a pick that SAME team is already giving in trade_package.
+  New sweeteners use "adds" and must still be in that team's tradable_inventory.
 - Name specific players and pick labels from the payload only.
 - Use team names — never "you" or "they".
 
@@ -132,7 +139,16 @@ _RE_SWAP_PICKS_RE = re.compile(
     re.I,
 )
 _RE_REDUCE_OVERPAY_CLAIM_RE = re.compile(
-    r"reduc(?:e|es|ing)|lessen|lower(?:s|ing)?\s+(?:the\s+)?(?:immediate\s+)?(?:tv\s+)?(?:bleed|overpay)",
+    r"reduc(?:e|es|ing)|lessen|lower(?:s|ing)?\s+(?:the\s+)?(?:immediate\s+)?(?:tv\s+)?(?:bleed|overpay)|clos(?:e|es|ing)\s+(?:the\s+)?tv\s+gap|trim(?:s|ming)?\s+capital",
+    re.I,
+)
+_INSTEAD_OF_PICK_RE = re.compile(
+    r"instead of\s+(?P<old_pick>20\d{2}\s+(?:\d+\.\d{2}|\d+(?:st|nd|rd|th)))",
+    re.I,
+)
+_INSTEAD_OF_SUB_RE = re.compile(
+    r"(?P<new_pick>20\d{2}\s+(?:\d+\.\d{2}|\d+(?:st|nd|rd|th)))"
+    r"\s*\(instead of\s+(?P<old_pick>20\d{2}\s+(?:\d+\.\d{2}|\d+(?:st|nd|rd|th)))\)",
     re.I,
 )
 
@@ -174,26 +190,200 @@ def _lookup_pick_tv(label: str, catalog: dict[str, float]) -> float | None:
     return None
 
 
+def _give_pick_upgrade_substitution(text: str, tv_catalog: dict[str, float]) -> str | None:
+    """Give-package swap replaced a pick with an earlier/higher-TV pick."""
+    for match in _INSTEAD_OF_SUB_RE.finditer(text):
+        new_pick = _normalize_pick_label(match.group("new_pick"))
+        old_pick = _normalize_pick_label(match.group("old_pick"))
+        tv_new = _lookup_pick_tv(new_pick, tv_catalog)
+        tv_old = _lookup_pick_tv(old_pick, tv_catalog)
+        if tv_new is None or tv_old is None:
+            continue
+        if tv_new > tv_old + 25:
+            delta = tv_new - tv_old
+            return (
+                f"Substituting {new_pick} ({tv_new:,.0f} TV) for {old_pick} ({tv_old:,.0f} TV) "
+                f"in the give package adds ~{delta:,.0f} TV — use a later/weaker pick to reduce overpay."
+            )
+    return None
+
+
 def _inverted_pick_swap_claim(text: str, tv_catalog: dict[str, float]) -> str | None:
     """Detect 'swap low pick for high pick reduces overpay' — direction is backwards."""
+    upgrade = _give_pick_upgrade_substitution(text, tv_catalog)
+    if upgrade and _RE_REDUCE_OVERPAY_CLAIM_RE.search(text):
+        return upgrade
+
     if not _RE_REDUCE_OVERPAY_CLAIM_RE.search(text):
         return None
     match = _RE_SWAP_PICKS_RE.search(text)
     if match is None:
-        return None
+        return upgrade
     out_pick = _normalize_pick_label(match.group("out_pick"))
     in_pick = _normalize_pick_label(match.group("in_pick"))
     tv_out = _lookup_pick_tv(out_pick, tv_catalog)
     tv_in = _lookup_pick_tv(in_pick, tv_catalog)
     if tv_out is None or tv_in is None:
-        return None
+        return upgrade
     if tv_in <= tv_out + 25:
-        return None
+        return upgrade
     delta = tv_in - tv_out
-    return (
+    swap_warning = (
         f"Swapping {out_pick} ({tv_out:,.0f} TV) for {in_pick} ({tv_in:,.0f} TV) in the give "
         f"package adds ~{delta:,.0f} TV to the overpaying side — it does not reduce bleed."
     )
+    return swap_warning
+
+
+def _pick_downgrade_options(
+    *,
+    trade_package: dict[str, Any],
+    tradable_inventory: dict[str, dict[str, Any]],
+    pick_tv_catalog: dict[str, float],
+) -> dict[str, list[dict[str, Any]]]:
+    """Owned picks a team could substitute in their give package to reduce TV."""
+    options: dict[str, list[dict[str, Any]]] = {}
+    for team_name, sides in trade_package.items():
+        give_picks = (sides.get("gives") or {}).get("picks") or []
+        if not give_picks:
+            options[team_name] = []
+            continue
+        current_tvs = [
+            _lookup_pick_tv(_normalize_pick_label(str(p.get("label") or "")), pick_tv_catalog)
+            for p in give_picks
+        ]
+        current_tvs = [tv for tv in current_tvs if tv is not None]
+        if not current_tvs:
+            options[team_name] = []
+            continue
+        floor_tv = min(current_tvs)
+        owned_labels = tradable_inventory.get(team_name, {}).get("pick_labels") or []
+        giving_labels = {
+            _normalize_pick_label(str(p.get("label") or ""))
+            for p in give_picks
+            if str(p.get("label") or "").strip()
+        }
+        team_options: list[dict[str, Any]] = []
+        for label in owned_labels:
+            norm = _normalize_pick_label(label)
+            if norm in giving_labels:
+                continue
+            tv = _lookup_pick_tv(norm, pick_tv_catalog)
+            if tv is not None and tv < floor_tv - 25:
+                team_options.append({"label": norm, "tv": round(tv, 2)})
+        team_options.sort(key=lambda row: -row["tv"])
+        options[team_name] = team_options
+    return options
+
+
+def _trade_give_pick_labels(trade_package: dict[str, Any]) -> dict[str, set[str]]:
+    """Pick labels each team gives in the current trade_package."""
+    result: dict[str, set[str]] = {}
+    for team_name, sides in trade_package.items():
+        picks = (sides.get("gives") or {}).get("picks") or []
+        labels = {
+            _normalize_pick_label(str(pick.get("label") or ""))
+            for pick in picks
+            if str(pick.get("label") or "").strip()
+        }
+        result[str(team_name)] = labels
+    return result
+
+
+def _pick_giver_in_trade(trade_give_picks: dict[str, set[str]]) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for team, picks in trade_give_picks.items():
+        for label in picks:
+            mapping[label] = team
+    return mapping
+
+
+def _give_clause_slice(text: str, *, team_start: int, team_len: int) -> str:
+    """Portion of text after a team name that describes what they give (before 'receives')."""
+    window = text[team_start : min(len(text), team_start + team_len + 140)]
+    receives_match = re.search(r"\breceives?\b", window, re.I)
+    if receives_match:
+        return window[: receives_match.start()]
+    return window
+
+
+def _wrong_team_pick_violations(
+    text: str,
+    *,
+    trade_give_picks: dict[str, set[str]],
+    team_names: list[str],
+) -> list[str]:
+    """Detect fix text that assigns a traded pick to the wrong team's give package."""
+    if not trade_give_picks:
+        return []
+
+    pick_giver = _pick_giver_in_trade(trade_give_picks)
+    if not pick_giver:
+        return []
+
+    violations: list[str] = []
+    lowered = text.lower()
+    givers = _teams_attributed_as_giver(text, team_names)
+
+    for giver in givers:
+        marker = giver.lower()
+        idx = lowered.find(marker)
+        if idx < 0:
+            continue
+        window = _give_clause_slice(text, team_start=idx, team_len=len(marker))
+        window_lower = window.lower()
+        is_add = bool(re.search(r"\badds?\b", window_lower))
+
+        for match in _INSTEAD_OF_PICK_RE.finditer(text):
+            if abs(match.start() - idx) > 160:
+                continue
+            if match.start() > idx and "receives" in text[idx:match.start()].lower():
+                continue
+            old_pick = _normalize_pick_label(match.group("old_pick"))
+            owned_gives = trade_give_picks.get(giver, set())
+            if old_pick and old_pick not in owned_gives:
+                actual = pick_giver.get(old_pick)
+                if actual:
+                    violations.append(
+                        f"{old_pick} is given by {actual} in the current trade, not {giver}"
+                    )
+                else:
+                    violations.append(
+                        f"{giver} does not give {old_pick} in the current trade"
+                    )
+
+        if is_add:
+            continue
+
+        for label in _pick_labels_in_text(window):
+            norm = _normalize_pick_label(label)
+            actual_giver = pick_giver.get(norm)
+            if actual_giver and actual_giver != giver:
+                violations.append(
+                    f"{norm} is given by {actual_giver} in the current trade, not {giver}"
+                )
+
+    # Reasoning often swaps picks without "Team gives" — flag team + pick co-mentioned wrongly.
+    if not (re.search(r"\bgives?\b", text, re.I) and re.search(r"\breceives?\b", text, re.I)):
+        for label in _pick_labels_in_text(text):
+            norm = _normalize_pick_label(label)
+            actual_giver = pick_giver.get(norm)
+            if not actual_giver:
+                continue
+            for match in _PICK_LABEL_IN_TEXT_RE.finditer(text):
+                if _normalize_pick_label(match.group(0)) != norm:
+                    continue
+                pick_pos = match.start()
+                for team in team_names:
+                    team_pos = lowered.find(team.lower())
+                    if team_pos < 0 or abs(team_pos - pick_pos) > 100:
+                        continue
+                    if team != actual_giver:
+                        violations.append(
+                            f"{norm} is given by {actual_giver} in the current trade, not {team}"
+                        )
+
+    return list(dict.fromkeys(violations))
 
 
 def _tradable_inventory(team: dict[str, Any]) -> dict[str, Any]:
@@ -271,15 +461,26 @@ def _sanitize_fix_against_inventory(
     fix: dict[str, Any],
     *,
     tradable_inventory: dict[str, dict[str, Any]],
+    trade_package: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Drop adjustments that reference picks a team does not own."""
+    """Drop adjustments that reference picks a team does not own or wrong team's give package."""
     if not tradable_inventory:
         return fix
+
+    trade_give_picks = _trade_give_pick_labels(trade_package or {})
+    team_names = list(tradable_inventory.keys())
 
     valid_adjustments: list[str] = []
     dropped: list[str] = []
     for adjustment in fix.get("adjustments") or []:
         violations = _invalid_pick_assignments(adjustment, team_names=tradable_inventory)
+        violations.extend(
+            _wrong_team_pick_violations(
+                adjustment,
+                trade_give_picks=trade_give_picks,
+                team_names=team_names,
+            )
+        )
         if violations:
             dropped.append(adjustment)
             continue
@@ -287,6 +488,13 @@ def _sanitize_fix_against_inventory(
 
     reasoning = str(fix.get("reasoning") or "")
     reasoning_violations = _invalid_pick_assignments(reasoning, team_names=tradable_inventory)
+    reasoning_violations.extend(
+        _wrong_team_pick_violations(
+            reasoning,
+            trade_give_picks=trade_give_picks,
+            team_names=team_names,
+        )
+    )
 
     result = dict(fix)
     result["adjustments"] = valid_adjustments
@@ -296,12 +504,11 @@ def _sanitize_fix_against_inventory(
         notes: list[str] = []
         if dropped:
             notes.append(
-                "Removed suggestions that used picks not in either team's inventory: "
-                + "; ".join(dropped[:2])
+                "Removed invalid trade-role suggestions: " + "; ".join(dropped[:2])
             )
         if reasoning_violations:
             notes.append(
-                "Reasoning referenced unavailable picks: "
+                "Reasoning referenced unavailable or misassigned picks: "
                 + "; ".join(sorted(set(reasoning_violations))[:3])
             )
         warning = " ".join(notes)
@@ -321,19 +528,43 @@ def _sanitize_fix_tv_claims(
 ) -> dict[str, Any]:
     if not tv_catalog:
         return fix
-    texts = [str(fix.get("reasoning") or ""), *(fix.get("adjustments") or [])]
+
     warnings: list[str] = []
-    for text in texts:
+    valid_adjustments: list[str] = []
+    dropped_adjustments: list[str] = []
+    for adjustment in fix.get("adjustments") or []:
+        adj_text = str(adjustment)
+        upgrade = _give_pick_upgrade_substitution(adj_text, tv_catalog)
+        if upgrade:
+            dropped_adjustments.append(adj_text)
+            if upgrade not in warnings:
+                warnings.append(upgrade)
+            continue
+        valid_adjustments.append(adj_text)
+
+    reasoning = str(fix.get("reasoning") or "")
+    for text in [reasoning, *dropped_adjustments]:
         warning = _inverted_pick_swap_claim(text, tv_catalog)
         if warning and warning not in warnings:
             warnings.append(warning)
-    if not warnings:
+
+    if not warnings and not dropped_adjustments:
         return fix
+
     result = dict(fix)
+    result["adjustments"] = valid_adjustments
     result["both_sides_likely_accept"] = False
+    if dropped_adjustments:
+        drop_note = (
+            "Removed give-package pick upgrades (earlier pick = higher TV): "
+            + "; ".join(dropped_adjustments[:2])
+        )
+        warnings.insert(0, drop_note)
     note = " ".join(warnings)
-    reasoning = str(result.get("reasoning") or "").strip()
-    result["reasoning"] = f"{reasoning} ({note})" if reasoning else note
+    reasoning_out = str(result.get("reasoning") or "").strip()
+    result["reasoning"] = f"{reasoning_out} ({note})" if reasoning_out else note
+    if not valid_adjustments and not result.get("headline"):
+        result["headline"] = "No valid TV-reducing fix"
     return result
 
 
@@ -405,6 +636,18 @@ def build_fix_payload(
                 },
             },
         },
+        "picks_given_in_trade": {
+            a_name: sorted(
+                _normalize_pick_label(str(p.get("label") or ""))
+                for p in give.get("picks") or []
+                if str(p.get("label") or "").strip()
+            ),
+            b_name: sorted(
+                _normalize_pick_label(str(p.get("label") or ""))
+                for p in receive.get("picks") or []
+                if str(p.get("label") or "").strip()
+            ),
+        },
         "tv_evaluation": {
             "net_adjusted_total_tv_delta": tv_evaluation.get("net_delta_adjusted_total_tv"),
             "net_adjusted_total_tv_pct": tv_evaluation.get("net_delta_adjusted_pct"),
@@ -415,6 +658,11 @@ def build_fix_payload(
         "side_a_validation": _compact_side_validation_for_fix(side_a_validation),
         "side_b_validation": _compact_side_validation_for_fix(side_b_validation),
     }
+    payload["pick_downgrade_options"] = _pick_downgrade_options(
+        trade_package=payload["trade_package"],
+        tradable_inventory=payload["tradable_inventory"],
+        pick_tv_catalog=pick_tv,
+    )
     if rookie_draft_context:
         payload["rookie_draft_context"] = rookie_draft_context
     return payload
@@ -469,6 +717,7 @@ def suggest_trade_fix_with_llm(
     sanitized = _sanitize_fix_against_inventory(
         normalized,
         tradable_inventory=payload.get("tradable_inventory") or {},
+        trade_package=payload.get("trade_package") or {},
     )
     return _sanitize_fix_tv_claims(
         sanitized,
