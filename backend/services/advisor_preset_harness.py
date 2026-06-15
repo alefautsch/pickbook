@@ -172,6 +172,34 @@ def _compact_rookie_draft(view: Any | None) -> dict[str, Any] | None:
     }
 
 
+def _suggest_trade_tool_params(
+    tools: AdvisorTools,
+    context: dict[str, Any],
+    *,
+    focus_id: str,
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    viewing_opponent = bool((context.get("focused_team") or {}).get("viewing_opponent"))
+    target_roster_id = focus_id if viewing_opponent else params.get("target_roster_id")
+
+    target_position = params.get("position")
+    if target_position:
+        target_position = str(target_position).upper()
+
+    target_player_id = None
+    player_query = params.get("player_query")
+    if player_query:
+        hits = tools.search_players(str(player_query)).get("hits") or []
+        if hits:
+            target_player_id = str(hits[0]["player_id"])
+
+    return {
+        "target_roster_id": str(target_roster_id) if target_roster_id else None,
+        "target_player_id": target_player_id,
+        "target_position": target_position,
+    }
+
+
 def _run_suggest_trade(
     tools: AdvisorTools,
     context: dict[str, Any],
@@ -180,15 +208,40 @@ def _run_suggest_trade(
     focus_id: str,
     params: dict[str, Any],
 ) -> dict[str, Any]:
-    viewing_opponent = bool((context.get("focused_team") or {}).get("viewing_opponent"))
-    target = focus_id if viewing_opponent else params.get("target_roster_id")
+    tool_params = _suggest_trade_tool_params(
+        tools, context, focus_id=focus_id, params=params
+    )
     result = tools.suggest_trades(
-        target_roster_id=str(target) if target else None,
+        target_roster_id=tool_params["target_roster_id"],
+        target_player_id=tool_params["target_player_id"],
+        target_position=tool_params["target_position"],
         rank_by_validation=False,
     )
     packages = result.get("packages") or []
+
+    # Surplus hooks miss "I need a stud RB" style asks — scan the league by position.
+    if (
+        not packages
+        and not tool_params["target_player_id"]
+        and not tool_params["target_roster_id"]
+    ):
+        fallback_position = tool_params["target_position"]
+        if not fallback_position:
+            needs = (result.get("trade_surplus_summary") or {}).get("needs") or []
+            if needs:
+                fallback_position = str(needs[0].get("position") or "").upper() or None
+        if fallback_position and fallback_position != tool_params["target_position"]:
+            result = tools.suggest_trades(
+                target_position=fallback_position,
+                rank_by_validation=False,
+            )
+            packages = result.get("packages") or []
+            tool_params = {**tool_params, "target_position": fallback_position}
+
     return {
-        "target_roster_id": target,
+        "target_roster_id": tool_params["target_roster_id"],
+        "target_position": tool_params["target_position"],
+        "target_player_id": tool_params["target_player_id"],
         "trade_surplus": result.get("trade_surplus_summary"),
         "packages": [_compact_package(pkg) for pkg in packages[:TOP_PACKAGES]],
         "package_count": len(packages),

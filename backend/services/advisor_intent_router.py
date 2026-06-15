@@ -66,7 +66,8 @@ Rules:
 - prose_tier=complex for trades, roster strategy, drop decisions, rookie prep, team_review
 - prose_tier=simple for player_lookup, news, narrow waiver ("best TE on waivers")
 - Extract player_query when a specific player is named
-- Set position filter for position-specific waiver questions
+- Set position (QB|RB|WR|TE) for position-specific waiver questions and suggest_trade
+  asks like "need a stud RB", "trade for a WR", "get a quarterback"
 - web_query only for news intent"""
 
 

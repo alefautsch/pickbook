@@ -38,6 +38,52 @@ function MessageBubble({ role, content }: AdvisorMessage) {
 }
 
 const MODEL_STORAGE_KEY = "bb-advisor-model-id";
+const SIZE_STORAGE_KEY = "bb-advisor-panel-size";
+const DEFAULT_PANEL_WIDTH = 420;
+const DEFAULT_PANEL_HEIGHT = 640;
+const MIN_PANEL_WIDTH = 300;
+const MIN_PANEL_HEIGHT = 360;
+
+type PanelSize = { width: number; height: number };
+
+function readStoredPanelSize(): PanelSize {
+  if (typeof window === "undefined") {
+    return { width: DEFAULT_PANEL_WIDTH, height: DEFAULT_PANEL_HEIGHT };
+  }
+  try {
+    const raw = window.localStorage.getItem(SIZE_STORAGE_KEY);
+    if (!raw) {
+      return { width: DEFAULT_PANEL_WIDTH, height: DEFAULT_PANEL_HEIGHT };
+    }
+    const parsed = JSON.parse(raw) as Partial<PanelSize>;
+    const width =
+      typeof parsed.width === "number" && parsed.width >= MIN_PANEL_WIDTH
+        ? parsed.width
+        : DEFAULT_PANEL_WIDTH;
+    const height =
+      typeof parsed.height === "number" && parsed.height >= MIN_PANEL_HEIGHT
+        ? parsed.height
+        : DEFAULT_PANEL_HEIGHT;
+    return { width, height };
+  } catch {
+    return { width: DEFAULT_PANEL_WIDTH, height: DEFAULT_PANEL_HEIGHT };
+  }
+}
+
+function clampPanelSize(size: PanelSize): PanelSize {
+  if (typeof window === "undefined") return size;
+  const margin = 40;
+  return {
+    width: Math.min(
+      Math.max(size.width, MIN_PANEL_WIDTH),
+      window.innerWidth - margin,
+    ),
+    height: Math.min(
+      Math.max(size.height, MIN_PANEL_HEIGHT),
+      window.innerHeight - margin,
+    ),
+  };
+}
 
 type AdvisorWidgetProps = {
   open: boolean;
@@ -59,6 +105,10 @@ export function AdvisorWidget({ open, onOpenChange }: AdvisorWidgetProps) {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [panelSize, setPanelSize] = useState<PanelSize>(() =>
+    clampPanelSize(readStoredPanelSize()),
+  );
+  const [isDesktop, setIsDesktop] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const threadKeyRef = useRef<string>("");
 
@@ -129,6 +179,52 @@ export function AdvisorWidget({ open, onOpenChange }: AdvisorWidgetProps) {
       window.localStorage.setItem(MODEL_STORAGE_KEY, modelId);
     }
   }, [modelId]);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 640px)");
+    const sync = () => setIsDesktop(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
+    const onResize = () => {
+      setPanelSize((current) => clampPanelSize(current));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(SIZE_STORAGE_KEY, JSON.stringify(panelSize));
+    }
+  }, [panelSize]);
+
+  const startPanelResize = useCallback((event: React.PointerEvent) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startSize = panelSize;
+
+    const onMove = (moveEvent: PointerEvent) => {
+      setPanelSize(
+        clampPanelSize({
+          width: startSize.width + (startX - moveEvent.clientX),
+          height: startSize.height + (startY - moveEvent.clientY),
+        }),
+      );
+    };
+
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, [panelSize]);
 
   useEffect(() => {
     if (open) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -233,7 +329,12 @@ export function AdvisorWidget({ open, onOpenChange }: AdvisorWidgetProps) {
 
       {open ? (
         <aside
-          className="fixed inset-0 z-50 flex flex-col overflow-hidden border-bb-border/60 bg-[#0a0e14]/98 pt-[env(safe-area-inset-top)] shadow-2xl shadow-black/50 backdrop-blur sm:inset-x-auto sm:inset-y-auto sm:bottom-5 sm:right-5 sm:left-auto sm:top-auto sm:h-[min(640px,calc(100vh-2.5rem))] sm:w-[min(420px,calc(100vw-2rem))] sm:rounded-2xl sm:border sm:pt-0"
+          className="fixed inset-0 z-50 flex flex-col overflow-hidden border-bb-border/60 bg-[#0a0e14]/98 pt-[env(safe-area-inset-top)] shadow-2xl shadow-black/50 backdrop-blur sm:inset-x-auto sm:inset-y-auto sm:bottom-5 sm:right-5 sm:left-auto sm:top-auto sm:rounded-2xl sm:border sm:pt-0"
+          style={
+            isDesktop
+              ? { width: panelSize.width, height: panelSize.height }
+              : undefined
+          }
           role="dialog"
           aria-label="Dynasty advisor"
         >
@@ -378,6 +479,25 @@ export function AdvisorWidget({ open, onOpenChange }: AdvisorWidgetProps) {
               </form>
             </>
           )}
+
+          {isDesktop ? (
+            <button
+              type="button"
+              onPointerDown={startPanelResize}
+              className="absolute bottom-0 left-0 z-10 hidden h-5 w-5 cursor-nwse-resize touch-none items-end justify-start rounded-bl-2xl p-1 text-bb-muted transition hover:text-bb-gold sm:flex"
+              aria-label="Resize advisor panel"
+              title="Drag to resize"
+            >
+              <svg
+                viewBox="0 0 12 12"
+                className="h-3 w-3"
+                fill="currentColor"
+                aria-hidden
+              >
+                <path d="M12 8v4H8l4-4zm-4 0v4H4l4-4zM8 0v4H4L8 0z" />
+              </svg>
+            </button>
+          ) : null}
         </aside>
       ) : null}
     </>

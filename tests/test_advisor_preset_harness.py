@@ -52,7 +52,12 @@ def test_run_suggest_trade_targets_focus_when_viewing_opponent():
         focus_id="9",
         params={},
     )
-    tools.suggest_trades.assert_called_once_with(target_roster_id="9", rank_by_validation=False)
+    tools.suggest_trades.assert_called_once_with(
+        target_roster_id="9",
+        target_player_id=None,
+        target_position=None,
+        rank_by_validation=False,
+    )
 
     tools.suggest_trades.reset_mock()
     context["focused_team"]["viewing_opponent"] = False
@@ -63,7 +68,73 @@ def test_run_suggest_trade_targets_focus_when_viewing_opponent():
         focus_id="9",
         params={},
     )
-    tools.suggest_trades.assert_called_once_with(target_roster_id=None, rank_by_validation=False)
+    tools.suggest_trades.assert_called_once_with(
+        target_roster_id=None,
+        target_player_id=None,
+        target_position=None,
+        rank_by_validation=False,
+    )
+
+
+def test_run_suggest_trade_passes_position_for_stud_need():
+    tools = MagicMock()
+    tools.suggest_trades.return_value = {
+        "packages": [{"counterparty": {"team_name": "Rivals"}, "give": {}, "receive": {}}],
+        "trade_surplus_summary": {},
+    }
+    context = {"focused_team": {"viewing_opponent": False}}
+
+    from backend.services.advisor_preset_harness import _run_suggest_trade
+
+    payload = _run_suggest_trade(
+        tools,
+        context,
+        my_roster_id="3",
+        focus_id="3",
+        params={"position": "RB"},
+    )
+
+    tools.suggest_trades.assert_called_once_with(
+        target_roster_id=None,
+        target_player_id=None,
+        target_position="RB",
+        rank_by_validation=False,
+    )
+    assert payload["target_position"] == "RB"
+    assert payload["package_count"] == 1
+
+
+def test_run_suggest_trade_falls_back_to_position_scan_when_hooks_empty():
+    tools = MagicMock()
+    tools.suggest_trades.side_effect = [
+        {
+            "packages": [],
+            "trade_surplus_summary": {"needs": [{"position": "RB"}]},
+        },
+        {
+            "packages": [{"counterparty": {"team_name": "Rebuilders"}, "give": {}, "receive": {}}],
+            "trade_surplus_summary": {"needs": [{"position": "RB"}]},
+        },
+    ]
+    context = {"focused_team": {"viewing_opponent": False}}
+
+    from backend.services.advisor_preset_harness import _run_suggest_trade
+
+    payload = _run_suggest_trade(
+        tools,
+        context,
+        my_roster_id="3",
+        focus_id="3",
+        params={},
+    )
+
+    assert tools.suggest_trades.call_count == 2
+    tools.suggest_trades.assert_any_call(
+        target_position="RB",
+        rank_by_validation=False,
+    )
+    assert payload["package_count"] == 1
+    assert payload["target_position"] == "RB"
 
 
 def test_run_preset_harness_dispatches():

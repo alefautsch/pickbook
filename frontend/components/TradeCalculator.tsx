@@ -360,6 +360,12 @@ export function TradeCalculator({
           sideAName={sideAName}
           sideBName={sideBName}
         />
+      ) : validation ? (
+        <ValidationResultsPanel
+          validation={validation}
+          sideAName={sideAName}
+          sideBName={sideBName}
+        />
       ) : null}
 
       {sameTeam ? (
@@ -585,39 +591,6 @@ export function TradeCalculator({
 
       {rookieContext && rookieContext.picks_in_trade.length > 0 ? (
         <RookiePickContextPanel context={rookieContext} tePremium={rookieContext.te_premium} />
-      ) : null}
-
-      {validation ? (
-        <section className="bb-card p-4 sm:p-5">
-          <div className="mb-4 flex flex-wrap items-center gap-3">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-bb-muted">
-              AI Evaluation
-            </h2>
-            <span className={`text-xl font-bold ${gradeColor(validation.overall_grade)}`}>
-              Overall {validation.overall_grade}
-            </span>
-          </div>
-          {validation.summary ? (
-            <p className="mb-4 rounded-lg bg-black/20 px-3 py-2.5 text-sm leading-relaxed text-white/90">
-              {validation.summary}
-            </p>
-          ) : null}
-          <div className="grid gap-4 md:grid-cols-2">
-            <ValidationCard
-              label={sideAName}
-              otherTeamName={sideBName}
-              validation={validation.side_a}
-            />
-            <ValidationCard
-              label={sideBName}
-              otherTeamName={sideAName}
-              validation={validation.side_b}
-            />
-          </div>
-          {validation.trade_fix && !validation.trade_fix.skipped ? (
-            <TradeFixCard fix={validation.trade_fix} />
-          ) : null}
-        </section>
       ) : null}
     </div>
   );
@@ -1129,6 +1102,49 @@ function Metric({
       <p className="text-xs text-bb-muted">{label}</p>
       <p className={`text-sm font-medium ${valueClass}`}>{value}</p>
     </div>
+  );
+}
+
+function ValidationResultsPanel({
+  validation,
+  sideAName,
+  sideBName,
+}: {
+  validation: TradeValidationResult;
+  sideAName: string;
+  sideBName: string;
+}) {
+  return (
+    <section className="bb-card border border-bb-gold/20 p-4 sm:p-5">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-bb-gold">
+          AI Analysis
+        </h2>
+        <span className={`text-xl font-bold ${gradeColor(validation.overall_grade)}`}>
+          Overall {validation.overall_grade}
+        </span>
+      </div>
+      {validation.summary ? (
+        <p className="mb-4 rounded-lg bg-black/20 px-3 py-2.5 text-sm leading-relaxed text-white/90">
+          {validation.summary}
+        </p>
+      ) : null}
+      <div className="grid gap-4 md:grid-cols-2">
+        <ValidationCard
+          label={sideAName}
+          otherTeamName={sideBName}
+          validation={validation.side_a}
+        />
+        <ValidationCard
+          label={sideBName}
+          otherTeamName={sideAName}
+          validation={validation.side_b}
+        />
+      </div>
+      {validation.trade_fix && !validation.trade_fix.skipped ? (
+        <TradeFixCard fix={validation.trade_fix} />
+      ) : null}
+    </section>
   );
 }
 
