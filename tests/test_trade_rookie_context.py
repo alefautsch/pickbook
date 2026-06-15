@@ -1,7 +1,10 @@
 """Tests for 2026 rookie pick projection in trade context."""
 
 from backend.services.trade_rookie_context import (
+    append_pick_context_to_reasoning,
+    build_deal_rookie_context,
     build_trade_rookie_context,
+    format_pick_projection_blurb,
     parse_pick_slot_from_label,
     pick_no_for_slot,
 )
@@ -173,3 +176,76 @@ def test_build_trade_rookie_context_falls_back_to_numbered_rookie_board(monkeypa
         "Jordyn Tyson",
         "Kenyon Sadiq",
     ]
+
+
+def test_build_deal_rookie_context_neutral_sides(monkeypatch):
+    class FakeState:
+        draft = {"season": "2026", "status": "pre_draft", "type": "snake"}
+
+        def _teams(self):
+            return 12
+
+        def _rounds(self):
+            return 4
+
+        picks = []
+
+        def _adp_index(self):
+            return type("Adp", (), {"pick_no": lambda self, name: None})()
+
+        def bpa_recommendations(self, limit: int = 15):
+            return []
+
+    class FakeLeague:
+        season = "2026"
+        scoring_json = {}
+
+    projections = {
+        1: {"name": "Jeremiyah Love", "pos": "RB"},
+        4: {"name": "Makai Lemon", "pos": "WR"},
+    }
+
+    monkeypatch.setattr(
+        "backend.services.trade_rookie_context.load_rookie_draft_state_for_league",
+        lambda db, league_id: (FakeState(), FakeLeague()),
+    )
+    monkeypatch.setattr(
+        "backend.services.trade_rookie_context.project_remaining_picks",
+        lambda state: projections,
+    )
+
+    ctx = build_deal_rookie_context(
+        None,  # type: ignore[arg-type]
+        "lg1",
+        side_a_team={"team_name": "Team A"},
+        side_b_team={"team_name": "Team B"},
+        side_a_gives_picks=[{"season": "2026", "round": 1, "label": "2026 1.01"}],
+        side_b_gives_picks=[{"season": "2026", "round": 1, "label": "2026 1.04"}],
+    )
+
+    assert ctx is not None
+    assert len(ctx["picks_in_trade"]) == 2
+    one_one = next(r for r in ctx["picks_in_trade"] if r["label"] == "2026 1.01")
+    assert one_one["given_by"] == "Team A"
+    assert one_one["acquired_by"] == "Team B"
+    assert one_one["projected_rookie"]["name"] == "Jeremiyah Love"
+
+
+def test_append_pick_context_to_reasoning():
+    ctx = {
+        "picks_in_trade": [
+            {
+                "label": "2026 1.01",
+                "projected_rookie": {"name": "Jeremiyah Love", "pos": "RB"},
+            }
+        ]
+    }
+    assert append_pick_context_to_reasoning("Team wants win-now RB.", ctx) == (
+        "Team wants win-now RB. Pick projections: 2026 1.01 → Jeremiyah Love (RB)."
+    )
+    assert append_pick_context_to_reasoning(
+        "Moving up for Jeremiyah Love at 1.01.", ctx
+    ) == "Moving up for Jeremiyah Love at 1.01."
+    assert format_pick_projection_blurb(ctx) == (
+        "Pick projections: 2026 1.01 → Jeremiyah Love (RB)."
+    )

@@ -15,10 +15,14 @@ from backend.schemas.trade import (
     TradeEvaluateRequest,
     TradeEvaluation,
     TradeEvaluateResponse,
+    TradeFixSuggestion,
     TradeLineupImpact,
     TradeLineupSide,
     TradeLineupStarterSlot,
+    TradePickRookieContext,
     TradeResolvedSide,
+    TradeRookieDraftContext,
+    TradeRookieProjection,
     TradeSideValidation,
     TradeValidationResult,
 )
@@ -27,13 +31,82 @@ from backend.services.analysis_service import _player_row_from_snapshot
 from backend.services.league_context import build_league_scoring_context
 from backend.services.read_service import get_team_detail
 from backend.services.trade_engine import evaluate_trade_lineup_deltas
-from backend.services.trade_rookie_context import build_trade_rookie_context
+from backend.services.trade_rookie_context import (
+    append_pick_context_to_reasoning,
+    build_deal_rookie_context,
+    build_trade_rookie_context,
+)
 from backend.services.trade_validation_service import (
+    build_fix_payload,
     build_validation_payload,
+    suggest_trade_fix_with_llm,
     validate_trade_with_llm,
     _fairness_label_for_counterparty,
 )
 from dynasty_draft.war_data import WarData
+
+
+def _rookie_projection_from_dict(data: dict[str, Any] | None) -> TradeRookieProjection | None:
+    if not data:
+        return None
+    return TradeRookieProjection(
+        name=data.get("name"),
+        pos=data.get("pos"),
+        ovr=data.get("ovr"),
+        adp_pick=data.get("adp_pick"),
+        trade_value=data.get("trade_value"),
+    )
+
+
+def _rookie_context_to_schema(ctx: dict[str, Any] | None) -> TradeRookieDraftContext | None:
+    if not ctx:
+        return None
+    picks: list[TradePickRookieContext] = []
+    for row in ctx.get("picks_in_trade") or []:
+        nearby = [
+            _rookie_projection_from_dict(n)
+            for n in (row.get("nearby_rookies") or [])
+        ]
+        nearby_clean = [n for n in nearby if n is not None]
+        picks.append(
+            TradePickRookieContext(
+                label=str(row.get("label") or ""),
+                pick_no=row.get("pick_no"),
+                given_by=str(row.get("given_by") or ""),
+                acquired_by=str(row.get("acquired_by") or ""),
+                projected_rookie=_rookie_projection_from_dict(row.get("projected_rookie")),
+                nearby_rookies=nearby_clean,
+                fills_need_for_acquirer=row.get("fills_need_for_acquirer"),
+                tep_note=row.get("tep_note"),
+            )
+        )
+    if not picks:
+        return None
+    return TradeRookieDraftContext(
+        season=str(ctx.get("season") or "2026"),
+        te_premium=float(ctx.get("te_premium") or 0),
+        picks_in_trade=picks,
+        board_top=list(ctx.get("board_top") or []),
+    )
+
+
+def _fix_to_schema(fix: dict[str, Any]) -> TradeFixSuggestion:
+    if fix.get("skipped"):
+        return TradeFixSuggestion(
+            skipped=True,
+            error=str(fix.get("error") or "Trade fix unavailable"),
+        )
+    if fix.get("error"):
+        return TradeFixSuggestion(
+            skipped=True,
+            error=str(fix.get("error")),
+        )
+    return TradeFixSuggestion(
+        headline=fix.get("headline"),
+        reasoning=fix.get("reasoning"),
+        adjustments=list(fix.get("adjustments") or []),
+        both_sides_likely_accept=fix.get("both_sides_likely_accept"),
+    )
 
 
 def _tv_fairness_grade(eval_result: dict[str, Any]) -> str:
@@ -305,6 +378,18 @@ def evaluate_trade(
         receive=receive,
         eval_result=eval_result,
     )
+    team_a_ctx = tools.get_team(req.side_a_roster_id)
+    team_b_ctx = tools.get_team(req.side_b_roster_id)
+    deal_rookie = None
+    if not team_a_ctx.get("error") and not team_b_ctx.get("error"):
+        deal_rookie = build_deal_rookie_context(
+            db,
+            league_id,
+            side_a_team=team_a_ctx,
+            side_b_team=team_b_ctx,
+            side_a_gives_picks=list(eval_result.get("give", {}).get("picks") or []),
+            side_b_gives_picks=list(eval_result.get("receive", {}).get("picks") or []),
+        )
     return TradeEvaluateResponse(
         side_a_roster_id=req.side_a_roster_id,
         side_b_roster_id=req.side_b_roster_id,
@@ -316,6 +401,7 @@ def evaluate_trade(
             side_b_roster_id=req.side_b_roster_id,
             lineup=lineup,
         ),
+        rookie_draft_context=_rookie_context_to_schema(deal_rookie),
     )
 
 
@@ -399,6 +485,10 @@ def _run_side_validation(
 
     likelihood = validation.get("accept_likelihood")
     fairness = validation.get("fairness_from_counterparty_view")
+    reasoning = append_pick_context_to_reasoning(
+        validation.get("reasoning"),
+        rookie_ctx,
+    )
     return TradeSideValidation(
         roster_id=counterparty_roster_id,
         team_name=counterparty_team.get("team_name"),
@@ -411,7 +501,7 @@ def _run_side_validation(
             proposer_name=str(proposer_team.get("team_name") or ""),
         ),
         would_improve_roster=validation.get("would_improve_their_roster"),
-        reasoning=validation.get("reasoning"),
+        reasoning=reasoning,
         blockers=list(validation.get("blockers") or []),
         suggested_tweak=validation.get("suggested_tweak"),
         grade=_accept_likelihood_grade(likelihood),
@@ -518,6 +608,58 @@ def validate_trade_dual(
     side_a_validation.roster_id = req.side_a_roster_id
     side_a_validation.team_name = team_a.team_name
 
+    team_a_ctx = tools_a.get_team(req.side_a_roster_id)
+    team_b_ctx = tools_a.get_team(req.side_b_roster_id)
+    deal_rookie = None
+    if not team_a_ctx.get("error") and not team_b_ctx.get("error"):
+        deal_rookie = build_deal_rookie_context(
+            db,
+            league_id,
+            side_a_team=team_a_ctx,
+            side_b_team=team_b_ctx,
+            side_a_gives_picks=list(eval_result.get("give", {}).get("picks") or []),
+            side_b_gives_picks=list(eval_result.get("receive", {}).get("picks") or []),
+        )
+
+    side_a_raw = {
+        "accept_likelihood": side_a_validation.accept_likelihood,
+        "fairness_from_counterparty_view": side_a_validation.fairness_view,
+        "would_improve_their_roster": side_a_validation.would_improve_roster,
+        "reasoning": side_a_validation.reasoning,
+        "blockers": side_a_validation.blockers,
+        "suggested_tweak": side_a_validation.suggested_tweak,
+    }
+    side_b_raw = {
+        "accept_likelihood": side_b_validation.accept_likelihood,
+        "fairness_from_counterparty_view": side_b_validation.fairness_view,
+        "would_improve_their_roster": side_b_validation.would_improve_roster,
+        "reasoning": side_b_validation.reasoning,
+        "blockers": side_b_validation.blockers,
+        "suggested_tweak": side_b_validation.suggested_tweak,
+    }
+    trade_fix: TradeFixSuggestion | None = None
+    if not side_a_validation.skipped and not side_b_validation.skipped:
+        fix_payload = build_fix_payload(
+            side_a_team=team_a_ctx if not team_a_ctx.get("error") else {"team_name": team_a.team_name},
+            side_b_team=team_b_ctx if not team_b_ctx.get("error") else {"team_name": team_b.team_name},
+            give=eval_result["give"],
+            receive=eval_result["receive"],
+            tv_evaluation={
+                **eval_result,
+                "tv_fairness_grade": evaluation.tv_fairness_grade,
+                "favors_roster_id": evaluation.favors_roster_id,
+            },
+            side_a_validation=side_a_raw,
+            side_b_validation=side_b_raw,
+            rookie_draft_context=deal_rookie,
+        )
+        fix_result = suggest_trade_fix_with_llm(
+            fix_payload,
+            api_key=api_key,
+            model=validation_model,
+        )
+        trade_fix = _fix_to_schema(fix_result)
+
     overall = _overall_grade(
         evaluation.tv_fairness_grade,
         side_a_validation.grade,
@@ -537,6 +679,8 @@ def validate_trade_dual(
         side_b=side_b_validation,
         overall_grade=overall,
         summary=summary,
+        rookie_draft_context=_rookie_context_to_schema(deal_rookie),
+        trade_fix=trade_fix,
     )
 
 

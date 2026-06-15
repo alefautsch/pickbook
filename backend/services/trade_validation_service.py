@@ -63,6 +63,7 @@ Rules:
 - For rebuilders, negative starter_ppg_delta is acceptable when acquiring youth/picks; positive delta is a bonus.
 - If review_for_team's lineup impact shows new incoming starters or materially higher starter PPG, that supports acceptance.
 - When rookie_draft_context is present, weigh projected rookies at traded pick slots — a manager may overpay TV to move up for a specific prospect (e.g. 1.01 for an elite RB) or accept less when the picks they give up project to weaker fits.
+- REQUIRED when rookie_draft_context.picks_in_trade is non-empty: reasoning MUST name at least one pick label and its projected_rookie (e.g. "2026 1.01 projects to Jeremiyah Love").
 - Use picks_in_trade.projected_rookie and fills_need_for_acquirer; in TEP leagues (te_premium > 0), TE prospects at mid-first slots matter more.
 - Be specific: name players, positions, pick slots, PPG deltas, roster holes, and projected rookies when relevant.
 
@@ -76,6 +77,145 @@ Respond with ONLY valid JSON (no markdown):
   "suggested_tweak": "one concrete adjustment or null"
 }
 """
+
+
+_FIX_SYSTEM = """You are a dynasty fantasy football trade mediator.
+Both managers have already been graded on whether they would accept the current offer.
+
+You receive:
+- side_a_team / side_b_team: names and roster context
+- trade_package: what each side gives and receives (players + picks with TV)
+- tv_evaluation: fairness math for the package
+- rookie_draft_context (when present): projected rookie at each 2026 pick slot
+- side_a_validation / side_b_validation: accept likelihood, reasoning, blockers, tweaks
+
+Your job: propose ONE concrete fix so BOTH sides are more likely to accept.
+- Use each side's blockers and suggested_tweak as hints.
+- When picks are involved, reference projected rookies at those slots.
+- Prefer minimal changes (small pick swap, add a depth piece, shave TV on one side).
+- Name specific players and pick labels from the payload only.
+- Use team names — never "you" or "they".
+
+Respond with ONLY valid JSON (no markdown):
+{
+  "headline": "short title for the fix",
+  "reasoning": "2-4 sentences explaining why this works for both teams",
+  "adjustments": ["concrete change 1", "concrete change 2"],
+  "both_sides_likely_accept": true | false
+}
+"""
+
+
+def _compact_side_validation_for_fix(validation: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "accept_likelihood": validation.get("accept_likelihood"),
+        "fairness_view": validation.get("fairness_from_counterparty_view"),
+        "would_improve_roster": validation.get("would_improve_their_roster"),
+        "reasoning": validation.get("reasoning"),
+        "blockers": validation.get("blockers") or [],
+        "suggested_tweak": validation.get("suggested_tweak"),
+    }
+
+
+def build_fix_payload(
+    *,
+    side_a_team: dict[str, Any],
+    side_b_team: dict[str, Any],
+    give: dict[str, Any],
+    receive: dict[str, Any],
+    tv_evaluation: dict[str, Any],
+    side_a_validation: dict[str, Any],
+    side_b_validation: dict[str, Any],
+    rookie_draft_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    a_name = str(side_a_team.get("team_name") or "Side A")
+    b_name = str(side_b_team.get("team_name") or "Side B")
+    payload: dict[str, Any] = {
+        "side_a_team": _compact_team_context(side_a_team),
+        "side_b_team": _compact_team_context(side_b_team),
+        "trade_package": {
+            a_name: {
+                "gives": {
+                    "players": [_compact_player(p) for p in give.get("players") or []],
+                    "picks": [_compact_pick(p) for p in give.get("picks") or []],
+                },
+                "receives": {
+                    "players": [_compact_player(p) for p in receive.get("players") or []],
+                    "picks": [_compact_pick(p) for p in receive.get("picks") or []],
+                },
+            },
+            b_name: {
+                "gives": {
+                    "players": [_compact_player(p) for p in receive.get("players") or []],
+                    "picks": [_compact_pick(p) for p in receive.get("picks") or []],
+                },
+                "receives": {
+                    "players": [_compact_player(p) for p in give.get("players") or []],
+                    "picks": [_compact_pick(p) for p in give.get("picks") or []],
+                },
+            },
+        },
+        "tv_evaluation": {
+            "net_adjusted_total_tv_delta": tv_evaluation.get("net_delta_adjusted_total_tv"),
+            "net_adjusted_total_tv_pct": tv_evaluation.get("net_delta_adjusted_pct"),
+            "within_band": tv_evaluation.get("within_band"),
+            "tv_favors": tv_evaluation.get("favors_roster_id"),
+            "tv_fairness_grade": tv_evaluation.get("tv_fairness_grade"),
+        },
+        "side_a_validation": _compact_side_validation_for_fix(side_a_validation),
+        "side_b_validation": _compact_side_validation_for_fix(side_b_validation),
+    }
+    if rookie_draft_context:
+        payload["rookie_draft_context"] = rookie_draft_context
+    return payload
+
+
+def _normalize_fix(parsed: dict[str, Any]) -> dict[str, Any]:
+    adjustments = parsed.get("adjustments") or []
+    if not isinstance(adjustments, list):
+        adjustments = [str(adjustments)]
+    return {
+        "headline": str(parsed.get("headline") or "").strip() or None,
+        "reasoning": str(parsed.get("reasoning") or "").strip() or None,
+        "adjustments": [str(a).strip() for a in adjustments if str(a).strip()],
+        "both_sides_likely_accept": bool(parsed.get("both_sides_likely_accept")),
+    }
+
+
+def suggest_trade_fix_with_llm(
+    payload: dict[str, Any],
+    *,
+    api_key: str | None,
+    model: str | None = None,
+) -> dict[str, Any]:
+    """Third LLM pass: suggest a fix both sides might accept."""
+    if not api_key or not api_key.strip():
+        return {
+            "error": "ANTHROPIC_API_KEY not configured — trade fix skipped",
+            "skipped": True,
+        }
+
+    resolved_model = model or get_settings().llm_validation_model or DEFAULT_VALIDATION_MODEL
+    client = anthropic.Anthropic(api_key=api_key.strip())
+    response = create_message(
+        client,
+        feature="trade_fix",
+        model=resolved_model,
+        max_tokens=700,
+        system=_FIX_SYSTEM,
+        messages=[
+            {
+                "role": "user",
+                "content": json.dumps(payload, indent=2, default=str),
+            }
+        ],
+    )
+    text_parts = [
+        block.text for block in response.content if getattr(block, "type", None) == "text"
+    ]
+    raw_text = "".join(text_parts)
+    parsed = _parse_validation_json(raw_text)
+    return _normalize_fix(parsed)
 
 
 def _compact_player(row: dict[str, Any]) -> dict[str, Any]:

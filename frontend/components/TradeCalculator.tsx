@@ -12,7 +12,9 @@ import {
   type LeaguePlayerRow,
   type TradeEvaluateRequest,
   type TradeEvaluation,
+  type TradeFixSuggestion,
   type TradePickRef,
+  type TradeRookieDraftContext,
   type TradeValidationResult,
 } from "@/lib/api";
 import { formatPpg, formatTv } from "@/lib/format";
@@ -115,9 +117,11 @@ export function TradeCalculator({
   const [sideAPicks, setSideAPicks] = useState<DraftPickAsset[]>([]);
   const [sideBPicks, setSideBPicks] = useState<DraftPickAsset[]>([]);
   const [evaluation, setEvaluation] = useState<TradeEvaluation | null>(null);
+  const [rookieContext, setRookieContext] = useState<TradeRookieDraftContext | null>(null);
   const [validation, setValidation] = useState<TradeValidationResult | null>(null);
   const [evalLoading, setEvalLoading] = useState(false);
   const [validateLoading, setValidateLoading] = useState(false);
+  const [validateStep, setValidateStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -184,6 +188,7 @@ export function TradeCalculator({
     if (!sideARosterId || !sideBRosterId || sameTeam) return;
     if (!hasAssets) {
       setEvaluation(null);
+      setRookieContext(null);
       setValidation(null);
       return;
     }
@@ -195,6 +200,7 @@ export function TradeCalculator({
         buildRequest(sideARosterId, sideBRosterId, sideA, sideB),
       );
       setEvaluation(result.evaluation);
+      setRookieContext(result.rookie_draft_context ?? null);
       setValidation(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Evaluation failed");
@@ -210,9 +216,21 @@ export function TradeCalculator({
     return () => window.clearTimeout(timer);
   }, [runEvaluate]);
 
+  useEffect(() => {
+    if (!validateLoading) {
+      setValidateStep(0);
+      return;
+    }
+    const interval = window.setInterval(() => {
+      setValidateStep((prev) => Math.min(prev + 1, 3));
+    }, 2200);
+    return () => window.clearInterval(interval);
+  }, [validateLoading]);
+
   async function handleValidate() {
     if (!sideARosterId || !sideBRosterId || sameTeam) return;
     setValidateLoading(true);
+    setValidateStep(0);
     setError(null);
     try {
       const result = await validateTrade(
@@ -220,6 +238,7 @@ export function TradeCalculator({
         buildRequest(sideARosterId, sideBRosterId, sideA, sideB),
       );
       setEvaluation(result.evaluation);
+      setRookieContext(result.rookie_draft_context ?? rookieContext);
       setValidation(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "AI validation failed");
@@ -237,6 +256,7 @@ export function TradeCalculator({
       setSideB({ players: [], picks: [] });
     }
     setValidation(null);
+    setRookieContext(null);
   }
 
   function swapSides() {
@@ -245,6 +265,7 @@ export function TradeCalculator({
     setSideA(sideB);
     setSideB(sideA);
     setValidation(null);
+    setRookieContext(null);
   }
 
   function addPlayer(side: "a" | "b", playerId: string) {
@@ -262,6 +283,7 @@ export function TradeCalculator({
       players: prev.players.filter((id) => id !== playerId),
     }));
     setValidation(null);
+    setRookieContext(null);
   }
 
   function addPick(side: "a" | "b", pick: DraftPickAsset) {
@@ -276,6 +298,7 @@ export function TradeCalculator({
       return { ...prev, picks: [...prev.picks, ref] };
     });
     setValidation(null);
+    setRookieContext(null);
   }
 
   function removePick(side: "a" | "b", key: string) {
@@ -285,6 +308,7 @@ export function TradeCalculator({
       picks: prev.picks.filter((p) => pickKey(p) !== key),
     }));
     setValidation(null);
+    setRookieContext(null);
   }
 
   const adjustedA = evaluation?.give_adjusted_tv ?? sumRawTv(sideA, playerById, sideAPicks);
@@ -329,6 +353,14 @@ export function TradeCalculator({
           {validateLoading ? "Evaluating…" : "AI Grade Both Sides"}
         </button>
       </div>
+
+      {validateLoading ? (
+        <ValidationThinkingSteps
+          step={validateStep}
+          sideAName={sideAName}
+          sideBName={sideBName}
+        />
+      ) : null}
 
       {sameTeam ? (
         <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
@@ -551,6 +583,10 @@ export function TradeCalculator({
         )}
       </section>
 
+      {rookieContext && rookieContext.picks_in_trade.length > 0 ? (
+        <RookiePickContextPanel context={rookieContext} tePremium={rookieContext.te_premium} />
+      ) : null}
+
       {validation ? (
         <section className="bb-card p-4 sm:p-5">
           <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -578,6 +614,9 @@ export function TradeCalculator({
               validation={validation.side_b}
             />
           </div>
+          {validation.trade_fix && !validation.trade_fix.skipped ? (
+            <TradeFixCard fix={validation.trade_fix} />
+          ) : null}
         </section>
       ) : null}
     </div>
@@ -1083,6 +1122,152 @@ function Metric({
     <div className="rounded-lg bg-black/20 px-3 py-2 ring-1 ring-inset ring-white/5">
       <p className="text-xs text-bb-muted">{label}</p>
       <p className={`text-sm font-medium ${valueClass}`}>{value}</p>
+    </div>
+  );
+}
+
+function ValidationThinkingSteps({
+  step,
+  sideAName,
+  sideBName,
+}: {
+  step: number;
+  sideAName: string;
+  sideBName: string;
+}) {
+  const steps = [
+    "Mapping 2026 pick slots to projected rookies…",
+    `Grading whether ${sideBName} would accept…`,
+    `Grading whether ${sideAName} would accept…`,
+    "Finding a fix both sides might accept…",
+  ];
+
+  return (
+    <section className="bb-card border border-bb-gold/20 p-4 sm:p-5">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="relative flex h-2.5 w-2.5">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-bb-gold/60 opacity-75" />
+          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-bb-gold" />
+        </span>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-bb-gold">
+          AI Analysis
+        </h2>
+      </div>
+      <ol className="space-y-2">
+        {steps.map((label, index) => {
+          const done = index < step;
+          const active = index === step;
+          return (
+            <li
+              key={label}
+              className={`flex items-center gap-2.5 text-sm transition ${
+                done
+                  ? "text-emerald-400"
+                  : active
+                    ? "text-white"
+                    : "text-bb-muted/50"
+              }`}
+            >
+              <span
+                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                  done
+                    ? "bg-emerald-500/20 text-emerald-400"
+                    : active
+                      ? "bg-bb-gold/20 text-bb-gold"
+                      : "bg-white/5 text-bb-muted/40"
+                }`}
+              >
+                {done ? "✓" : index + 1}
+              </span>
+              <span className={active ? "animate-pulse" : undefined}>{label}</span>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+function RookiePickContextPanel({
+  context,
+  tePremium,
+}: {
+  context: TradeRookieDraftContext;
+  tePremium?: number;
+}) {
+  return (
+    <section className="bb-card p-4 sm:p-5">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-bb-muted">
+          {context.season} Pick → Rookie Projections
+        </h2>
+        {tePremium && tePremium > 0 ? (
+          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+            TEP league
+          </span>
+        ) : null}
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {context.picks_in_trade.map((pick) => (
+          <div
+            key={`${pick.label}-${pick.acquired_by}`}
+            className="rounded-lg border border-white/6 bg-black/20 px-3 py-2.5"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="font-medium text-white">{pick.label}</p>
+                <p className="text-[11px] text-bb-muted">
+                  {pick.given_by} → {pick.acquired_by}
+                </p>
+              </div>
+              {pick.projected_rookie?.name ? (
+                <div className="text-right">
+                  <p className="text-sm font-semibold text-bb-gold">
+                    {pick.projected_rookie.name}
+                  </p>
+                  {pick.projected_rookie.pos ? (
+                    <p className="text-[11px] text-bb-muted">{pick.projected_rookie.pos}</p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-xs text-bb-muted">No projection</p>
+              )}
+            </div>
+            {pick.fills_need_for_acquirer ? (
+              <p className="mt-1.5 text-[11px] text-emerald-400">Fills acquirer need</p>
+            ) : null}
+            {pick.tep_note ? (
+              <p className="mt-1 text-[10px] text-amber-300/80">{pick.tep_note}</p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function TradeFixCard({ fix }: { fix: TradeFixSuggestion }) {
+  return (
+    <div className="mt-4 rounded-lg border border-bb-gold/30 bg-bb-gold/5 p-4">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <h3 className="text-sm font-semibold text-bb-gold">Suggested Fix</h3>
+        {fix.both_sides_likely_accept ? (
+          <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+            Both sides likely accept
+          </span>
+        ) : null}
+      </div>
+      {fix.headline ? <p className="font-medium text-white">{fix.headline}</p> : null}
+      {fix.reasoning ? (
+        <p className="mt-1.5 text-sm leading-relaxed text-white/85">{fix.reasoning}</p>
+      ) : null}
+      {fix.adjustments.length > 0 ? (
+        <ul className="mt-2.5 space-y-1 text-xs text-white/75">
+          {fix.adjustments.map((item) => (
+            <li key={item}>• {item}</li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }

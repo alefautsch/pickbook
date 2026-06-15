@@ -195,18 +195,15 @@ def _describe_pick_projection(
     return row
 
 
-def build_trade_rookie_context(
+def _load_projection_runtime(
     db: Session,
     league_id: str,
-    *,
-    review_team: dict[str, Any],
-    other_team: dict[str, Any],
-    review_acquires_picks: list[dict[str, Any]],
-    review_gives_picks: list[dict[str, Any]],
+    picks: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
-    """Simulate who lands at each 2026 pick slot in the trade (review team's POV)."""
     loaded = load_rookie_draft_state_for_league(db, league_id)
     state: Any | None = None
+    league_row: League | None = None
+
     if loaded is None:
         league_row = db.get(League, league_id)
         if league_row is None or str(league_row.season) != ROOKIE_TRADE_SEASON:
@@ -214,62 +211,71 @@ def build_trade_rookie_context(
         board = _fallback_rookie_board(db)
         if not board:
             return None
-        projections: dict[int, dict[str, Any]] = {}
-        state = None
+        slot_fields = [_pick_slot_fields(pick) for pick in picks]
+        slot_fields = [fields for fields in slot_fields if fields is not None]
+        if not slot_fields:
+            return None
         teams = int(league_row.total_rosters or 12)
-        rounds = max(
-            4,
-            *[
-                fields[1]
-                for fields in (
-                    _pick_slot_fields(pick)
-                    for pick in [*review_acquires_picks, *review_gives_picks]
-                )
-                if fields is not None
-            ],
-        )
-        draft_type = "linear"
-        adp_index: Any = _NoAdp()
-        draft_status = None
-        picks_made = 0
-    else:
-        state, league_row = loaded
-        draft_season = str(state.draft.get("season") or league_row.season)
-        if draft_season != ROOKIE_TRADE_SEASON:
-            return None
+        rounds = max(4, max(fields[1] for fields in slot_fields))
+        return {
+            "league_row": league_row,
+            "state": None,
+            "projections": {},
+            "board": board,
+            "teams": teams,
+            "rounds": rounds,
+            "draft_type": "linear",
+            "adp_index": _NoAdp(),
+            "draft_status": None,
+            "picks_made": 0,
+        }
 
-        projections = project_remaining_picks(state)
-        board = _board_rows_from_state(state)
-        if not projections and not board:
-            return None
+    state, league_row = loaded
+    draft_season = str(state.draft.get("season") or league_row.season)
+    if draft_season != ROOKIE_TRADE_SEASON:
+        return None
 
-        teams = state._teams()
-        rounds = state._rounds()
-        draft_type = str(state.draft.get("type") or "snake")
-        adp_index = state._adp_index()
-        draft_status = state.draft.get("status")
-        picks_made = len(state.picks)
+    projections = project_remaining_picks(state)
+    board = _board_rows_from_state(state)
+    if not projections and not board:
+        return None
 
+    return {
+        "league_row": league_row,
+        "state": state,
+        "projections": projections,
+        "board": board,
+        "teams": state._teams(),
+        "rounds": state._rounds(),
+        "draft_type": str(state.draft.get("type") or "snake"),
+        "adp_index": state._adp_index(),
+        "draft_status": state.draft.get("status"),
+        "picks_made": len(state.picks),
+    }
+
+
+def _build_context_from_runtime(
+    runtime: dict[str, Any],
+    *,
+    picks_with_sides: list[tuple[dict[str, Any], str, str, set[str]]],
+) -> dict[str, Any] | None:
+    teams = int(runtime["teams"])
     if teams <= 0:
         return None
 
-    review_name = str(review_team.get("team_name") or "review team")
-    other_name = str(other_team.get("team_name") or "other team")
-    review_needs = _need_positions(review_team)
-    other_needs = _need_positions(other_team)
+    projections = runtime["projections"]
+    board = runtime["board"]
+    rounds = int(runtime["rounds"])
+    draft_type = str(runtime["draft_type"])
+    adp_index = runtime["adp_index"]
+    state = runtime.get("state")
+    league_row = runtime["league_row"]
 
     picks_in_trade: list[dict[str, Any]] = []
-
-    def _append_pick(
-        pick: dict[str, Any],
-        *,
-        acquired_by: str,
-        given_by: str,
-        need_positions: set[str],
-    ) -> None:
+    for pick, acquired_by, given_by, need_positions in picks_with_sides:
         fields = _pick_slot_fields(pick)
         if fields is None:
-            return
+            continue
         _, round_no, slot = fields
         pick_no = pick_no_for_slot(
             round_no=round_no,
@@ -279,7 +285,7 @@ def build_trade_rookie_context(
             draft_type=draft_type,
         )
         if pick_no is None:
-            return
+            continue
         projection = projections.get(pick_no) or _projection_from_board_rank(board, pick_no)
         picks_in_trade.append(
             _describe_pick_projection(
@@ -293,31 +299,15 @@ def build_trade_rookie_context(
             )
         )
 
-    for pick in review_acquires_picks:
-        _append_pick(
-            pick,
-            acquired_by=review_name,
-            given_by=other_name,
-            need_positions=review_needs,
-        )
-    for pick in review_gives_picks:
-        _append_pick(
-            pick,
-            acquired_by=other_name,
-            given_by=review_name,
-            need_positions=other_needs,
-        )
-
     if not picks_in_trade:
         return None
 
     scoring = league_row.scoring_json or {}
     te_premium = float(scoring.get("bonus_rec_te") or 0)
-
     return {
         "season": ROOKIE_TRADE_SEASON,
-        "draft_status": draft_status,
-        "picks_made": picks_made,
+        "draft_status": runtime.get("draft_status"),
+        "picks_made": runtime.get("picks_made"),
         "te_premium": te_premium,
         "board_top": _board_top(state) if state is not None else board[:15],
         "picks_in_trade": picks_in_trade,
@@ -327,3 +317,99 @@ def build_trade_rookie_context(
             "for Lemon + Sadiq in TEP)."
         ),
     }
+
+
+def build_deal_rookie_context(
+    db: Session,
+    league_id: str,
+    *,
+    side_a_team: dict[str, Any],
+    side_b_team: dict[str, Any],
+    side_a_gives_picks: list[dict[str, Any]],
+    side_b_gives_picks: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Neutral view of every numbered 2026 pick in the deal."""
+    all_picks = [*side_a_gives_picks, *side_b_gives_picks]
+    runtime = _load_projection_runtime(db, league_id, all_picks)
+    if runtime is None:
+        return None
+
+    a_name = str(side_a_team.get("team_name") or "Side A")
+    b_name = str(side_b_team.get("team_name") or "Side B")
+    a_needs = _need_positions(side_a_team)
+    b_needs = _need_positions(side_b_team)
+
+    picks_with_sides: list[tuple[dict[str, Any], str, str, set[str]]] = []
+    for pick in side_a_gives_picks:
+        picks_with_sides.append((pick, b_name, a_name, b_needs))
+    for pick in side_b_gives_picks:
+        picks_with_sides.append((pick, a_name, b_name, a_needs))
+
+    return _build_context_from_runtime(runtime, picks_with_sides=picks_with_sides)
+
+
+def build_trade_rookie_context(
+    db: Session,
+    league_id: str,
+    *,
+    review_team: dict[str, Any],
+    other_team: dict[str, Any],
+    review_acquires_picks: list[dict[str, Any]],
+    review_gives_picks: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Simulate who lands at each 2026 pick slot in the trade (review team's POV)."""
+    all_picks = [*review_acquires_picks, *review_gives_picks]
+    runtime = _load_projection_runtime(db, league_id, all_picks)
+    if runtime is None:
+        return None
+
+    review_name = str(review_team.get("team_name") or "review team")
+    other_name = str(other_team.get("team_name") or "other team")
+    review_needs = _need_positions(review_team)
+    other_needs = _need_positions(other_team)
+
+    picks_with_sides: list[tuple[dict[str, Any], str, str, set[str]]] = []
+    for pick in review_acquires_picks:
+        picks_with_sides.append((pick, review_name, other_name, review_needs))
+    for pick in review_gives_picks:
+        picks_with_sides.append((pick, other_name, review_name, other_needs))
+
+    return _build_context_from_runtime(runtime, picks_with_sides=picks_with_sides)
+
+
+def format_pick_projection_blurb(rookie_ctx: dict[str, Any] | None) -> str | None:
+    """One-line summary of pick → projected rookie for UI / reasoning enrichment."""
+    if not rookie_ctx:
+        return None
+    parts: list[str] = []
+    for row in rookie_ctx.get("picks_in_trade") or []:
+        proj = row.get("projected_rookie") or {}
+        name = str(proj.get("name") or "").strip()
+        if not name:
+            continue
+        label = str(row.get("label") or f"pick #{row.get('pick_no')}")
+        pos = str(proj.get("pos") or "").strip()
+        suffix = f" ({pos})" if pos else ""
+        parts.append(f"{label} → {name}{suffix}")
+    if not parts:
+        return None
+    return "Pick projections: " + "; ".join(parts) + "."
+
+
+def append_pick_context_to_reasoning(
+    reasoning: str | None,
+    rookie_ctx: dict[str, Any] | None,
+) -> str | None:
+    """Ensure pick→rookie mapping appears in validation text even if the LLM omits it."""
+    blurb = format_pick_projection_blurb(rookie_ctx)
+    if not blurb:
+        return reasoning.strip() if reasoning else None
+    base = (reasoning or "").strip()
+    for row in rookie_ctx.get("picks_in_trade") or []:  # type: ignore[union-attr]
+        proj = row.get("projected_rookie") or {}
+        name = str(proj.get("name") or "")
+        if name and name.lower() in base.lower():
+            return base or None
+    if base:
+        return f"{base} {blurb}"
+    return blurb

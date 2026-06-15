@@ -5,7 +5,9 @@ from unittest.mock import MagicMock, patch
 
 from backend.services.trade_validation_service import (
     ACCEPT_LIKELIHOOD_SCORE,
+    build_fix_payload,
     build_validation_payload,
+    suggest_trade_fix_with_llm,
     validate_trade_with_llm,
     validation_accept_score,
     _fairness_label_for_counterparty,
@@ -242,3 +244,51 @@ def test_fairness_label_uses_team_names():
     assert _fairness_label_for_counterparty(
         "favors_you", counterparty_name="mcalver", proposer_name="sailboat"
     ) == "Favors sailboat"
+
+
+def test_build_fix_payload_includes_both_validations():
+    payload = build_fix_payload(
+        side_a_team={"team_name": "Alpha"},
+        side_b_team={"team_name": "Beta"},
+        give={"players": [], "picks": [{"label": "2026 1.01"}]},
+        receive={"players": [], "picks": []},
+        tv_evaluation={"net_delta_adjusted_pct": 8, "within_band": False},
+        side_a_validation={
+            "accept_likelihood": "low",
+            "blockers": ["TV gap"],
+            "suggested_tweak": "Add a pick",
+        },
+        side_b_validation={
+            "accept_likelihood": "high",
+            "blockers": [],
+            "suggested_tweak": None,
+        },
+    )
+    assert payload["side_a_team"]["team_name"] == "Alpha"
+    assert "Alpha" in payload["trade_package"]
+    assert payload["side_a_validation"]["accept_likelihood"] == "low"
+    assert payload["side_b_validation"]["accept_likelihood"] == "high"
+
+
+def test_suggest_trade_fix_with_llm_mocked():
+    mock_response = MagicMock()
+    mock_response.content = [
+        MagicMock(
+            type="text",
+            text=json.dumps(
+                {
+                    "headline": "Add late pick to balance",
+                    "reasoning": "Beta needs more TV; Alpha can spare a 3rd.",
+                    "adjustments": ["Alpha adds 2027 3rd"],
+                    "both_sides_likely_accept": True,
+                }
+            ),
+        )
+    ]
+
+    with patch("backend.services.trade_validation_service.create_message", return_value=mock_response):
+        result = suggest_trade_fix_with_llm({"trade": True}, api_key="test-key")
+
+    assert result["headline"] == "Add late pick to balance"
+    assert result["both_sides_likely_accept"] is True
+    assert result["adjustments"] == ["Alpha adds 2027 3rd"]

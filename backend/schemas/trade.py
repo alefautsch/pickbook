@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -122,12 +122,49 @@ class TradeSideValidation(BaseModel):
     error: str | None = None
 
 
+class TradeRookieProjection(BaseModel):
+    name: str | None = None
+    pos: str | None = None
+    ovr: int | None = None
+    adp_pick: int | None = None
+    trade_value: float | None = None
+
+
+class TradePickRookieContext(BaseModel):
+    label: str
+    pick_no: int | None = None
+    given_by: str
+    acquired_by: str
+    projected_rookie: TradeRookieProjection | None = None
+    nearby_rookies: list[TradeRookieProjection] = Field(default_factory=list)
+    fills_need_for_acquirer: bool | None = None
+    tep_note: str | None = None
+
+
+class TradeRookieDraftContext(BaseModel):
+    season: str
+    te_premium: float = 0.0
+    picks_in_trade: list[TradePickRookieContext] = Field(default_factory=list)
+    board_top: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class TradeFixSuggestion(BaseModel):
+    headline: str | None = None
+    reasoning: str | None = None
+    adjustments: list[str] = Field(default_factory=list)
+    both_sides_likely_accept: bool | None = None
+    skipped: bool = False
+    error: str | None = None
+
+
 class TradeValidationResult(BaseModel):
     evaluation: TradeEvaluation
     side_a: TradeSideValidation
     side_b: TradeSideValidation
     overall_grade: str
     summary: str | None = None
+    rookie_draft_context: TradeRookieDraftContext | None = None
+    trade_fix: TradeFixSuggestion | None = None
 
 
 class TradeEvaluateResponse(BaseModel):
@@ -136,3 +173,4 @@ class TradeEvaluateResponse(BaseModel):
     side_a_team_name: str | None = None
     side_b_team_name: str | None = None
     evaluation: TradeEvaluation
+    rookie_draft_context: TradeRookieDraftContext | None = None

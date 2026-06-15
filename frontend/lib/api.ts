@@ -1048,6 +1048,42 @@ export type TradeEvaluateResponse = {
   side_a_team_name?: string | null;
   side_b_team_name?: string | null;
   evaluation: TradeEvaluation;
+  rookie_draft_context?: TradeRookieDraftContext | null;
+};
+
+export type TradeRookieProjection = {
+  name?: string | null;
+  pos?: string | null;
+  ovr?: number | null;
+  adp_pick?: number | null;
+  trade_value?: number | null;
+};
+
+export type TradePickRookieContext = {
+  label: string;
+  pick_no?: number | null;
+  given_by: string;
+  acquired_by: string;
+  projected_rookie?: TradeRookieProjection | null;
+  nearby_rookies?: TradeRookieProjection[];
+  fills_need_for_acquirer?: boolean | null;
+  tep_note?: string | null;
+};
+
+export type TradeRookieDraftContext = {
+  season: string;
+  te_premium?: number;
+  picks_in_trade: TradePickRookieContext[];
+  board_top?: Record<string, unknown>[];
+};
+
+export type TradeFixSuggestion = {
+  headline?: string | null;
+  reasoning?: string | null;
+  adjustments: string[];
+  both_sides_likely_accept?: boolean | null;
+  skipped?: boolean;
+  error?: string | null;
 };
 
 export type TradeSideValidation = {
@@ -1071,6 +1107,8 @@ export type TradeValidationResult = {
   side_b: TradeSideValidation;
   overall_grade: string;
   summary?: string | null;
+  rookie_draft_context?: TradeRookieDraftContext | null;
+  trade_fix?: TradeFixSuggestion | null;
 };
 
 export function evaluateTrade(
