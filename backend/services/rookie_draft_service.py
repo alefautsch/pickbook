@@ -23,6 +23,7 @@ from backend.services.pick_service import collect_league_traded_picks, pick_slot
 from backend.services.read_service import headshot_url, ovr_tier
 from dynasty_draft.draft_pick_ownership import (
     PickOwnerIndex,
+    build_pick_no_owner_index,
     build_pick_owner_index,
     merge_pick_slot_order,
 )
@@ -113,6 +114,7 @@ def build_rookie_draft_state(
     settings: dict[str, Any],
     client: SleeperClient,
     pick_owner_index: PickOwnerIndex | None = None,
+    pick_no_owner_index: dict[int, int] | None = None,
     roster_owner_ids: dict[int, str] | None = None,
 ) -> RookieDraftState:
     war_path = Path(str(settings.get("war_csv", "war.csv")))
@@ -146,6 +148,7 @@ def build_rookie_draft_state(
         dynasty_rating_curve=DynastyRatingCurve.from_config(settings.get("dynasty_rating_curve")),
         strategy=strategy,
         pick_owner_index=pick_owner_index or {},
+        pick_no_owner_index=pick_no_owner_index or {},
         roster_owner_ids=roster_owner_ids or {},
     )
 
@@ -409,6 +412,17 @@ def get_rookie_draft_view(
     draft = merge_pick_slot_order(draft, pick_slots)
     traded_picks = collect_league_traded_picks(client, league_id)
     pick_owner_index = build_pick_owner_index(traded_picks)
+    teams = int((draft.get("settings") or {}).get("teams", league_row.total_rosters or 10))
+    rounds = int((draft.get("settings") or {}).get("rounds", 20))
+    pick_no_owner_index = build_pick_no_owner_index(
+        season=season,
+        teams=teams,
+        rounds=rounds,
+        pick_slots=pick_slots,
+        traded_picks=traded_picks,
+        draft_type=str(draft.get("type") or "snake"),
+        slot_to_roster=draft.get("slot_to_roster_id"),
+    )
     rosters = client.get_rosters(league_id)
     roster_owner_ids = {
         int(row["roster_id"]): str(row["owner_id"])
@@ -425,6 +439,7 @@ def get_rookie_draft_view(
         settings=settings,
         client=client,
         pick_owner_index=pick_owner_index,
+        pick_no_owner_index=pick_no_owner_index,
         roster_owner_ids=roster_owner_ids,
     )
 

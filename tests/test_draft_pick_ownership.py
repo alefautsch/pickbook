@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from dynasty_draft.draft_context import build_draft_timeline
-from dynasty_draft.draft_pick_ownership import build_pick_owner_index, merge_pick_slot_order, resolve_pick_owner
+from dynasty_draft.draft_pick_ownership import (
+    build_pick_no_owner_index,
+    build_pick_owner_index,
+    merge_pick_slot_order,
+    resolve_pick_owner,
+)
 from dynasty_draft.recommender import DraftState
 from dynasty_draft.war_data import WarData
 
@@ -154,3 +159,32 @@ def test_pick_slot_order_plus_trade_shows_acquiring_team():
     rows = build_draft_timeline(state, past=None, upcoming=None)
     pick_two = next(row for row in rows if row["pick_no"] == 2)
     assert pick_two["team"] == "Team Forty"
+
+
+def test_build_pick_no_owner_index_applies_trades():
+    traded = [{"season": "2026", "round": 1, "roster_id": "30", "owner_id": "40"}]
+    index = build_pick_no_owner_index(
+        season="2026",
+        teams=4,
+        rounds=2,
+        pick_slots={"10": 1, "20": 2, "30": 3, "40": 4},
+        traded_picks=traded,
+        draft_type="snake",
+    )
+    assert index[3] == 40
+    assert index[1] == 10
+
+
+def test_pick_no_owner_index_on_state():
+    traded = [{"season": "2026", "round": 1, "roster_id": "30", "owner_id": "40"}]
+    pick_no_index = build_pick_no_owner_index(
+        season="2026",
+        teams=4,
+        rounds=2,
+        pick_slots={"10": 1, "20": 2, "30": 3, "40": 4},
+        traded_picks=traded,
+        draft_type="snake",
+    )
+    state = _draft_state(pick_owner_index=build_pick_owner_index(traded))
+    state.pick_no_owner_index = pick_no_index
+    assert state.owner_roster_for_pick(3) == 40

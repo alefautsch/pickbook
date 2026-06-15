@@ -81,6 +81,58 @@ def resolve_pick_owner(
     return int(original_roster_id)
 
 
+def pick_slot_for_pick_no(pick_no: int, teams: int, draft_type: str) -> int:
+    """Draft slot (1..teams within a round) for an absolute pick number."""
+    round_no = (pick_no - 1) // teams + 1
+    pos_in_round = (pick_no - 1) % teams + 1
+    if (draft_type or "snake").lower() == "snake" and round_no % 2 == 0:
+        return teams - pos_in_round + 1
+    return pos_in_round
+
+
+def build_pick_no_owner_index(
+    *,
+    season: str,
+    teams: int,
+    rounds: int,
+    pick_slots: dict[str, int],
+    traded_picks: list[dict[str, Any]],
+    draft_type: str = "snake",
+    slot_to_roster: dict[str, Any] | None = None,
+) -> dict[int, int]:
+    """Map absolute pick_no → owner roster_id (franchise slot order + traded_picks).
+
+    Uses the same franchise-slot model as pick inventory: each draft slot maps to an
+    original franchise roster, then traded_picks resolve the current owner.
+    """
+    if teams <= 0 or rounds <= 0:
+        return {}
+
+    if pick_slots:
+        slot_to_franchise = {int(slot): int(rid) for rid, slot in pick_slots.items()}
+    elif slot_to_roster:
+        slot_to_franchise = {int(slot): int(rid) for slot, rid in slot_to_roster.items()}
+    else:
+        return {}
+
+    owner_index = build_pick_owner_index(traded_picks)
+    draft_type = (draft_type or "snake").lower()
+    result: dict[int, int] = {}
+    for pick_no in range(1, teams * rounds + 1):
+        round_no = (pick_no - 1) // teams + 1
+        slot = pick_slot_for_pick_no(pick_no, teams, draft_type)
+        franchise = slot_to_franchise.get(slot)
+        if franchise is None:
+            continue
+        result[pick_no] = resolve_pick_owner(
+            owner_index,
+            season=season,
+            round_no=round_no,
+            original_roster_id=franchise,
+        )
+    return result
+
+
 def slot_to_roster_from_pick_slots(pick_slots: dict[str, int]) -> dict[str, str]:
     """Invert roster_id → round slot (1 = 1.01) into snake slot → roster_id."""
     return {str(slot): str(rid) for rid, slot in pick_slots.items()}
