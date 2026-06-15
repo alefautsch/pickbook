@@ -1,6 +1,10 @@
 """Tests for advisor tool math and trade suggestion generation."""
 
+from unittest.mock import MagicMock
+
 from backend.services.advisor_tools import (
+    AdvisorToolContext,
+    AdvisorTools,
     evaluate_trade_package,
     generate_trade_suggestions,
     safe_calculate,
@@ -197,3 +201,16 @@ def test_generate_trade_suggestions_target_roster_filter():
 
     assert packages
     assert all(p["counterparty"]["roster_id"] == "2" for p in packages)
+
+
+def test_proposer_roster_id_is_string_property():
+    tools = AdvisorTools(
+        AdvisorToolContext(
+            db=MagicMock(),
+            league_id="1312127185259098112",
+            my_roster_id="3",
+            focused_roster_id="9",
+        )
+    )
+    assert tools.proposer_roster_id == "9"
+    assert isinstance(tools.proposer_roster_id, str)

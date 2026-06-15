@@ -1680,6 +1680,7 @@ class AdvisorTools:
             return None
         return analysis.position_strength.model_dump()
 
+    @property
     def proposer_roster_id(self) -> str:
         """Roster whose assets/surplus drive trade tools (focused team when pivoted)."""
         return str(self.ctx.focused_roster_id or self.ctx.my_roster_id)
