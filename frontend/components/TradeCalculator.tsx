@@ -634,6 +634,10 @@ function TradeSideColumn({
 
   const accentBorder = accent === "gold" ? "border-bb-gold/30" : "border-sky-500/30";
   const accentText = accent === "gold" ? "text-bb-gold" : "text-sky-400";
+  const accentTotal =
+    accent === "gold"
+      ? "bg-bb-gold/10 ring-bb-gold/30"
+      : "bg-sky-500/10 ring-sky-500/30";
   const accentPillActive =
     accent === "gold"
       ? "bg-bb-gold/20 text-bb-gold"
@@ -677,9 +681,9 @@ function TradeSideColumn({
 
   return (
     <section className={`bb-card flex flex-col border-t-2 p-4 ${accentBorder}`}>
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-3 space-y-3">
         <DarkSelect
-          className="min-w-0 flex-1"
+          className="w-full"
           value={rosterId}
           onChange={onRosterChange}
           accent={accent}
@@ -688,9 +692,14 @@ function TradeSideColumn({
             label: team.team_name ?? team.roster_id,
           }))}
         />
-        <span className={`shrink-0 text-sm font-bold tabular-nums ${accentText}`}>
-          {formatTv(sideTotal)}
-        </span>
+        <div className={`rounded-xl px-3 py-2.5 ring-1 ring-inset ${accentTotal}`}>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-bb-muted">
+            Total Trade Value
+          </p>
+          <p className={`mt-0.5 text-2xl font-black tabular-nums sm:text-3xl ${accentText}`}>
+            {formatTv(sideTotal)}
+          </p>
+        </div>
       </div>
       <p className="mb-3 text-xs font-medium uppercase tracking-wide text-bb-muted">
         {teamName} gives
@@ -1014,9 +1023,18 @@ function ValueBlock({
   consolidating: boolean;
 }) {
   return (
-    <div className="rounded-lg bg-black/20 px-3 py-3 ring-1 ring-inset ring-white/6">
-      <p className="mb-1 text-xs font-medium text-bb-muted">{teamName}</p>
-      <p className="text-xl font-bold tabular-nums text-white">{formatTv(adjusted)}</p>
+    <div className="rounded-xl bg-black/25 px-4 py-3 ring-1 ring-inset ring-white/8">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium text-bb-muted">{teamName}</p>
+          <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-bb-muted">
+            Total Adjusted TV
+          </p>
+        </div>
+        <p className="text-2xl font-black tabular-nums text-white sm:text-3xl">
+          {formatTv(adjusted)}
+        </p>
+      </div>
       <dl className="mt-2 space-y-1 text-xs text-bb-muted">
         <div className="flex justify-between gap-2">
           <dt>Raw TV</dt>
