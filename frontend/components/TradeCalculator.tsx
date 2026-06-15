@@ -17,6 +17,7 @@ import {
 } from "@/lib/api";
 import { formatPpg, formatTv } from "@/lib/format";
 import { matchesPositionFilter } from "@/lib/positions";
+import { AnimatedTradeValue } from "@/components/AnimatedTradeValue";
 import { DarkMenu, DarkSelect } from "@/components/DarkSelect";
 import { OvrBadge } from "@/components/OvrBadge";
 import { PlayerHeadshot } from "@/components/PlayerHeadshot";
@@ -696,9 +697,10 @@ function TradeSideColumn({
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-bb-muted">
             Total Trade Value
           </p>
-          <p className={`mt-0.5 text-2xl font-black tabular-nums sm:text-3xl ${accentText}`}>
-            {formatTv(sideTotal)}
-          </p>
+          <AnimatedTradeValue
+            value={sideTotal}
+            className={`mt-0.5 text-2xl font-black sm:text-3xl ${accentText}`}
+          />
         </div>
       </div>
       <p className="mb-3 text-xs font-medium uppercase tracking-wide text-bb-muted">
@@ -1031,9 +1033,10 @@ function ValueBlock({
             Total Adjusted TV
           </p>
         </div>
-        <p className="text-2xl font-black tabular-nums text-white sm:text-3xl">
-          {formatTv(adjusted)}
-        </p>
+        <AnimatedTradeValue
+          value={adjusted}
+          className="text-2xl font-black text-white sm:text-3xl"
+        />
       </div>
       <dl className="mt-2 space-y-1 text-xs text-bb-muted">
         <div className="flex justify-between gap-2">
