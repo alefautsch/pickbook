@@ -7,7 +7,7 @@ import json
 from typing import Any
 
 
-TEAM_OVR_SCALE_VERSION = "league-mean-v1"
+TEAM_OVR_SCALE_VERSION = "league-mean-v3"
 QB_PER_GAME_NORM_VERSION = "vor-blend-v1"
 FLEX_HYPE_DAMPEN_VERSION = "traj-pg35-v1"
 

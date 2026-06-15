@@ -53,7 +53,12 @@ TEAM_OVR_STD_TARGET = 8.0
 
 
 def _league_adjust_team_ovrs(teams: list[dict[str, Any]]) -> None:
-    """Widen team OVR spread in-place; tighter leagues get more amplification."""
+    """Widen team OVR spread in-place; tighter leagues get more amplification.
+
+    Input avg_dynasty_rating must stay as a float (pre-round roster average).
+    Rounding happens only after league-relative stretch so balanced leagues
+    don't collapse into a few integer buckets.
+    """
     raw_values: list[float] = []
     for team in teams:
         raw = team.get("avg_dynasty_rating")
@@ -67,6 +72,7 @@ def _league_adjust_team_ovrs(teams: list[dict[str, Any]]) -> None:
     std = max(std, TEAM_OVR_STD_FLOOR)
     amplify = min(TEAM_OVR_AMPLIFY_MAX, max(TEAM_OVR_AMPLIFY_MIN, TEAM_OVR_STD_TARGET / std))
 
+    adjusted: list[tuple[dict[str, Any], float]] = []
     for team in teams:
         raw = team.get("avg_dynasty_rating")
         if raw is None or raw <= 0:
@@ -74,9 +80,17 @@ def _league_adjust_team_ovrs(teams: list[dict[str, Any]]) -> None:
         raw_f = float(raw)
         amplified = TEAM_OVR_ANCHOR + amplify * (raw_f - mean)
         amplified = max(TEAM_OVR_FLOOR, min(TEAM_OVR_CEILING, amplified))
-        team["avg_dynasty_rating"] = round(
-            TEAM_OVR_RAW_BLEND * raw_f + (1.0 - TEAM_OVR_RAW_BLEND) * amplified
-        )
+        adjusted.append((team, TEAM_OVR_RAW_BLEND * raw_f + (1.0 - TEAM_OVR_RAW_BLEND) * amplified))
+
+    adjusted.sort(key=lambda pair: pair[1], reverse=True)
+    prev_rating: int | None = None
+    for team, value in adjusted:
+        rating = round(value)
+        if prev_rating is not None and rating >= prev_rating:
+            rating = prev_rating - 1
+        rating = max(TEAM_OVR_FLOOR, min(TEAM_OVR_CEILING, rating))
+        team["avg_dynasty_rating"] = rating
+        prev_rating = rating
 
 
 def _player_row_from_snapshot(snapshot: PlayerSnapshot, war: WarData) -> dict[str, Any]:
@@ -109,7 +123,7 @@ def _player_row_from_snapshot(snapshot: PlayerSnapshot, war: WarData) -> dict[st
     }
 
 
-def _weighted_rating(players: list[tuple[dict[str, Any], float]]) -> int:
+def _weighted_rating(players: list[tuple[dict[str, Any], float]]) -> float:
     total = 0.0
     weight_total = 0.0
     for player, weight in players:
@@ -118,13 +132,13 @@ def _weighted_rating(players: list[tuple[dict[str, Any], float]]) -> int:
             continue
         total += float(rating) * weight
         weight_total += weight
-    return round(total / weight_total) if weight_total else 0
+    return total / weight_total if weight_total else 0.0
 
 
 def _team_weighted_rating(
     starters: list[dict[str, Any]],
     bench: list[dict[str, Any]],
-) -> int:
+) -> float:
     starter_players = [
         row["player"]
         for row in starters
