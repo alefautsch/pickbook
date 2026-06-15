@@ -164,29 +164,56 @@ def _side_consolidating(
     return my_max > their_max
 
 
+def _assign_package_stud_adjustments(
+    give_assets: list[dict[str, Any]],
+    recv_assets: list[dict[str, Any]],
+) -> tuple[float, float, bool, bool]:
+    """Apply at most one non-zero stud/value adjustment per trade (KTC-style)."""
+    give_raw = stud_value_adjustment(give_assets)
+    recv_raw = stud_value_adjustment(recv_assets)
+    give_consolidating = _side_consolidating(give_assets, recv_assets)
+    recv_consolidating = _side_consolidating(recv_assets, give_assets)
+
+    if give_consolidating and recv_consolidating:
+        give_consolidating = False
+        recv_consolidating = False
+
+    give_adj = 0.0
+    recv_adj = 0.0
+
+    if recv_consolidating and recv_raw != 0:
+        recv_adj = recv_raw
+    elif give_consolidating and give_raw != 0:
+        give_adj = give_raw
+    elif recv_raw < 0:
+        recv_adj = recv_raw
+    elif give_raw < 0:
+        give_adj = give_raw
+
+    return give_adj, recv_adj, give_consolidating, recv_consolidating
+
+
 def evaluate_package_fairness(
     give_assets: list[dict[str, Any]],
     recv_assets: list[dict[str, Any]],
     *,
     fairness_band: float = FAIRNESS_BAND,
 ) -> dict[str, Any]:
-    """Fairness: raw TV + KTC stud adjustment + consolidation tax."""
+    """Fairness: raw TV + one-sided stud adjustment + consolidation tax."""
     give_raw = sum(asset_tv(a) for a in give_assets)
     recv_raw = sum(asset_tv(a) for a in recv_assets)
-    give_adj = stud_value_adjustment(give_assets)
-    recv_adj = stud_value_adjustment(recv_assets)
+    give_adj, recv_adj, give_consolidating, recv_consolidating = _assign_package_stud_adjustments(
+        give_assets, recv_assets
+    )
     give_total_adj = give_raw + give_adj
     recv_total_adj = recv_raw + recv_adj
     give_eff = effective_package_tv(give_assets)
     recv_eff = effective_package_tv(recv_assets)
 
-    give_consolidating = _side_consolidating(give_assets, recv_assets)
-    recv_consolidating = _side_consolidating(recv_assets, give_assets)
-
     consolidation_tax = 0.0
-    if recv_consolidating:
+    if recv_consolidating and recv_adj > 0:
         consolidation_tax = recv_total_adj * CONSOLIDATION_PREMIUM
-    elif give_consolidating:
+    elif give_consolidating and give_adj > 0:
         consolidation_tax = -give_total_adj * CONSOLIDATION_PREMIUM
 
     raw_baseline = max(give_total_adj, recv_total_adj, 1.0)

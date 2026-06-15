@@ -54,10 +54,45 @@ def test_consolidation_premium_favors_stud_side():
     assert result["give_total_tv"] == 10000.0
     assert result["receive_total_tv"] == 10000.0
     assert result["receive_consolidating"] is True
+    assert result["give_value_adjustment"] == 0.0
     assert result["receive_value_adjustment"] > 0
     assert result["consolidation_tax_tv"] > 0
     # KTC stud adjustment makes the consolidated side more expensive to acquire.
     assert result["fairness"] == "favors_you"
+
+
+def test_stud_adjustment_only_on_one_side_1v1():
+    """Two single studs — premium applies to consolidating side only, not both."""
+    result = evaluate_package_fairness(
+        [_player("1", "WR", 6500)],
+        [_player("2", "RB", 6400)],
+    )
+    assert result["give_value_adjustment"] > 0
+    assert result["receive_value_adjustment"] == 0.0
+
+
+def test_egbuka_plus_pick_for_judkins_no_stud_adj_or_tax():
+    give = [
+        _player("e", "WR", 4279, name="Emeka Egbuka"),
+        {"label": "2026 1.06", "tv": 4684},
+    ]
+    recv = [_player("j", "RB", 3698, name="Quinshon Judkins")]
+    result = evaluate_package_fairness(give, recv)
+    assert result["give_value_adjustment"] == 0.0
+    assert result["receive_value_adjustment"] == 0.0
+    assert result["consolidation_tax_tv"] == 0.0
+
+
+def test_depth_for_stud_penalty_only_on_dispersing_side():
+    give = [
+        _player("a", "WR", 3000),
+        _player("b", "WR", 2500),
+        _player("c", "WR", 2000),
+    ]
+    recv = [_player("s", "WR", 4200)]
+    result = evaluate_package_fairness(give, recv)
+    assert result["give_value_adjustment"] < 0
+    assert result["receive_value_adjustment"] == 0.0
 
 
 def test_production_ppg_weights_recent():
