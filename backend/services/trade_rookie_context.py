@@ -10,15 +10,33 @@ from sqlalchemy.orm import Session
 
 from backend.api.settings import _read_settings
 from backend.db.models import League
-from backend.services.rookie_draft_service import (
-    load_rookie_draft_state_for_league,
-    project_remaining_picks,
-)
+from backend.services.rookie_draft_service import load_rookie_draft_state_for_league
 from dynasty_draft.draft_pick_ownership import pick_slot_for_pick_no
-from dynasty_draft.war_data import PlayerValue, WarData
+from dynasty_draft.war_data import PlayerValue, WarData, normalize_name
 
 ROOKIE_TRADE_SEASON = "2026"
+ROOKIE_POSITIONS = frozenset({"QB", "RB", "WR", "TE"})
 _PICK_LABEL_RE = re.compile(r"(?:\d{4}\s+)?(\d+)\.(\d+)")
+
+# Consensus startup ADP for 2026 rookies — overrides global TV rank and noisy sims.
+CONSENSUS_ROOKIE_ADP: dict[str, int] = {
+    "Jeremiyah Love": 1,
+    "Carnell Tate": 2,
+    "Fernando Mendoza": 3,
+    "Makai Lemon": 4,
+    "Jordyn Tyson": 5,
+    "Kenyon Sadiq": 6,
+    "Jadarian Price": 7,
+    "KC Concepcion": 8,
+    "Ty Simpson": 12,
+    "Omar Cooper": 14,
+    "Eli Stowers": 18,
+}
+
+# Picks where the class consensus is effectively locked for trade reasoning.
+ROOKIE_PICK_LOCKS: dict[int, str] = {
+    1: "Jeremiyah Love",
+}
 
 
 def parse_pick_slot_from_label(label: str | None) -> tuple[int, int] | None:
@@ -107,57 +125,164 @@ def _rookie_row(player: PlayerValue, rank: int) -> dict[str, Any]:
     }
 
 
-def _fallback_rookie_board(db: Session) -> list[dict[str, Any]]:
-    """Rookie-only board from WAR when Sleeper has no rookie draft object."""
-    settings = _read_settings(db)
-    war_path = Path(str(settings.get("war_csv") or "war.csv"))
-    if not war_path.exists():
-        return []
-    war = WarData(war_path)
+def _rookie_tv_ranked_players(war: WarData) -> list[PlayerValue]:
     rookies = [
         player
         for player in war.players
-        if player.pos in {"QB", "RB", "WR", "TE"} and not player.has_worp
+        if player.pos in ROOKIE_POSITIONS and not player.has_worp
     ]
     rookies.sort(key=lambda player: player.trade_value, reverse=True)
-    return [_rookie_row(player, rank) for rank, player in enumerate(rookies, start=1)]
+    return rookies
 
 
-def _board_rows_from_state(state: Any, *, limit: int = 500) -> list[dict[str, Any]]:
-    adp = state._adp_index()
+def _effective_rookie_adp(
+    name: str,
+    *,
+    adp_index: Any,
+    rookie_tv_rank: int,
+) -> int:
+    if name in CONSENSUS_ROOKIE_ADP:
+        return CONSENSUS_ROOKIE_ADP[name]
+    external: int | None = None
+    if adp_index is not None and not isinstance(adp_index, _NoAdp):
+        source = str(getattr(adp_index, "source", "") or "")
+        if source and source != "trade_value":
+            external = adp_index.pick_no(name)
+            if external is not None and external > 72:
+                external = None
+    return external if external is not None else rookie_tv_rank
+
+
+def _range_window(pick_no: int) -> int:
+    if pick_no <= 12:
+        return 1
+    if pick_no <= 36:
+        return 2
+    return 3
+
+
+def _board_row_from_player(
+    player: PlayerValue,
+    *,
+    adp_pick: int,
+    adp_index: Any,
+) -> dict[str, Any]:
+    return {
+        "name": player.name,
+        "pos": player.pos,
+        "ovr": None,
+        "adp_pick": adp_pick,
+        "trade_value": player.trade_value,
+        "source": "consensus_rookie_adp",
+    }
+
+
+def _build_consensus_rookie_board(
+    *,
+    db: Session,
+    state: Any | None,
+    adp_index: Any,
+    drafted_names: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """ADP-ordered 2026 rookie board for trade pick ranges (not need-based sim)."""
+    drafted = drafted_names or set()
+    if db is not None:
+        try:
+            settings = _read_settings(db)
+            war_path = Path(str(settings.get("war_csv") or "war.csv"))
+        except (AttributeError, TypeError):
+            war_path = Path("war.csv")
+    else:
+        war_path = Path("war.csv")
+    war = WarData(war_path) if war_path.exists() else None
+    if war is None:
+        return []
+
+    tv_ranked = _rookie_tv_ranked_players(war)
+    tv_rank_by_name = {player.name: idx for idx, player in enumerate(tv_ranked, start=1)}
+
+    if state is not None and callable(getattr(state, "available_players", None)):
+        pool = [
+            player
+            for _, player in state.available_players()
+            if player.pos in ROOKIE_POSITIONS and not player.has_worp
+        ]
+    else:
+        pool = list(tv_ranked)
+
     rows: list[dict[str, Any]] = []
-    for rank, row in enumerate(state.bpa_recommendations(limit=limit), start=1):
-        name = row.get("name") or ""
-        rows.append(
-            {
-                "name": name,
-                "pos": row.get("pos"),
-                "ovr": row.get("dynasty_rating"),
-                "adp_pick": row.get("adp_pick") or adp.pick_no(name),
-                "bpa_rank": row.get("bpa_rank") or rank,
-                "trade_value": row.get("trade_value"),
-                "source": "rookie_draft_board",
-            }
+    for player in pool:
+        if normalize_name(player.name) in drafted:
+            continue
+        tv_rank = tv_rank_by_name.get(player.name, 999)
+        adp_pick = _effective_rookie_adp(
+            player.name,
+            adp_index=adp_index,
+            rookie_tv_rank=tv_rank,
         )
+        rows.append(_board_row_from_player(player, adp_pick=adp_pick, adp_index=adp_index))
+
+    rows.sort(key=lambda row: (row["adp_pick"], -(row.get("trade_value") or 0)))
     return rows
 
 
-def _projection_from_board_rank(board: list[dict[str, Any]], pick_no: int) -> dict[str, Any] | None:
+def _projection_for_pick_slot(
+    board: list[dict[str, Any]],
+    pick_no: int,
+) -> dict[str, Any] | None:
     if pick_no <= 0 or not board:
         return None
-    idx = min(pick_no - 1, len(board) - 1)
-    row = dict(board[idx])
-    start = max(0, idx - 2)
-    end = min(len(board), idx + 3)
-    row["nearby_rookies"] = [
-        _compact_rookie(candidate, adp_pick=candidate.get("adp_pick"))
-        for candidate in board[start:end]
+
+    locked_name = ROOKIE_PICK_LOCKS.get(pick_no)
+    window = _range_window(pick_no)
+    in_range = [
+        row
+        for row in board
+        if abs(int(row["adp_pick"]) - pick_no) <= window
     ]
+    if locked_name:
+        locked = next((row for row in board if row.get("name") == locked_name), None)
+        if locked is not None:
+            in_range = [locked, *[row for row in in_range if row.get("name") != locked_name]]
+        elif not in_range:
+            in_range = [{"name": locked_name, "pos": "RB", "adp_pick": pick_no}]
+
+    if not in_range:
+        closest = min(board, key=lambda row: abs(int(row["adp_pick"]) - pick_no))
+        in_range = [closest]
+
+    # Deduplicate by name, preserve order
+    seen: set[str] = set()
+    unique_range: list[dict[str, Any]] = []
+    for row in in_range:
+        name = str(row.get("name") or "")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        unique_range.append(row)
+
+    center = unique_range[0]
+    if locked_name:
+        center = next(
+            (row for row in unique_range if row.get("name") == locked_name),
+            unique_range[0],
+        )
+    else:
+        center = min(unique_range, key=lambda row: abs(int(row["adp_pick"]) - pick_no))
+
+    row = dict(center)
+    row["likely_range"] = unique_range[:5]
+    row["pick_no"] = pick_no
     return row
 
 
-def _board_top(state: Any, *, limit: int = 15) -> list[dict[str, Any]]:
-    return _board_rows_from_state(state, limit=limit)
+def _fallback_rookie_board(db: Session) -> list[dict[str, Any]]:
+    """Consensus rookie board when Sleeper has no rookie draft object."""
+    return _build_consensus_rookie_board(db=db, state=None, adp_index=_NoAdp())
+
+
+def _board_top_from_consensus(board: list[dict[str, Any]], *, limit: int = 15) -> list[dict[str, Any]]:
+    return board[:limit]
 
 
 def _describe_pick_projection(
@@ -184,13 +309,35 @@ def _describe_pick_projection(
 
     name = str(projection.get("name") or "")
     pos = str(projection.get("pos") or "").upper()
-    adp_pick = adp_index.pick_no(name) if name else None
+    adp_pick = projection.get("adp_pick")
+    if adp_pick is None and name and not isinstance(adp_index, _NoAdp):
+        adp_pick = adp_index.pick_no(name)
     rookie = _compact_rookie(projection, adp_pick=adp_pick)
     row["projected_rookie"] = rookie
-    if projection.get("nearby_rookies"):
-        row["nearby_rookies"] = projection["nearby_rookies"]
-    row["fills_need_for_acquirer"] = bool(pos and pos in need_positions)
-    if pos == "TE":
+
+    likely_range_raw = list(projection.get("likely_range") or [])
+    if not likely_range_raw and name:
+        likely_range_raw = [projection]
+    likely_range = [
+        _compact_rookie(
+            candidate,
+            adp_pick=candidate.get("adp_pick"),
+        )
+        for candidate in likely_range_raw
+        if candidate.get("name")
+    ]
+    row["likely_range"] = likely_range
+    row["nearby_rookies"] = likely_range
+
+    if ROOKIE_PICK_LOCKS.get(pick_no):
+        row["consensus_note"] = f"Consensus {ROOKIE_PICK_LOCKS[pick_no]} at this slot"
+    elif len(likely_range) > 1:
+        row["consensus_note"] = "Likely range based on startup ADP — not a single lock"
+
+    row["fills_need_for_acquirer"] = any(
+        str(candidate.get("pos") or "").upper() in need_positions for candidate in likely_range_raw
+    )
+    if any(str(candidate.get("pos") or "").upper() == "TE" for candidate in likely_range_raw):
         row["tep_note"] = "TE premium leagues boost mid-round TE prospects (e.g. Sadiq) vs flat"
     return row
 
@@ -208,24 +355,25 @@ def _load_projection_runtime(
         league_row = db.get(League, league_id)
         if league_row is None or str(league_row.season) != ROOKIE_TRADE_SEASON:
             return None
-        board = _fallback_rookie_board(db)
-        if not board:
-            return None
         slot_fields = [_pick_slot_fields(pick) for pick in picks]
         slot_fields = [fields for fields in slot_fields if fields is not None]
         if not slot_fields:
             return None
         teams = int(league_row.total_rosters or 12)
         rounds = max(4, max(fields[1] for fields in slot_fields))
+        adp_index: Any = _NoAdp()
+        board = _build_consensus_rookie_board(db=db, state=None, adp_index=adp_index)
+        if not board:
+            return None
         return {
+            "db": db,
             "league_row": league_row,
             "state": None,
-            "projections": {},
             "board": board,
             "teams": teams,
             "rounds": rounds,
             "draft_type": "linear",
-            "adp_index": _NoAdp(),
+            "adp_index": adp_index,
             "draft_status": None,
             "picks_made": 0,
         }
@@ -235,20 +383,26 @@ def _load_projection_runtime(
     if draft_season != ROOKIE_TRADE_SEASON:
         return None
 
-    projections = project_remaining_picks(state)
-    board = _board_rows_from_state(state)
-    if not projections and not board:
+    adp_index = state._adp_index()
+    drafted_names = set(getattr(state, "drafted_names", set()) or set())
+    board = _build_consensus_rookie_board(
+        db=db,
+        state=state,
+        adp_index=adp_index,
+        drafted_names=drafted_names,
+    )
+    if not board:
         return None
 
     return {
+        "db": db,
         "league_row": league_row,
         "state": state,
-        "projections": projections,
         "board": board,
         "teams": state._teams(),
         "rounds": state._rounds(),
         "draft_type": str(state.draft.get("type") or "snake"),
-        "adp_index": state._adp_index(),
+        "adp_index": adp_index,
         "draft_status": state.draft.get("status"),
         "picks_made": len(state.picks),
     }
@@ -263,12 +417,10 @@ def _build_context_from_runtime(
     if teams <= 0:
         return None
 
-    projections = runtime["projections"]
     board = runtime["board"]
     rounds = int(runtime["rounds"])
     draft_type = str(runtime["draft_type"])
     adp_index = runtime["adp_index"]
-    state = runtime.get("state")
     league_row = runtime["league_row"]
 
     picks_in_trade: list[dict[str, Any]] = []
@@ -286,7 +438,7 @@ def _build_context_from_runtime(
         )
         if pick_no is None:
             continue
-        projection = projections.get(pick_no) or _projection_from_board_rank(board, pick_no)
+        projection = _projection_for_pick_slot(board, pick_no)
         picks_in_trade.append(
             _describe_pick_projection(
                 pick,
@@ -309,12 +461,12 @@ def _build_context_from_runtime(
         "draft_status": runtime.get("draft_status"),
         "picks_made": runtime.get("picks_made"),
         "te_premium": te_premium,
-        "board_top": _board_top(state) if state is not None else board[:15],
+        "board_top": _board_top_from_consensus(board),
         "picks_in_trade": picks_in_trade,
         "usage": (
-            "Projected rookies at each traded pick slot — use when explaining why a "
-            "manager trades up/down (e.g. 1.01 for Jeremiah Love vs giving 1.04/1.06 "
-            "for Lemon + Sadiq in TEP)."
+            "Startup ADP ranges at each traded 2026 pick slot — cite likely_range names, "
+            "not a single certainty (e.g. 1.01 is Jeremiyah Love; 1.04–1.06 may be "
+            "Makai Lemon / Jordyn Tyson / Kenyon Sadiq in TEP)."
         ),
     }
 
@@ -378,22 +530,32 @@ def build_trade_rookie_context(
 
 
 def format_pick_projection_blurb(rookie_ctx: dict[str, Any] | None) -> str | None:
-    """One-line summary of pick → projected rookie for UI / reasoning enrichment."""
+    """One-line summary of pick → likely rookie range for UI / reasoning enrichment."""
     if not rookie_ctx:
         return None
     parts: list[str] = []
     for row in rookie_ctx.get("picks_in_trade") or []:
-        proj = row.get("projected_rookie") or {}
-        name = str(proj.get("name") or "").strip()
-        if not name:
-            continue
         label = str(row.get("label") or f"pick #{row.get('pick_no')}")
-        pos = str(proj.get("pos") or "").strip()
-        suffix = f" ({pos})" if pos else ""
-        parts.append(f"{label} → {name}{suffix}")
+        likely = row.get("likely_range") or []
+        names = [str(r.get("name") or "").strip() for r in likely if r.get("name")]
+        if not names:
+            proj = row.get("projected_rookie") or {}
+            name = str(proj.get("name") or "").strip()
+            if not name:
+                continue
+            pos = str(proj.get("pos") or "").strip()
+            suffix = f" ({pos})" if pos else ""
+            parts.append(f"{label} → {name}{suffix}")
+            continue
+        if len(names) == 1:
+            pos = str((likely[0] or {}).get("pos") or "").strip()
+            suffix = f" ({pos})" if pos else ""
+            parts.append(f"{label} → {names[0]}{suffix}")
+        else:
+            parts.append(f"{label} → {names[0]}–{names[-1]}")
     if not parts:
         return None
-    return "Pick projections: " + "; ".join(parts) + "."
+    return "Pick ranges: " + "; ".join(parts) + "."
 
 
 def append_pick_context_to_reasoning(

@@ -63,11 +63,11 @@ def _rookie_context_to_schema(ctx: dict[str, Any] | None) -> TradeRookieDraftCon
         return None
     picks: list[TradePickRookieContext] = []
     for row in ctx.get("picks_in_trade") or []:
-        nearby = [
+        likely = [
             _rookie_projection_from_dict(n)
-            for n in (row.get("nearby_rookies") or [])
+            for n in (row.get("likely_range") or row.get("nearby_rookies") or [])
         ]
-        nearby_clean = [n for n in nearby if n is not None]
+        likely_clean = [n for n in likely if n is not None]
         picks.append(
             TradePickRookieContext(
                 label=str(row.get("label") or ""),
@@ -75,7 +75,9 @@ def _rookie_context_to_schema(ctx: dict[str, Any] | None) -> TradeRookieDraftCon
                 given_by=str(row.get("given_by") or ""),
                 acquired_by=str(row.get("acquired_by") or ""),
                 projected_rookie=_rookie_projection_from_dict(row.get("projected_rookie")),
-                nearby_rookies=nearby_clean,
+                nearby_rookies=likely_clean,
+                likely_range=likely_clean,
+                consensus_note=row.get("consensus_note"),
                 fills_need_for_acquirer=row.get("fills_need_for_acquirer"),
                 tep_note=row.get("tep_note"),
             )

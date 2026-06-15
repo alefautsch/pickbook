@@ -137,6 +137,8 @@ class TradePickRookieContext(BaseModel):
     acquired_by: str
     projected_rookie: TradeRookieProjection | None = None
     nearby_rookies: list[TradeRookieProjection] = Field(default_factory=list)
+    likely_range: list[TradeRookieProjection] = Field(default_factory=list)
+    consensus_note: str | None = None
     fills_need_for_acquirer: bool | None = None
     tep_note: str | None = None
 

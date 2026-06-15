@@ -1008,9 +1008,15 @@ function LineupBlock({
                   ) : null}
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {slot.ovr != null ? <OvrBadge ovr={slot.ovr} size="sm" /> : null}
-                <span className="text-xs font-medium tabular-nums text-bb-muted">
+              <div className="grid shrink-0 grid-cols-[2rem_2.75rem] items-center gap-x-2">
+                <div className="flex items-center justify-center">
+                  {slot.ovr != null ? (
+                    <OvrBadge ovr={slot.ovr} size="sm" />
+                  ) : (
+                    <span className="block h-8 w-8" aria-hidden />
+                  )}
+                </div>
+                <span className="text-right text-xs font-medium tabular-nums text-bb-muted">
                   {formatPpg(slot.ppg)}
                 </span>
               </div>
@@ -1199,7 +1205,7 @@ function RookiePickContextPanel({
     <section className="bb-card p-4 sm:p-5">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-bb-muted">
-          {context.season} Pick → Rookie Projections
+          {context.season} Pick → Likely Rookie Range
         </h2>
         {tePremium && tePremium > 0 ? (
           <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-300">
@@ -1220,12 +1226,20 @@ function RookiePickContextPanel({
                   {pick.given_by} → {pick.acquired_by}
                 </p>
               </div>
-              {pick.projected_rookie?.name ? (
-                <div className="text-right">
-                  <p className="text-sm font-semibold text-bb-gold">
-                    {pick.projected_rookie.name}
-                  </p>
-                  {pick.projected_rookie.pos ? (
+              {(pick.likely_range?.length ?? 0) > 0 || pick.projected_rookie?.name ? (
+                <div className="min-w-0 text-right">
+                  {(pick.likely_range?.length ?? 0) > 1 ? (
+                    <p className="text-sm font-semibold leading-snug text-bb-gold">
+                      {pick.likely_range!.map((r) => r.name).filter(Boolean).join(" · ")}
+                    </p>
+                  ) : (
+                    <p className="text-sm font-semibold text-bb-gold">
+                      {pick.likely_range?.[0]?.name ?? pick.projected_rookie?.name}
+                    </p>
+                  )}
+                  {(pick.likely_range?.length ?? 0) > 1 ? (
+                    <p className="text-[10px] text-bb-muted">startup ADP range</p>
+                  ) : pick.projected_rookie?.pos ? (
                     <p className="text-[11px] text-bb-muted">{pick.projected_rookie.pos}</p>
                   ) : null}
                 </div>
@@ -1233,6 +1247,9 @@ function RookiePickContextPanel({
                 <p className="text-xs text-bb-muted">No projection</p>
               )}
             </div>
+            {pick.consensus_note ? (
+              <p className="mt-1.5 text-[10px] text-bb-muted">{pick.consensus_note}</p>
+            ) : null}
             {pick.fills_need_for_acquirer ? (
               <p className="mt-1.5 text-[11px] text-emerald-400">Fills acquirer need</p>
             ) : null}

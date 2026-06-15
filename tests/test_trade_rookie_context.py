@@ -72,19 +72,9 @@ def test_build_trade_rookie_context_shapes_picks(monkeypatch):
         season = "2026"
         scoring_json = {"bonus_rec_te": 0.5}
 
-    projections = {
-        1: {"name": "Jeremiyah Love", "pos": "RB", "dynasty_rating": 88, "trade_value": 7500},
-        4: {"name": "Makai Lemon", "pos": "WR", "dynasty_rating": 82, "trade_value": 5200},
-        6: {"name": "Kenyon Sadiq", "pos": "TE", "dynasty_rating": 78, "trade_value": 4100},
-    }
-
     monkeypatch.setattr(
         "backend.services.trade_rookie_context.load_rookie_draft_state_for_league",
         lambda db, league_id: (FakeState(), FakeLeague()),
-    )
-    monkeypatch.setattr(
-        "backend.services.trade_rookie_context.project_remaining_picks",
-        lambda state: projections,
     )
 
     ctx = build_trade_rookie_context(
@@ -113,11 +103,14 @@ def test_build_trade_rookie_context_shapes_picks(monkeypatch):
     acquired = next(row for row in ctx["picks_in_trade"] if row["label"] == "2026 1.01")
     assert acquired["acquired_by"] == "Buyer"
     assert acquired["projected_rookie"]["name"] == "Jeremiyah Love"
+    assert acquired.get("consensus_note")
     assert acquired["fills_need_for_acquirer"] is True
 
     gave_up = next(row for row in ctx["picks_in_trade"] if row["label"] == "2026 1.06")
     assert gave_up["acquired_by"] == "Seller"
-    assert gave_up["projected_rookie"]["name"] == "Kenyon Sadiq"
+    range_names = [r["name"] for r in gave_up.get("likely_range") or []]
+    assert "Kenyon Sadiq" in range_names
+    assert "Ty Simpson" not in range_names
     assert gave_up.get("tep_note")
 
 
@@ -145,8 +138,14 @@ def test_build_trade_rookie_context_falls_back_to_numbered_rookie_board(monkeypa
         lambda db, league_id: None,
     )
     monkeypatch.setattr(
-        "backend.services.trade_rookie_context._fallback_rookie_board",
-        lambda db: board,
+        "backend.services.trade_rookie_context._build_consensus_rookie_board",
+        lambda **kwargs: [
+            {
+                **row,
+                "adp_pick": idx,
+            }
+            for idx, row in enumerate(board, start=1)
+        ],
     )
 
     ctx = build_trade_rookie_context(
@@ -169,13 +168,9 @@ def test_build_trade_rookie_context_falls_back_to_numbered_rookie_board(monkeypa
     assert one_one["projected_rookie"]["name"] == "Jeremiyah Love"
     one_four = next(row for row in ctx["picks_in_trade"] if row["label"] == "2026 1.04")
     assert one_four["projected_rookie"]["name"] == "Makai Lemon"
-    assert [r["name"] for r in one_four["nearby_rookies"]] == [
-        "Carnell Tate",
-        "Fernando Mendoza",
-        "Makai Lemon",
-        "Jordyn Tyson",
-        "Kenyon Sadiq",
-    ]
+    range_names = [r["name"] for r in one_four.get("likely_range") or []]
+    assert "Makai Lemon" in range_names
+    assert "Fernando Mendoza" in range_names
 
 
 def test_build_deal_rookie_context_neutral_sides(monkeypatch):
@@ -200,18 +195,9 @@ def test_build_deal_rookie_context_neutral_sides(monkeypatch):
         season = "2026"
         scoring_json = {}
 
-    projections = {
-        1: {"name": "Jeremiyah Love", "pos": "RB"},
-        4: {"name": "Makai Lemon", "pos": "WR"},
-    }
-
     monkeypatch.setattr(
         "backend.services.trade_rookie_context.load_rookie_draft_state_for_league",
         lambda db, league_id: (FakeState(), FakeLeague()),
-    )
-    monkeypatch.setattr(
-        "backend.services.trade_rookie_context.project_remaining_picks",
-        lambda state: projections,
     )
 
     ctx = build_deal_rookie_context(
@@ -241,11 +227,11 @@ def test_append_pick_context_to_reasoning():
         ]
     }
     assert append_pick_context_to_reasoning("Team wants win-now RB.", ctx) == (
-        "Team wants win-now RB. Pick projections: 2026 1.01 → Jeremiyah Love (RB)."
+        "Team wants win-now RB. Pick ranges: 2026 1.01 → Jeremiyah Love (RB)."
     )
     assert append_pick_context_to_reasoning(
         "Moving up for Jeremiyah Love at 1.01.", ctx
     ) == "Moving up for Jeremiyah Love at 1.01."
     assert format_pick_projection_blurb(ctx) == (
-        "Pick projections: 2026 1.01 → Jeremiyah Love (RB)."
+        "Pick ranges: 2026 1.01 → Jeremiyah Love (RB)."
     )

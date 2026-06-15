@@ -63,8 +63,8 @@ Rules:
 - For rebuilders, negative starter_ppg_delta is acceptable when acquiring youth/picks; positive delta is a bonus.
 - If review_for_team's lineup impact shows new incoming starters or materially higher starter PPG, that supports acceptance.
 - When rookie_draft_context is present, weigh projected rookies at traded pick slots — a manager may overpay TV to move up for a specific prospect (e.g. 1.01 for an elite RB) or accept less when the picks they give up project to weaker fits.
-- REQUIRED when rookie_draft_context.picks_in_trade is non-empty: reasoning MUST name at least one pick label and its projected_rookie (e.g. "2026 1.01 projects to Jeremiyah Love").
-- Use picks_in_trade.projected_rookie and fills_need_for_acquirer; in TEP leagues (te_premium > 0), TE prospects at mid-first slots matter more.
+- REQUIRED when rookie_draft_context.picks_in_trade is non-empty: reasoning MUST cite pick labels and likely_range prospects (e.g. "2026 1.01 is Jeremiyah Love; 1.04 may land Makai Lemon or Kenyon Sadiq").
+- Use picks_in_trade.likely_range / projected_rookie and fills_need_for_acquirer; in TEP leagues (te_premium > 0), TE prospects at mid-first slots matter more.
 - Be specific: name players, positions, pick slots, PPG deltas, roster holes, and projected rookies when relevant.
 
 Respond with ONLY valid JSON (no markdown):

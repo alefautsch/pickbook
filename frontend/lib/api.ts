@@ -1066,6 +1066,8 @@ export type TradePickRookieContext = {
   acquired_by: string;
   projected_rookie?: TradeRookieProjection | null;
   nearby_rookies?: TradeRookieProjection[];
+  likely_range?: TradeRookieProjection[];
+  consensus_note?: string | null;
   fills_need_for_acquirer?: boolean | null;
   tep_note?: string | null;
 };
