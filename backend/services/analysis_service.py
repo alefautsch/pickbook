@@ -34,7 +34,7 @@ CONTENDER_WEIGHTS: dict[str, float] = {
 }
 TRADE_SURPLUS_TOP_N = 3
 TRADE_SURPLUS_BOTTOM_N = 3
-LINEUP_PPG_FIELDS = ("dynasty_rating", "projected_ppg", "healthy_ppg", "trade_value")
+LINEUP_PPG_FIELDS = ("projected_ppg", "healthy_ppg", "dynasty_rating", "trade_value")
 # Top-5 bench players count at 0.15 each; depth beyond that is ignored.
 # This makes team OVR ≈ starter quality ± a few points for bench depth.
 TEAM_CORE_BENCH_COUNT = 5

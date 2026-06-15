@@ -300,12 +300,14 @@ def _take_best(
     return None
 
 
-def _sort_value(row: dict[str, Any], fields: tuple[str, ...]) -> float:
-    for field in fields:
-        value = row.get(field)
-        if value is not None:
-            return float(value)
-    return 0.0
+def _sort_value(row: dict[str, Any], fields: tuple[str, ...]) -> tuple[float, ...]:
+    """Descending sort key — primary field first, then tiebreakers."""
+    if not fields:
+        return (0.0,)
+    return tuple(
+        float(row[field]) if row.get(field) is not None else float("-inf")
+        for field in fields
+    )
 
 
 def _assign_lineup(
