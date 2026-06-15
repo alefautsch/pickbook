@@ -176,3 +176,48 @@ class TradeEvaluateResponse(BaseModel):
     side_b_team_name: str | None = None
     evaluation: TradeEvaluation
     rookie_draft_context: TradeRookieDraftContext | None = None
+
+
+class TradeSuggestRequest(BaseModel):
+    mode: Literal["acquire", "sell"]
+    proposer_roster_id: str
+    counterparty_roster_id: str | None = None
+    player_ids: list[str] = Field(default_factory=list)
+    picks: list[TradePickRef] = Field(default_factory=list)
+    rank_by_validation: bool = True
+    lubricant_mode: bool = True
+    keep_current_first: bool = True
+
+
+class TradeSuggestPackageSide(BaseModel):
+    players: list[TradeAssetPlayer] = Field(default_factory=list)
+    picks: list[TradeAssetPick] = Field(default_factory=list)
+
+
+class TradeSuggestCounterparty(BaseModel):
+    roster_id: str
+    team_name: str | None = None
+    direction: str | None = None
+    contender_tier: str | None = None
+    trade_pattern: str | None = None
+
+
+class TradeSuggestPackage(BaseModel):
+    counterparty: TradeSuggestCounterparty
+    give: TradeSuggestPackageSide
+    receive: TradeSuggestPackageSide
+    net_delta_adjusted_pct: float | None = None
+    package_quality: float | None = None
+    acquisition_score: float | None = None
+    disposal_score: float | None = None
+    rationale: str | None = None
+    validation_accept_score: float | None = None
+    counterparty_validation: dict[str, Any] | None = None
+
+
+class TradeSuggestResponse(BaseModel):
+    mode: str
+    proposer_roster_id: str
+    counterparty_roster_id: str | None = None
+    validation_ranked: bool = False
+    packages: list[TradeSuggestPackage] = Field(default_factory=list)

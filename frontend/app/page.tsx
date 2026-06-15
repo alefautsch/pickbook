@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { ApiUnavailable } from "@/components/ApiUnavailable";
 import { getLeagues } from "@/lib/api";
 
 const DEFAULT_LEAGUE_ID = "1314731206859853824";
@@ -8,7 +9,7 @@ export default async function Home() {
   try {
     leagues = await getLeagues();
   } catch {
-    redirect(`/leagues/${DEFAULT_LEAGUE_ID}`);
+    return <ApiUnavailable />;
   }
 
   const preferred =

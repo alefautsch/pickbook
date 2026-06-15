@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { ApiUnavailable } from "@/components/ApiUnavailable";
 import { AppShell } from "@/components/AppShell";
 import { HashScroll } from "@/components/HashScroll";
 import { LeagueOverviewAside } from "@/components/LeagueOverviewAside";
@@ -41,7 +42,11 @@ export default async function LeagueOverviewPage({ params }: PageProps) {
     if (myRoster) {
       myTeam = await getTeam(leagueId, myRoster.roster_id);
     }
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "";
+    if (message.includes("fetch failed") || message.includes("ECONNREFUSED") || message.includes("500")) {
+      return <ApiUnavailable />;
+    }
     notFound();
   }
 

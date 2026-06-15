@@ -6,6 +6,7 @@ import {
   getLeague,
   getLeaguePlayers,
   getTeam,
+  suggestTradePackages,
   validateTrade,
   type DraftPickAsset,
   type LeagueDetail,
@@ -15,6 +16,8 @@ import {
   type TradeFixSuggestion,
   type TradePickRef,
   type TradeRookieDraftContext,
+  type TradeSuggestPackage,
+  type TradeSuggestResponse,
   type TradeValidationResult,
 } from "@/lib/api";
 import { formatPpg, formatTv } from "@/lib/format";
@@ -123,6 +126,9 @@ export function TradeCalculator({
   const [validateLoading, setValidateLoading] = useState(false);
   const [validateStep, setValidateStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState<TradeSuggestResponse | null>(null);
+  const [suggestLabel, setSuggestLabel] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -183,6 +189,81 @@ export function TradeCalculator({
   );
   const hasAssets =
     sideA.players.length + sideA.picks.length + sideB.players.length + sideB.picks.length > 0;
+  const sideAHasAssets = sideA.players.length + sideA.picks.length > 0;
+  const sideBHasAssets = sideB.players.length + sideB.picks.length > 0;
+
+  const runSuggest = useCallback(
+    async (params: {
+      mode: "acquire" | "sell";
+      proposerRosterId: string;
+      proposerName: string;
+      counterpartyRosterId?: string;
+      counterpartyName?: string;
+      playerIds: string[];
+      picks: TradePickRef[];
+      label: string;
+      counterpartyFilter?: string;
+    }) => {
+      if (!params.playerIds.length && !params.picks.length) return;
+      setSuggestLoading(true);
+      setSuggestLabel(params.label);
+      setError(null);
+      try {
+        const result = await suggestTradePackages(leagueId, {
+          mode: params.mode,
+          proposer_roster_id: params.proposerRosterId,
+          counterparty_roster_id:
+            params.mode === "acquire"
+              ? params.counterpartyRosterId
+              : params.counterpartyFilter ?? null,
+          player_ids: params.playerIds,
+          picks: params.picks,
+          rank_by_validation: true,
+          lubricant_mode: true,
+          keep_current_first: true,
+        });
+        setSuggestions(result);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Trade suggestions failed");
+        setSuggestions(null);
+      } finally {
+        setSuggestLoading(false);
+      }
+    },
+    [leagueId],
+  );
+
+  function applySuggestion(pkg: TradeSuggestPackage, proposerRosterId: string) {
+    const cpId = pkg.counterparty.roster_id;
+    const givePlayers = pkg.give.players.map((p) => p.player_id);
+    const givePicks: TradePickRef[] = pkg.give.picks.map((p) => ({
+      season: p.season,
+      round: p.round,
+      original_roster_id: p.original_roster_id,
+    }));
+    const recvPlayers = pkg.receive.players.map((p) => p.player_id);
+    const recvPicks: TradePickRef[] = pkg.receive.picks.map((p) => ({
+      season: p.season,
+      round: p.round,
+      original_roster_id: p.original_roster_id,
+    }));
+
+    if (proposerRosterId === sideARosterId) {
+      setSideARosterId(proposerRosterId);
+      setSideBRosterId(cpId);
+      setSideA({ players: givePlayers, picks: givePicks });
+      setSideB({ players: recvPlayers, picks: recvPicks });
+    } else {
+      setSideARosterId(cpId);
+      setSideBRosterId(proposerRosterId);
+      setSideA({ players: recvPlayers, picks: recvPicks });
+      setSideB({ players: givePlayers, picks: givePicks });
+    }
+    setValidation(null);
+    setRookieContext(null);
+    setSuggestions(null);
+    setSuggestLabel(null);
+  }
 
   const runEvaluate = useCallback(async () => {
     if (!sideARosterId || !sideBRosterId || sameTeam) return;
@@ -340,19 +421,40 @@ export function TradeCalculator({
             KTC-blended values · stud adjustments · consolidation tax · depth discount
           </p>
           <p className="mt-1 max-w-xl text-xs text-bb-muted">
-            Pick any two teams — yours does not need to be in the deal. Left column is what
-            that team gives; AI grades whether each manager would accept.
+            Pick any two teams — yours does not need to be in the deal. Select assets on
+            either side for AI acquire/sell ideas, or build a deal manually and grade both
+            sides.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void handleValidate()}
-          disabled={validateLoading || !evaluation || !hasAssets || sameTeam}
-          className="rounded-lg bg-bb-gold px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-bb-gold/90 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {validateLoading ? "Evaluating…" : "AI Grade Both Sides"}
-        </button>
+      <button
+        type="button"
+        onClick={() => void handleValidate()}
+        disabled={validateLoading || !evaluation || !hasAssets || sameTeam}
+        className="rounded-lg bg-bb-gold px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-bb-gold/90 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {validateLoading ? "Evaluating…" : "AI Grade Both Sides"}
+      </button>
       </div>
+
+      {!sameTeam && (sideAHasAssets || sideBHasAssets) ? (
+        <TradeIdeasPanel
+          sideAName={sideAName}
+          sideBName={sideBName}
+          sideARosterId={sideARosterId}
+          sideBRosterId={sideBRosterId}
+          sideA={sideA}
+          sideB={sideB}
+          suggestLoading={suggestLoading}
+          suggestLabel={suggestLabel}
+          suggestions={suggestions}
+          onSuggest={runSuggest}
+          onApply={applySuggestion}
+          onDismiss={() => {
+            setSuggestions(null);
+            setSuggestLabel(null);
+          }}
+        />
+      ) : null}
 
       {validateLoading ? (
         <ValidationThinkingSteps
@@ -1366,5 +1468,297 @@ function ValidationCard({
         <p className="mt-2.5 text-xs text-bb-gold">Tweak: {validation.suggested_tweak}</p>
       ) : null}
     </div>
+  );
+}
+
+type TradeIdeasPanelProps = {
+  sideAName: string;
+  sideBName: string;
+  sideARosterId: string;
+  sideBRosterId: string;
+  sideA: SideAssets;
+  sideB: SideAssets;
+  suggestLoading: boolean;
+  suggestLabel: string | null;
+  suggestions: TradeSuggestResponse | null;
+  onSuggest: (params: {
+    mode: "acquire" | "sell";
+    proposerRosterId: string;
+    proposerName: string;
+    counterpartyRosterId?: string;
+    counterpartyName?: string;
+    playerIds: string[];
+    picks: TradePickRef[];
+    label: string;
+    counterpartyFilter?: string;
+  }) => void;
+  onApply: (pkg: TradeSuggestPackage, proposerRosterId: string) => void;
+  onDismiss: () => void;
+};
+
+function TradeIdeasPanel({
+  sideAName,
+  sideBName,
+  sideARosterId,
+  sideBRosterId,
+  sideA,
+  sideB,
+  suggestLoading,
+  suggestLabel,
+  suggestions,
+  onSuggest,
+  onApply,
+  onDismiss,
+}: TradeIdeasPanelProps) {
+  const sideAAssetCount = sideA.players.length + sideA.picks.length;
+  const sideBAssetCount = sideB.players.length + sideB.picks.length;
+
+  return (
+    <section className="bb-card p-4 sm:p-5">
+      <div className="mb-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-bb-muted">
+          AI Trade Ideas
+        </h2>
+        <p className="mt-1 text-xs text-bb-muted">
+          Select players or picks on either side, then find realistic packages — ranked by
+          counterparty accept likelihood when AI validation is available.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {sideBAssetCount > 0 ? (
+          <button
+            type="button"
+            disabled={suggestLoading}
+            onClick={() =>
+              onSuggest({
+                mode: "acquire",
+                proposerRosterId: sideARosterId,
+                proposerName: sideAName,
+                counterpartyRosterId: sideBRosterId,
+                counterpartyName: sideBName,
+                playerIds: sideB.players,
+                picks: sideB.picks,
+                label: `Trades for ${sideAName} to acquire from ${sideBName}`,
+              })
+            }
+            className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-medium text-sky-300 transition hover:bg-sky-500/20 disabled:opacity-40"
+          >
+            {sideAName} acquires {sideBName}&apos;s selections
+          </button>
+        ) : null}
+        {sideAAssetCount > 0 ? (
+          <button
+            type="button"
+            disabled={suggestLoading}
+            onClick={() =>
+              onSuggest({
+                mode: "acquire",
+                proposerRosterId: sideBRosterId,
+                proposerName: sideBName,
+                counterpartyRosterId: sideARosterId,
+                counterpartyName: sideAName,
+                playerIds: sideA.players,
+                picks: sideA.picks,
+                label: `Trades for ${sideBName} to acquire from ${sideAName}`,
+              })
+            }
+            className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-medium text-sky-300 transition hover:bg-sky-500/20 disabled:opacity-40"
+          >
+            {sideBName} acquires {sideAName}&apos;s selections
+          </button>
+        ) : null}
+        {sideAAssetCount > 0 ? (
+          <>
+            <button
+              type="button"
+              disabled={suggestLoading}
+              onClick={() =>
+                onSuggest({
+                  mode: "sell",
+                  proposerRosterId: sideARosterId,
+                  proposerName: sideAName,
+                  playerIds: sideA.players,
+                  picks: sideA.picks,
+                  label: `League offers for ${sideAName}'s selections`,
+                })
+              }
+              className="rounded-lg border border-bb-gold/40 bg-bb-gold/10 px-3 py-2 text-xs font-medium text-bb-gold transition hover:bg-bb-gold/20 disabled:opacity-40"
+            >
+              What can {sideAName} get? (league-wide)
+            </button>
+            <button
+              type="button"
+              disabled={suggestLoading}
+              onClick={() =>
+                onSuggest({
+                  mode: "sell",
+                  proposerRosterId: sideARosterId,
+                  proposerName: sideAName,
+                  playerIds: sideA.players,
+                  picks: sideA.picks,
+                  label: `Offers from ${sideBName} for ${sideAName}'s selections`,
+                  counterpartyFilter: sideBRosterId,
+                })
+              }
+              className="rounded-lg border border-bb-gold/30 px-3 py-2 text-xs font-medium text-bb-muted transition hover:border-bb-gold/40 hover:text-bb-gold disabled:opacity-40"
+            >
+              What would {sideBName} offer?
+            </button>
+          </>
+        ) : null}
+        {sideBAssetCount > 0 ? (
+          <>
+            <button
+              type="button"
+              disabled={suggestLoading}
+              onClick={() =>
+                onSuggest({
+                  mode: "sell",
+                  proposerRosterId: sideBRosterId,
+                  proposerName: sideBName,
+                  playerIds: sideB.players,
+                  picks: sideB.picks,
+                  label: `League offers for ${sideBName}'s selections`,
+                })
+              }
+              className="rounded-lg border border-bb-gold/40 bg-bb-gold/10 px-3 py-2 text-xs font-medium text-bb-gold transition hover:bg-bb-gold/20 disabled:opacity-40"
+            >
+              What can {sideBName} get? (league-wide)
+            </button>
+            <button
+              type="button"
+              disabled={suggestLoading}
+              onClick={() =>
+                onSuggest({
+                  mode: "sell",
+                  proposerRosterId: sideBRosterId,
+                  proposerName: sideBName,
+                  playerIds: sideB.players,
+                  picks: sideB.picks,
+                  label: `Offers from ${sideAName} for ${sideBName}'s selections`,
+                  counterpartyFilter: sideARosterId,
+                })
+              }
+              className="rounded-lg border border-bb-gold/30 px-3 py-2 text-xs font-medium text-bb-muted transition hover:border-bb-gold/40 hover:text-bb-gold disabled:opacity-40"
+            >
+              What would {sideAName} offer?
+            </button>
+          </>
+        ) : null}
+      </div>
+
+      {suggestLoading ? (
+        <p className="mt-4 text-sm text-bb-muted">
+          Building packages{suggestLabel ? ` — ${suggestLabel}` : ""}…
+        </p>
+      ) : null}
+
+      {suggestions && !suggestLoading ? (
+        <div className="mt-4 border-t border-white/6 pt-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-white">
+              {suggestLabel ?? "Suggestions"}
+              {suggestions.validation_ranked ? (
+                <span className="ml-2 text-xs text-bb-muted">· AI-ranked by accept likelihood</span>
+              ) : null}
+            </p>
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="text-xs text-bb-muted hover:text-white"
+            >
+              Dismiss
+            </button>
+          </div>
+          {suggestions.packages.length === 0 ? (
+            <p className="text-sm text-bb-muted">
+              No realistic packages found for those assets. Try fewer pieces or a different
+              counterparty.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {suggestions.packages.map((pkg, idx) => (
+                <li key={idx}>
+                  <TradeSuggestionCard
+                    pkg={pkg}
+                    onApply={() => onApply(pkg, suggestions.proposer_roster_id)}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function TradeSuggestionCard({
+  pkg,
+  onApply,
+}: {
+  pkg: TradeSuggestPackage;
+  onApply: () => void;
+}) {
+  const accept = pkg.counterparty_validation?.accept_likelihood;
+  const score = pkg.validation_accept_score;
+  const teamLabel = pkg.counterparty.team_name ?? pkg.counterparty.roster_id;
+
+  return (
+    <button
+      type="button"
+      onClick={onApply}
+      className="w-full rounded-lg border border-white/8 bg-black/25 px-3 py-2.5 text-left transition hover:border-bb-gold/40 hover:bg-black/35"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-white">
+            with {teamLabel}
+            {pkg.net_delta_adjusted_pct != null ? (
+              <span className="ml-2 text-xs font-normal text-bb-muted">
+                {pkg.net_delta_adjusted_pct >= 0 ? "+" : ""}
+                {pkg.net_delta_adjusted_pct.toFixed(1)}% adj
+              </span>
+            ) : null}
+          </p>
+          <p className="mt-1 text-xs text-bb-muted">
+            Give:{" "}
+            {[
+              ...pkg.give.players.map((p) => p.name ?? p.player_id),
+              ...pkg.give.picks.map((p) => p.label ?? `${p.season} R${p.round}`),
+            ].join(", ") || "—"}
+          </p>
+          <p className="text-xs text-bb-muted">
+            Receive:{" "}
+            {[
+              ...pkg.receive.players.map((p) => p.name ?? p.player_id),
+              ...pkg.receive.picks.map((p) => p.label ?? `${p.season} R${p.round}`),
+            ].join(", ") || "—"}
+          </p>
+          {pkg.rationale ? (
+            <p className="mt-1.5 text-[11px] text-white/70">{pkg.rationale}</p>
+          ) : null}
+        </div>
+        <div className="text-right">
+          {accept ? (
+            <span
+              className={`text-xs font-semibold uppercase ${
+                accept === "high"
+                  ? "text-emerald-400"
+                  : accept === "low"
+                    ? "text-rose-400"
+                    : "text-amber-300"
+              }`}
+            >
+              {accept} accept
+            </span>
+          ) : score != null ? (
+            <span className="text-xs text-bb-muted">Score {score.toFixed(0)}</span>
+          ) : null}
+        </div>
+      </div>
+      <p className="mt-2 text-[10px] text-bb-gold">Tap to load into calculator</p>
+    </button>
   );
 }

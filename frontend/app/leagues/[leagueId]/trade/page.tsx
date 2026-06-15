@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { ApiUnavailable } from "@/components/ApiUnavailable";
 import { AppShell } from "@/components/AppShell";
 import { TradeCalculator } from "@/components/TradeCalculator";
 import { getLeagues } from "@/lib/api";
@@ -13,7 +14,11 @@ export default async function TradeCalculatorPage({ params }: PageProps) {
   let leagues = [];
   try {
     leagues = await getLeagues();
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "";
+    if (message.includes("fetch failed") || message.includes("ECONNREFUSED") || message.includes("500")) {
+      return <ApiUnavailable />;
+    }
     notFound();
   }
 

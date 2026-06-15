@@ -1132,3 +1132,61 @@ export function validateTrade(
     body: JSON.stringify(body),
   });
 }
+
+export type TradeSuggestRequest = {
+  mode: "acquire" | "sell";
+  proposer_roster_id: string;
+  counterparty_roster_id?: string | null;
+  player_ids: string[];
+  picks: TradePickRef[];
+  rank_by_validation?: boolean;
+  lubricant_mode?: boolean;
+  keep_current_first?: boolean;
+};
+
+export type TradeSuggestPackage = {
+  counterparty: {
+    roster_id: string;
+    team_name?: string | null;
+    direction?: string | null;
+    contender_tier?: string | null;
+    trade_pattern?: string | null;
+  };
+  give: {
+    players: TradeAssetPlayer[];
+    picks: TradeAssetPick[];
+  };
+  receive: {
+    players: TradeAssetPlayer[];
+    picks: TradeAssetPick[];
+  };
+  net_delta_adjusted_pct?: number | null;
+  package_quality?: number | null;
+  acquisition_score?: number | null;
+  disposal_score?: number | null;
+  rationale?: string | null;
+  validation_accept_score?: number | null;
+  counterparty_validation?: {
+    accept_likelihood?: string | null;
+    reasoning?: string | null;
+    blockers?: string[];
+  } | null;
+};
+
+export type TradeSuggestResponse = {
+  mode: string;
+  proposer_roster_id: string;
+  counterparty_roster_id?: string | null;
+  validation_ranked: boolean;
+  packages: TradeSuggestPackage[];
+};
+
+export function suggestTradePackages(
+  leagueId: string,
+  body: TradeSuggestRequest,
+): Promise<TradeSuggestResponse> {
+  return apiFetch<TradeSuggestResponse>(`/leagues/${leagueId}/trade/suggest`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}

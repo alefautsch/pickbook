@@ -719,3 +719,110 @@ def _build_summary(
     if evaluation.within_band:
         parts.append("Package is within the ±5% fairness band.")
     return " ".join(parts)
+
+
+def _player_asset_from_dict(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "player_id": str(row.get("player_id") or ""),
+        "name": row.get("name"),
+        "position": row.get("position") or row.get("pos"),
+        "ovr": row.get("ovr"),
+        "tv": row.get("tv") or row.get("trade_value"),
+        "hppg": row.get("hppg"),
+        "injury": row.get("injury"),
+    }
+
+
+def _pick_asset_from_dict(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "season": str(row.get("season") or ""),
+        "round": int(row.get("round") or 0),
+        "original_roster_id": str(row.get("original_roster_id") or ""),
+        "owner_roster_id": row.get("owner_roster_id"),
+        "slot_tier": row.get("slot_tier"),
+        "trade_value": row.get("trade_value"),
+        "label": row.get("label"),
+    }
+
+
+def suggest_trade_packages(
+    db: Session,
+    league_id: str,
+    body: Any,
+) -> Any | None:
+    from backend.schemas.trade import (
+        TradeSuggestPackage,
+        TradeSuggestPackageSide,
+        TradeSuggestCounterparty,
+        TradeSuggestRequest,
+        TradeSuggestResponse,
+    )
+
+    league = db.get(League, league_id)
+    if league is None:
+        return None
+
+    req = body if isinstance(body, TradeSuggestRequest) else TradeSuggestRequest.model_validate(body)
+    if not req.player_ids and not req.picks:
+        return TradeSuggestResponse(
+            mode=req.mode,
+            proposer_roster_id=req.proposer_roster_id,
+            counterparty_roster_id=req.counterparty_roster_id,
+            validation_ranked=False,
+            packages=[],
+        )
+
+    tools = _make_tools(db, league_id, req.proposer_roster_id)
+    result = tools.suggest_trade_calc_packages(
+        mode=req.mode,
+        counterparty_roster_id=req.counterparty_roster_id,
+        player_ids=req.player_ids,
+        pick_refs=[p.model_dump() for p in req.picks],
+        rank_by_validation=req.rank_by_validation,
+        keep_current_first=req.keep_current_first,
+        lubricant_mode=req.lubricant_mode,
+    )
+
+    packages: list[TradeSuggestPackage] = []
+    for pkg in result.get("packages") or []:
+        cp = pkg.get("counterparty") or {}
+        give = pkg.get("give") or {}
+        recv = pkg.get("receive") or {}
+        packages.append(
+            TradeSuggestPackage(
+                counterparty=TradeSuggestCounterparty(
+                    roster_id=str(cp.get("roster_id") or ""),
+                    team_name=cp.get("team_name"),
+                    direction=cp.get("direction"),
+                    contender_tier=cp.get("contender_tier"),
+                    trade_pattern=cp.get("trade_pattern"),
+                ),
+                give=TradeSuggestPackageSide(
+                    players=[
+                        _player_asset_from_dict(p) for p in give.get("players") or []
+                    ],
+                    picks=[_pick_asset_from_dict(p) for p in give.get("picks") or []],
+                ),
+                receive=TradeSuggestPackageSide(
+                    players=[
+                        _player_asset_from_dict(p) for p in recv.get("players") or []
+                    ],
+                    picks=[_pick_asset_from_dict(p) for p in recv.get("picks") or []],
+                ),
+                net_delta_adjusted_pct=pkg.get("net_delta_adjusted_pct"),
+                package_quality=pkg.get("package_quality"),
+                acquisition_score=pkg.get("acquisition_score"),
+                disposal_score=pkg.get("disposal_score"),
+                rationale=pkg.get("rationale"),
+                validation_accept_score=pkg.get("validation_accept_score"),
+                counterparty_validation=pkg.get("counterparty_validation"),
+            )
+        )
+
+    return TradeSuggestResponse(
+        mode=str(result.get("mode") or req.mode),
+        proposer_roster_id=str(result.get("proposer_roster_id") or req.proposer_roster_id),
+        counterparty_roster_id=result.get("counterparty_roster_id"),
+        validation_ranked=bool(result.get("validation_ranked")),
+        packages=packages,
+    )
