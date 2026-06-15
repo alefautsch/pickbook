@@ -93,6 +93,12 @@ Your job: propose ONE concrete fix so BOTH sides are more likely to accept.
 - Use each side's blockers and suggested_tweak as hints.
 - When picks are involved, reference projected rookies at those slots.
 - Prefer minimal changes (small pick swap, add a depth piece, shave TV on one side).
+- tv_by_side: each team's gives/receives adjusted TV and net (negative net = overpaying).
+- pick_tv_catalog: exact TV for every owned pick label.
+- If a team overpays (net_adjusted_tv negative), they give MORE than they get.
+  To reduce overpay, remove assets from their give package or substitute a LOWER-tv pick/player.
+  Replacing a pick in their give package with a HIGHER-tv pick WORSENS overpay by the TV difference.
+  Never claim a swap "reduces bleed/overpay" when the substitute asset has higher TV than the one removed.
 - CRITICAL: tradable_inventory lists every pick label and player each team actually owns.
   Only assign a pick or player to a team if it appears in that team's tradable_inventory.
   Never invent picks (e.g. do not add a 2026 2.05 or 2027 1st unless that exact label is listed).
@@ -110,7 +116,76 @@ Respond with ONLY valid JSON (no markdown):
 """
 
 
-_PICK_LABEL_IN_TEXT_RE = re.compile(r"20\d{2}\s+\d+\.\d{2}")
+_PICK_LABEL_IN_TEXT_RE = re.compile(r"20\d{2}\s+(?:\d+\.\d{2}|\d+(?:st|nd|rd|th))", re.I)
+_RE_SWAP_PICKS_RE = re.compile(
+    r"swapp?(?:ing|ed)?\s+(?:the\s+)?(?P<out_pick>20\d{2}\s+(?:\d+\.\d{2}|\d+(?:st|nd|rd|th)))"
+    r".*?\bfor\b.*?"
+    r"(?P<in_pick>20\d{2}\s+(?:\d+\.\d{2}|\d+(?:st|nd|rd|th)))",
+    re.I,
+)
+_RE_REDUCE_OVERPAY_CLAIM_RE = re.compile(
+    r"reduc(?:e|es|ing)|lessen|lower(?:s|ing)?\s+(?:the\s+)?(?:immediate\s+)?(?:tv\s+)?(?:bleed|overpay)",
+    re.I,
+)
+
+
+def _normalize_pick_label(label: str) -> str:
+    return re.sub(r"\s+", " ", label.strip())
+
+
+def _pick_tv_catalog(*inventories: dict[str, Any]) -> dict[str, float]:
+    catalog: dict[str, float] = {}
+    for inventory in inventories:
+        for pick in inventory.get("draft_picks") or []:
+            label = _normalize_pick_label(str(pick.get("label") or ""))
+            tv = pick.get("tv")
+            if label and tv is not None:
+                catalog[label] = float(tv)
+    return catalog
+
+
+def _team_tv_summary(*, gives_adj: float, receives_adj: float) -> dict[str, Any]:
+    net = receives_adj - gives_adj
+    return {
+        "gives_adjusted_tv": round(gives_adj, 2),
+        "receives_adjusted_tv": round(receives_adj, 2),
+        "net_adjusted_tv": round(net, 2),
+        "overpays": net < -0.5,
+        "overpay_tv": round(abs(net), 2) if net < 0 else 0.0,
+    }
+
+
+def _lookup_pick_tv(label: str, catalog: dict[str, float]) -> float | None:
+    key = _normalize_pick_label(label)
+    if key in catalog:
+        return catalog[key]
+    lowered = key.lower()
+    for catalog_label, tv in catalog.items():
+        if catalog_label.lower() == lowered:
+            return tv
+    return None
+
+
+def _inverted_pick_swap_claim(text: str, tv_catalog: dict[str, float]) -> str | None:
+    """Detect 'swap low pick for high pick reduces overpay' — direction is backwards."""
+    if not _RE_REDUCE_OVERPAY_CLAIM_RE.search(text):
+        return None
+    match = _RE_SWAP_PICKS_RE.search(text)
+    if match is None:
+        return None
+    out_pick = _normalize_pick_label(match.group("out_pick"))
+    in_pick = _normalize_pick_label(match.group("in_pick"))
+    tv_out = _lookup_pick_tv(out_pick, tv_catalog)
+    tv_in = _lookup_pick_tv(in_pick, tv_catalog)
+    if tv_out is None or tv_in is None:
+        return None
+    if tv_in <= tv_out + 25:
+        return None
+    delta = tv_in - tv_out
+    return (
+        f"Swapping {out_pick} ({tv_out:,.0f} TV) for {in_pick} ({tv_in:,.0f} TV) in the give "
+        f"package adds ~{delta:,.0f} TV to the overpaying side — it does not reduce bleed."
+    )
 
 
 def _tradable_inventory(team: dict[str, Any]) -> dict[str, Any]:
@@ -227,6 +302,29 @@ def _sanitize_fix_against_inventory(
     return result
 
 
+def _sanitize_fix_tv_claims(
+    fix: dict[str, Any],
+    *,
+    tv_catalog: dict[str, float],
+) -> dict[str, Any]:
+    if not tv_catalog:
+        return fix
+    texts = [str(fix.get("reasoning") or ""), *(fix.get("adjustments") or [])]
+    warnings: list[str] = []
+    for text in texts:
+        warning = _inverted_pick_swap_claim(text, tv_catalog)
+        if warning and warning not in warnings:
+            warnings.append(warning)
+    if not warnings:
+        return fix
+    result = dict(fix)
+    result["both_sides_likely_accept"] = False
+    note = " ".join(warnings)
+    reasoning = str(result.get("reasoning") or "").strip()
+    result["reasoning"] = f"{reasoning} ({note})" if reasoning else note
+    return result
+
+
 def _compact_side_validation_for_fix(validation: dict[str, Any]) -> dict[str, Any]:
     return {
         "accept_likelihood": validation.get("accept_likelihood"),
@@ -253,6 +351,14 @@ def build_fix_payload(
     b_name = str(side_b_team.get("team_name") or "Side B")
     inventory_a = _tradable_inventory(side_a_team)
     inventory_b = _tradable_inventory(side_b_team)
+    give_adj = float(tv_evaluation.get("give_adjusted_tv") or 0)
+    recv_adj = float(tv_evaluation.get("receive_adjusted_tv") or 0)
+    pick_tv = _pick_tv_catalog(inventory_a, inventory_b)
+    for pick in (give.get("picks") or []) + (receive.get("picks") or []):
+        label = _normalize_pick_label(str(pick.get("label") or ""))
+        tv = pick.get("trade_value") or pick.get("tv")
+        if label and tv is not None:
+            pick_tv.setdefault(label, float(tv))
     payload: dict[str, Any] = {
         "side_a_team": _compact_team_context(side_a_team),
         "side_b_team": _compact_team_context(side_b_team),
@@ -260,6 +366,11 @@ def build_fix_payload(
             a_name: inventory_a,
             b_name: inventory_b,
         },
+        "tv_by_side": {
+            a_name: _team_tv_summary(gives_adj=give_adj, receives_adj=recv_adj),
+            b_name: _team_tv_summary(gives_adj=recv_adj, receives_adj=give_adj),
+        },
+        "pick_tv_catalog": pick_tv,
         "trade_package": {
             a_name: {
                 "gives": {
@@ -343,9 +454,13 @@ def suggest_trade_fix_with_llm(
     raw_text = "".join(text_parts)
     parsed = _parse_validation_json(raw_text)
     normalized = _normalize_fix(parsed)
-    return _sanitize_fix_against_inventory(
+    sanitized = _sanitize_fix_against_inventory(
         normalized,
         tradable_inventory=payload.get("tradable_inventory") or {},
+    )
+    return _sanitize_fix_tv_claims(
+        sanitized,
+        tv_catalog=payload.get("pick_tv_catalog") or {},
     )
 
 

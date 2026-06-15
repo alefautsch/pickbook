@@ -13,6 +13,7 @@ from backend.services.trade_validation_service import (
     _fairness_label_for_counterparty,
     _parse_validation_json,
     _sanitize_fix_against_inventory,
+    _inverted_pick_swap_claim,
 )
 
 
@@ -251,15 +252,24 @@ def test_build_fix_payload_includes_both_validations():
     payload = build_fix_payload(
         side_a_team={
             "team_name": "Alpha",
-            "draft_picks": [{"label": "2026 1.04", "season": "2026", "round": 1}],
+            "draft_picks": [
+                {"label": "2026 1.04", "season": "2026", "round": 1, "trade_value": 7200},
+            ],
         },
         side_b_team={
             "team_name": "Beta",
-            "draft_picks": [{"label": "2026 1.06", "season": "2026", "round": 1}],
+            "draft_picks": [
+                {"label": "2026 1.06", "season": "2026", "round": 1, "trade_value": 6500},
+            ],
         },
-        give={"players": [], "picks": [{"label": "2026 1.01"}]},
+        give={"players": [], "picks": [{"label": "2026 1.01", "trade_value": 10800}]},
         receive={"players": [], "picks": []},
-        tv_evaluation={"net_delta_adjusted_pct": 8, "within_band": False},
+        tv_evaluation={
+            "give_adjusted_tv": 10800,
+            "receive_adjusted_tv": 6500,
+            "net_delta_adjusted_pct": 8,
+            "within_band": False,
+        },
         side_a_validation={
             "accept_likelihood": "low",
             "blockers": ["TV gap"],
@@ -277,6 +287,24 @@ def test_build_fix_payload_includes_both_validations():
     assert payload["side_b_validation"]["accept_likelihood"] == "high"
     assert payload["tradable_inventory"]["Alpha"]["pick_labels"] == ["2026 1.04"]
     assert payload["tradable_inventory"]["Beta"]["pick_labels"] == ["2026 1.06"]
+    assert payload["tv_by_side"]["Alpha"]["gives_adjusted_tv"] == 10800
+    assert payload["tv_by_side"]["Beta"]["receives_adjusted_tv"] == 10800
+    assert payload["pick_tv_catalog"]["2026 1.04"] == 7200
+
+
+def test_inverted_pick_swap_claim_detects_backwards_tv_reasoning():
+    catalog = {
+        "2026 1.06": 2468.0,
+        "2027 1st": 5619.0,
+    }
+    text = (
+        "Swapping the 2026 1.06 (2468 TV) for bruno's 2027 1st (5619 TV) "
+        "reduces immediate TV bleed by ~3,151."
+    )
+    warning = _inverted_pick_swap_claim(text, catalog)
+    assert warning is not None
+    assert "does not reduce bleed" in warning
+    assert "3,151" in warning or "3,151" in warning.replace(",", "")
 
 
 def test_sanitize_fix_drops_picks_not_owned():
