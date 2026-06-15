@@ -17,6 +17,7 @@ import {
   type TradePickRef,
   type TradeRookieDraftContext,
   type TradeSuggestPackage,
+  type TradeSuggestRequest,
   type TradeSuggestResponse,
   type TradeValidationResult,
 } from "@/lib/api";
@@ -129,6 +130,9 @@ export function TradeCalculator({
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<TradeSuggestResponse | null>(null);
   const [suggestLabel, setSuggestLabel] = useState<string | null>(null);
+  const [lastSuggestRequest, setLastSuggestRequest] = useState<TradeSuggestRequest | null>(
+    null,
+  );
 
   useEffect(() => {
     setLoading(true);
@@ -203,25 +207,29 @@ export function TradeCalculator({
       picks: TradePickRef[];
       label: string;
       counterpartyFilter?: string;
+      rankByValidation?: boolean;
     }) => {
       if (!params.playerIds.length && !params.picks.length) return;
       setSuggestLoading(true);
       setSuggestLabel(params.label);
       setError(null);
+      const rankByValidation = params.rankByValidation ?? false;
+      const request: TradeSuggestRequest = {
+        mode: params.mode,
+        proposer_roster_id: params.proposerRosterId,
+        counterparty_roster_id:
+          params.mode === "acquire"
+            ? params.counterpartyRosterId
+            : params.counterpartyFilter ?? null,
+        player_ids: params.playerIds,
+        picks: params.picks,
+        rank_by_validation: rankByValidation,
+        lubricant_mode: true,
+        keep_current_first: true,
+      };
+      setLastSuggestRequest(request);
       try {
-        const result = await suggestTradePackages(leagueId, {
-          mode: params.mode,
-          proposer_roster_id: params.proposerRosterId,
-          counterparty_roster_id:
-            params.mode === "acquire"
-              ? params.counterpartyRosterId
-              : params.counterpartyFilter ?? null,
-          player_ids: params.playerIds,
-          picks: params.picks,
-          rank_by_validation: true,
-          lubricant_mode: true,
-          keep_current_first: true,
-        });
+        const result = await suggestTradePackages(leagueId, request);
         setSuggestions(result);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Trade suggestions failed");
@@ -233,16 +241,40 @@ export function TradeCalculator({
     [leagueId],
   );
 
-  function applySuggestion(pkg: TradeSuggestPackage, proposerRosterId: string) {
+  const runSuggestValidation = useCallback(async () => {
+    if (!lastSuggestRequest) return;
+    setSuggestLoading(true);
+    setError(null);
+    try {
+      const result = await suggestTradePackages(leagueId, {
+        ...lastSuggestRequest,
+        rank_by_validation: true,
+      });
+      setSuggestions(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Trade validation failed");
+    } finally {
+      setSuggestLoading(false);
+    }
+  }, [leagueId, lastSuggestRequest]);
+
+  function applySuggestion(
+    pkg: TradeSuggestPackage,
+    proposerRosterId: string,
+    useSuggestedPackage = false,
+  ) {
+    const side = useSuggestedPackage && pkg.suggested_package ? pkg.suggested_package : null;
+    const give = side?.give ?? pkg.give;
+    const recv = side?.receive ?? pkg.receive;
     const cpId = pkg.counterparty.roster_id;
-    const givePlayers = pkg.give.players.map((p) => p.player_id);
-    const givePicks: TradePickRef[] = pkg.give.picks.map((p) => ({
+    const givePlayers = give.players.map((p) => p.player_id);
+    const givePicks: TradePickRef[] = give.picks.map((p) => ({
       season: p.season,
       round: p.round,
       original_roster_id: p.original_roster_id,
     }));
-    const recvPlayers = pkg.receive.players.map((p) => p.player_id);
-    const recvPicks: TradePickRef[] = pkg.receive.picks.map((p) => ({
+    const recvPlayers = recv.players.map((p) => p.player_id);
+    const recvPicks: TradePickRef[] = recv.picks.map((p) => ({
       season: p.season,
       round: p.round,
       original_roster_id: p.original_roster_id,
@@ -448,10 +480,12 @@ export function TradeCalculator({
           suggestLabel={suggestLabel}
           suggestions={suggestions}
           onSuggest={runSuggest}
+          onValidateSuggestions={() => void runSuggestValidation()}
           onApply={applySuggestion}
           onDismiss={() => {
             setSuggestions(null);
             setSuggestLabel(null);
+            setLastSuggestRequest(null);
           }}
         />
       ) : null}
@@ -1491,8 +1525,14 @@ type TradeIdeasPanelProps = {
     picks: TradePickRef[];
     label: string;
     counterpartyFilter?: string;
+    rankByValidation?: boolean;
   }) => void;
-  onApply: (pkg: TradeSuggestPackage, proposerRosterId: string) => void;
+  onValidateSuggestions: () => void;
+  onApply: (
+    pkg: TradeSuggestPackage,
+    proposerRosterId: string,
+    useSuggestedPackage?: boolean,
+  ) => void;
   onDismiss: () => void;
 };
 
@@ -1507,6 +1547,7 @@ function TradeIdeasPanel({
   suggestLabel,
   suggestions,
   onSuggest,
+  onValidateSuggestions,
   onApply,
   onDismiss,
 }: TradeIdeasPanelProps) {
@@ -1520,8 +1561,9 @@ function TradeIdeasPanel({
           AI Trade Ideas
         </h2>
         <p className="mt-1 text-xs text-bb-muted">
-          Select players or picks on either side, then find realistic packages — ranked by
-          counterparty accept likelihood when AI validation is available.
+          Select players or picks on either side to get TV-ranked packages instantly. Use
+          &ldquo;Check accept likelihood&rdquo; for a one-shot AI review (and counter-offer
+          when the first package looks weak).
         </p>
       </div>
 
@@ -1650,7 +1692,10 @@ function TradeIdeasPanel({
 
       {suggestLoading ? (
         <p className="mt-4 text-sm text-bb-muted">
-          Building packages{suggestLabel ? ` — ${suggestLabel}` : ""}…
+          {suggestions?.validation_ranked
+            ? "Checking accept likelihood"
+            : "Building packages"}
+          {suggestLabel ? ` — ${suggestLabel}` : ""}…
         </p>
       ) : null}
 
@@ -1661,15 +1706,29 @@ function TradeIdeasPanel({
               {suggestLabel ?? "Suggestions"}
               {suggestions.validation_ranked ? (
                 <span className="ml-2 text-xs text-bb-muted">· AI-ranked by accept likelihood</span>
-              ) : null}
+              ) : (
+                <span className="ml-2 text-xs text-bb-muted">· TV-ranked (fast)</span>
+              )}
             </p>
-            <button
-              type="button"
-              onClick={onDismiss}
-              className="text-xs text-bb-muted hover:text-white"
-            >
-              Dismiss
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {!suggestions.validation_ranked && suggestions.packages.length > 0 ? (
+                <button
+                  type="button"
+                  disabled={suggestLoading}
+                  onClick={onValidateSuggestions}
+                  className="rounded border border-sky-500/40 px-2 py-1 text-xs text-sky-300 hover:bg-sky-500/10 disabled:opacity-40"
+                >
+                  Check accept likelihood
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={onDismiss}
+                className="text-xs text-bb-muted hover:text-white"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
           {suggestions.packages.length === 0 ? (
             <p className="text-sm text-bb-muted">
@@ -1683,6 +1742,9 @@ function TradeIdeasPanel({
                   <TradeSuggestionCard
                     pkg={pkg}
                     onApply={() => onApply(pkg, suggestions.proposer_roster_id)}
+                    onApplyCounter={() =>
+                      onApply(pkg, suggestions.proposer_roster_id, true)
+                    }
                   />
                 </li>
               ))}
@@ -1697,68 +1759,120 @@ function TradeIdeasPanel({
 function TradeSuggestionCard({
   pkg,
   onApply,
+  onApplyCounter,
 }: {
   pkg: TradeSuggestPackage;
   onApply: () => void;
+  onApplyCounter: () => void;
 }) {
-  const accept = pkg.counterparty_validation?.accept_likelihood;
+  const validation = pkg.counterparty_validation;
+  const accept = validation?.accept_likelihood;
   const score = pkg.validation_accept_score;
   const teamLabel = pkg.counterparty.team_name ?? pkg.counterparty.roster_id;
+  const suggested = pkg.suggested_package;
+  const hasCounter =
+    suggested &&
+    (suggested.give.players.length > 0 ||
+      suggested.give.picks.length > 0 ||
+      suggested.receive.players.length > 0 ||
+      suggested.receive.picks.length > 0);
+
+  const formatSide = (side: TradeSuggestPackage["give"]) =>
+    [
+      ...side.players.map((p) => p.name ?? p.player_id),
+      ...side.picks.map((p) => p.label ?? `${p.season} R${p.round}`),
+    ].join(", ") || "—";
 
   return (
-    <button
-      type="button"
-      onClick={onApply}
-      className="w-full rounded-lg border border-white/8 bg-black/25 px-3 py-2.5 text-left transition hover:border-bb-gold/40 hover:bg-black/35"
-    >
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-white">
-            with {teamLabel}
-            {pkg.net_delta_adjusted_pct != null ? (
-              <span className="ml-2 text-xs font-normal text-bb-muted">
-                {pkg.net_delta_adjusted_pct >= 0 ? "+" : ""}
-                {pkg.net_delta_adjusted_pct.toFixed(1)}% adj
-              </span>
+    <div className="rounded-lg border border-white/8 bg-black/25 px-3 py-2.5">
+      <button
+        type="button"
+        onClick={onApply}
+        className="w-full text-left transition hover:opacity-90"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-white">
+              with {teamLabel}
+              {pkg.net_delta_adjusted_pct != null ? (
+                <span className="ml-2 text-xs font-normal text-bb-muted">
+                  {pkg.net_delta_adjusted_pct >= 0 ? "+" : ""}
+                  {pkg.net_delta_adjusted_pct.toFixed(1)}% adj
+                </span>
+              ) : null}
+            </p>
+            <p className="mt-1 text-xs text-bb-muted">Give: {formatSide(pkg.give)}</p>
+            <p className="text-xs text-bb-muted">Receive: {formatSide(pkg.receive)}</p>
+            {pkg.rationale ? (
+              <p className="mt-1.5 text-[11px] text-white/70">{pkg.rationale}</p>
             ) : null}
-          </p>
-          <p className="mt-1 text-xs text-bb-muted">
-            Give:{" "}
-            {[
-              ...pkg.give.players.map((p) => p.name ?? p.player_id),
-              ...pkg.give.picks.map((p) => p.label ?? `${p.season} R${p.round}`),
-            ].join(", ") || "—"}
-          </p>
-          <p className="text-xs text-bb-muted">
-            Receive:{" "}
-            {[
-              ...pkg.receive.players.map((p) => p.name ?? p.player_id),
-              ...pkg.receive.picks.map((p) => p.label ?? `${p.season} R${p.round}`),
-            ].join(", ") || "—"}
-          </p>
-          {pkg.rationale ? (
-            <p className="mt-1.5 text-[11px] text-white/70">{pkg.rationale}</p>
-          ) : null}
+            {validation?.reasoning ? (
+              <p className="mt-1.5 text-[11px] text-white/60">{validation.reasoning}</p>
+            ) : null}
+            {validation?.suggested_tweak ? (
+              <p className="mt-1 text-[11px] text-amber-200/80">
+                Tweak: {validation.suggested_tweak}
+              </p>
+            ) : null}
+            {pkg.offer_tier ? (
+              <p className="mt-1 text-[10px] uppercase tracking-wide text-bb-gold">
+                {pkg.offer_tier === "minimum_tv"
+                  ? "Minimum TV overpay — seller-favored on paper"
+                  : pkg.offer_tier === "minimum_unrealistic"
+                    ? "TV lowball — unlikely to accept"
+                    : pkg.offer_tier.replace(/_/g, " ")}
+              </p>
+            ) : null}
+          </div>
+          <div className="text-right">
+            {accept ? (
+              <span
+                className={`text-xs font-semibold uppercase ${
+                  accept === "high"
+                    ? "text-emerald-400"
+                    : accept === "low"
+                      ? "text-rose-400"
+                      : "text-amber-300"
+                }`}
+              >
+                {accept} accept
+              </span>
+            ) : score != null ? (
+              <span className="text-xs text-bb-muted">Score {score.toFixed(0)}</span>
+            ) : null}
+            {validation?.heuristic ? (
+              <p className="mt-1 text-[10px] text-bb-muted">TV heuristic</p>
+            ) : null}
+          </div>
         </div>
-        <div className="text-right">
-          {accept ? (
-            <span
-              className={`text-xs font-semibold uppercase ${
-                accept === "high"
-                  ? "text-emerald-400"
-                  : accept === "low"
-                    ? "text-rose-400"
-                    : "text-amber-300"
-              }`}
-            >
-              {accept} accept
-            </span>
-          ) : score != null ? (
-            <span className="text-xs text-bb-muted">Score {score.toFixed(0)}</span>
+        <p className="mt-2 text-[10px] text-bb-gold">Tap to load into calculator</p>
+      </button>
+
+      {hasCounter ? (
+        <div className="mt-3 border-t border-white/6 pt-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-sky-300">
+            AI counter-offer
+          </p>
+          <p className="mt-1 text-xs text-bb-muted">Give: {formatSide(suggested.give)}</p>
+          <p className="text-xs text-bb-muted">Receive: {formatSide(suggested.receive)}</p>
+          {suggested.net_delta_adjusted_pct != null ? (
+            <p className="mt-1 text-[11px] text-bb-muted">
+              {suggested.net_delta_adjusted_pct >= 0 ? "+" : ""}
+              {suggested.net_delta_adjusted_pct.toFixed(1)}% adj
+            </p>
           ) : null}
+          {suggested.rationale ? (
+            <p className="mt-1 text-[11px] text-white/70">{suggested.rationale}</p>
+          ) : null}
+          <button
+            type="button"
+            onClick={onApplyCounter}
+            className="mt-2 rounded border border-sky-500/40 px-2 py-1 text-[11px] text-sky-300 hover:bg-sky-500/10"
+          >
+            Load counter-offer
+          </button>
         </div>
-      </div>
-      <p className="mt-2 text-[10px] text-bb-gold">Tap to load into calculator</p>
-    </button>
+      ) : null}
+    </div>
   );
 }

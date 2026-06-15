@@ -1,4 +1,6 @@
-# Pickbook — https://github.com/alefautsch/pickbook
+# Dynasty draft engine + Blackbook
+# Live rookie drafts: Blackbook /leagues/[id]/rookie-draft
+# Legacy Streamlit (just app): local engine debugging only — not deployed
 
 set dotenv-load := true
 
@@ -9,11 +11,11 @@ default:
 install:
     uv sync
 
-# Run the Streamlit UI (reloads when you edit Python files)
+# Run the legacy Streamlit UI locally (engine debugging only — not deployed)
 app:
     uv run streamlit run dynasty_draft/app.py
 
-# Alias for the legacy Pickbook link in Blackbook
+# Alias for local Streamlit app
 pickbook: app
 
 # Alias for `just app`

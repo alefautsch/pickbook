@@ -161,6 +161,23 @@ function SidebarPanels({
         </section>
       ) : null}
 
+      {draft.need_top.length > 0 ? (
+        <section className="rounded-xl border border-bb-border/50 bg-black/20 p-4">
+          <h3 className="text-sm font-medium text-white">Need-adjusted top 5</h3>
+          <ol className="mt-2 space-y-1.5 text-sm">
+            {draft.need_top.slice(0, 5).map((row) => (
+              <li key={`need-${row.player_id}`} className="flex justify-between gap-2">
+                <span className="truncate">
+                  {row.need_rank ?? row.bpa_rank}.{" "}
+                  <PlayerName as="span">{row.player_name}</PlayerName>
+                </span>
+                <OvrBadge ovr={row.ovr} size="sm" expected={row.hppg_expected} />
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
+
       {draft.strategy_notes.length > 0 ? (
         <section className="rounded-xl border border-bb-border/50 bg-black/20 p-4">
           <h3 className="text-sm font-medium text-white">Notes</h3>
@@ -546,6 +563,42 @@ export function RookieDraftPanel({ leagueId, initial }: RookieDraftPanelProps) {
         <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
           {lastError}
         </p>
+      ) : null}
+
+      {draft.value_pivot.wait_for_later.length > 0 ? (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+          <p className="text-sm font-medium text-amber-200">Wait for later</p>
+          <p className="mt-1 text-xs text-amber-100/80">
+            ADP aligns with a future pick — don&apos;t reach now.
+          </p>
+          <ul className="mt-2 space-y-1 text-sm text-amber-100">
+            {draft.value_pivot.wait_for_later.map((row) => (
+              <li key={`wait-${row.name}`}>
+                <PlayerName>{row.name}</PlayerName>
+                {row.adp_pick != null ? ` (ADP #${row.adp_pick})` : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {draft.value_pivot.take_bpa_over_need.length > 0 ? (
+        <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-3">
+          <p className="text-sm font-medium text-sky-200">Take BPA over need</p>
+          <p className="mt-1 text-xs text-sky-100/80">
+            Value beats positional fit — draft now, trade surplus later.
+          </p>
+          <ul className="mt-2 space-y-1 text-sm text-sky-100">
+            {draft.value_pivot.take_bpa_over_need.map((row) => (
+              <li key={`bpa-${row.name}`}>
+                <PlayerName>{row.name}</PlayerName>
+                {row.bpa_rank != null && row.need_rank != null
+                  ? ` (BPA #${row.bpa_rank} vs need #${row.need_rank})`
+                  : null}
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       <div

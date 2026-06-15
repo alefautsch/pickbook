@@ -753,6 +753,7 @@ export type StarterNeeds = {
 
 export type RookieBoardRow = {
   bpa_rank: number;
+  need_rank?: number | null;
   ovr_rank?: number | null;
   player_id: string;
   player_name: string | null;
@@ -789,6 +790,22 @@ export type RookieDraftTimelineRow = {
   is_me: boolean;
 };
 
+export type ValuePivotPlayer = {
+  name: string;
+  position: string | null;
+  ovr: number | null;
+  adp_pick: number | null;
+  adp_delta: number | null;
+  bpa_rank: number | null;
+  need_rank: number | null;
+  reason: string | null;
+};
+
+export type ValuePivotSummary = {
+  take_bpa_over_need: ValuePivotPlayer[];
+  wait_for_later: ValuePivotPlayer[];
+};
+
 export type RookieDraftView = {
   league_id: string;
   league_name: string;
@@ -806,6 +823,8 @@ export type RookieDraftView = {
   starter_needs: StarterNeeds;
   board: RookieBoardRow[];
   bpa_top: RookieBoardRow[];
+  need_top: RookieBoardRow[];
+  value_pivot: ValuePivotSummary;
   timeline: RookieDraftTimelineRow[];
   strategy_notes: string[];
   adp_source: string | null;
@@ -1144,6 +1163,19 @@ export type TradeSuggestRequest = {
   keep_current_first?: boolean;
 };
 
+export type TradeSuggestPackageSide = {
+  players: TradeAssetPlayer[];
+  picks: TradeAssetPick[];
+};
+
+export type TradeSuggestSuggestedPackage = {
+  give: TradeSuggestPackageSide;
+  receive: TradeSuggestPackageSide;
+  net_delta_adjusted_pct?: number | null;
+  rationale?: string | null;
+  source?: string | null;
+};
+
 export type TradeSuggestPackage = {
   counterparty: {
     roster_id: string;
@@ -1152,25 +1184,26 @@ export type TradeSuggestPackage = {
     contender_tier?: string | null;
     trade_pattern?: string | null;
   };
-  give: {
-    players: TradeAssetPlayer[];
-    picks: TradeAssetPick[];
-  };
-  receive: {
-    players: TradeAssetPlayer[];
-    picks: TradeAssetPick[];
-  };
+  give: TradeSuggestPackageSide;
+  receive: TradeSuggestPackageSide;
   net_delta_adjusted_pct?: number | null;
   package_quality?: number | null;
   acquisition_score?: number | null;
   disposal_score?: number | null;
   rationale?: string | null;
+  offer_tier?: string | null;
+  offer_rank?: number | null;
   validation_accept_score?: number | null;
   counterparty_validation?: {
     accept_likelihood?: string | null;
     reasoning?: string | null;
     blockers?: string[];
+    suggested_tweak?: string | null;
+    counter_offer?: unknown;
+    heuristic?: boolean;
+    skipped_llm?: boolean;
   } | null;
+  suggested_package?: TradeSuggestSuggestedPackage | null;
 };
 
 export type TradeSuggestResponse = {

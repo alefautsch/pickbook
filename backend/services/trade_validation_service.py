@@ -66,6 +66,9 @@ Rules:
 - REQUIRED when rookie_draft_context.picks_in_trade is non-empty: reasoning MUST cite pick labels and likely_range prospects (e.g. "2026 1.01 is Jeremiyah Love; 1.04 may land Makai Lemon or Kenyon Sadiq").
 - Use picks_in_trade.likely_range / projected_rookie and fills_need_for_acquirer; in TEP leagues (te_premium > 0), TE prospects at mid-first slots matter more.
 - Be specific: name players, positions, pick slots, PPG deltas, roster holes, and projected rookies when relevant.
+- tradable_inventory lists exact player names and pick labels each team owns — use ONLY those in counter_offer.
+- When accept_likelihood is low or medium, propose counter_offer: a revised package from the_other_team's perspective (what they give / receive) that review_for_team is more likely to accept. Keep the same core acquisition goal when possible (e.g. same target pick/player in proposer_receives).
+- counter_offer must use exact player names and pick labels from tradable_inventory. null when accept_likelihood is high.
 
 Respond with ONLY valid JSON (no markdown):
 {
@@ -74,7 +77,12 @@ Respond with ONLY valid JSON (no markdown):
   "would_improve_their_roster": true | false,
   "reasoning": "2-4 sentences about review_for_team by name",
   "blockers": ["short bullet", "..."],
-  "suggested_tweak": "one concrete adjustment or null"
+  "suggested_tweak": "one concrete adjustment or null",
+  "counter_offer": null | {
+    "proposer_gives": { "players": ["Name"], "picks": ["2026 1.10"] },
+    "proposer_receives": { "players": ["Name"], "picks": ["2026 1.01"] },
+    "rationale": "why review_for_team accepts this revision"
+  }
 }
 """
 
@@ -198,18 +206,22 @@ def _tradable_inventory(team: dict[str, Any]) -> dict[str, Any]:
         }
     )
     player_names: set[str] = set()
+    players_by_name: dict[str, dict[str, Any]] = {}
     for row in team.get("players") or []:
         name = str(row.get("name") or row.get("player_name") or "").strip()
         if name:
             player_names.add(name)
+            players_by_name[name.lower()] = row
     for row in team.get("trade_candidates") or []:
         name = str(row.get("name") or row.get("player_name") or "").strip()
         if name:
             player_names.add(name)
+            players_by_name.setdefault(name.lower(), row)
     return {
         "draft_picks": picks,
         "pick_labels": pick_labels,
         "player_names": sorted(player_names),
+        "players_by_name": players_by_name,
     }
 
 
@@ -738,6 +750,17 @@ def build_validation_payload(
     if rookie_draft_context:
         payload["rookie_draft_context"] = rookie_draft_context
 
+    payload["tradable_inventory"] = {
+        str(counterparty_team.get("team_name") or counterparty_roster_id): {
+            "pick_labels": _tradable_inventory(counterparty_team)["pick_labels"],
+            "player_names": _tradable_inventory(counterparty_team)["player_names"],
+        },
+        str(proposer_team.get("team_name") or proposer_roster_id): {
+            "pick_labels": _tradable_inventory(proposer_team)["pick_labels"],
+            "player_names": _tradable_inventory(proposer_team)["player_names"],
+        },
+    }
+
     return payload
 
 
@@ -752,6 +775,125 @@ def _parse_validation_json(text: str) -> dict[str, Any]:
         return json.loads(match.group(0))
 
 
+def _resolve_labeled_side(
+    side: dict[str, Any] | None,
+    *,
+    team: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Map LLM counter_offer player names / pick labels to roster rows."""
+    if not side:
+        return [], []
+    inventory = _tradable_inventory(team)
+    players_by_name = inventory.get("players_by_name") or {}
+    pick_by_label = {
+        _normalize_pick_label(str(pick.get("label") or "")): pick
+        for pick in (team.get("draft_picks") or [])
+        if pick.get("label")
+    }
+
+    resolved_players: list[dict[str, Any]] = []
+    for raw_name in side.get("players") or []:
+        name = str(raw_name or "").strip()
+        if not name:
+            continue
+        row = players_by_name.get(name.lower())
+        if row is None:
+            for key, candidate in players_by_name.items():
+                if name.lower() in key or key in name.lower():
+                    row = candidate
+                    break
+        if row is not None:
+            resolved_players.append(dict(row))
+
+    resolved_picks: list[dict[str, Any]] = []
+    for raw_label in side.get("picks") or []:
+        label = _normalize_pick_label(str(raw_label or ""))
+        if not label:
+            continue
+        pick = pick_by_label.get(label)
+        if pick is None:
+            for pick_label, row in pick_by_label.items():
+                if pick_label.lower() == label.lower():
+                    pick = row
+                    break
+        if pick is not None:
+            resolved_picks.append(dict(pick))
+
+    return resolved_players, resolved_picks
+
+
+def _counter_offer_owned_by_team(
+    side: dict[str, Any] | None,
+    *,
+    team: dict[str, Any],
+) -> bool:
+    if not side:
+        return True
+    inventory = _tradable_inventory(team)
+    owned_picks = set(inventory.get("pick_labels") or [])
+    owned_players = {n.lower() for n in (inventory.get("player_names") or [])}
+    for raw_label in side.get("picks") or []:
+        label = _normalize_pick_label(str(raw_label or ""))
+        if label and label not in owned_picks:
+            return False
+    for raw_name in side.get("players") or []:
+        name = str(raw_name or "").strip().lower()
+        if name and name not in owned_players:
+            return False
+    return True
+
+
+def resolve_counter_offer_package(
+    counter_offer: dict[str, Any] | None,
+    *,
+    proposer_team: dict[str, Any],
+    counterparty_team: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Turn validator counter_offer into a resolved give/receive package."""
+    if not counter_offer or not isinstance(counter_offer, dict):
+        return None
+
+    proposer_gives = counter_offer.get("proposer_gives") or {}
+    proposer_receives = counter_offer.get("proposer_receives") or {}
+    if not _counter_offer_owned_by_team(proposer_gives, team=proposer_team):
+        return None
+    if not _counter_offer_owned_by_team(proposer_receives, team=counterparty_team):
+        return None
+
+    give_players, give_picks = _resolve_labeled_side(proposer_gives, team=proposer_team)
+    recv_players, recv_picks = _resolve_labeled_side(proposer_receives, team=counterparty_team)
+    if not (give_players or give_picks or recv_players or recv_picks):
+        return None
+
+    return {
+        "give": {"players": give_players, "picks": give_picks},
+        "receive": {"players": recv_players, "picks": recv_picks},
+        "rationale": str(counter_offer.get("rationale") or "").strip() or None,
+        "source": "validator_counter_offer",
+    }
+
+
+def heuristic_validation_skip(pkg: dict[str, Any]) -> dict[str, Any] | None:
+    """Skip LLM when TV math already shows an obvious lowball."""
+    pct = float(pkg.get("net_delta_adjusted_pct") or 0)
+    if pct <= 5.0:
+        return None
+    return {
+        "accept_likelihood": "low",
+        "fairness_from_counterparty_view": "favors_you",
+        "would_improve_their_roster": False,
+        "reasoning": (
+            "Adjusted TV favors the proposer by more than 5% — the counterparty is giving up "
+            "more value than they receive on paper."
+        ),
+        "blockers": ["TV lowball — counterparty loses adjusted value"],
+        "suggested_tweak": "Add value to the proposer's offer or request pick/player sweeteners back.",
+        "counter_offer": None,
+        "heuristic": True,
+        "skipped_llm": True,
+    }
+
+
 def _normalize_validation(parsed: dict[str, Any]) -> dict[str, Any]:
     likelihood = str(parsed.get("accept_likelihood") or "medium").lower()
     if likelihood not in ("low", "medium", "high"):
@@ -763,6 +905,11 @@ def _normalize_validation(parsed: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(blockers, list):
         blockers = [str(blockers)]
     tweak = parsed.get("suggested_tweak")
+    counter_offer = parsed.get("counter_offer")
+    if likelihood == "high":
+        counter_offer = None
+    elif not isinstance(counter_offer, dict):
+        counter_offer = None
     return {
         "accept_likelihood": likelihood,
         "fairness_from_counterparty_view": fairness,
@@ -770,6 +917,7 @@ def _normalize_validation(parsed: dict[str, Any]) -> dict[str, Any]:
         "reasoning": str(parsed.get("reasoning") or "").strip(),
         "blockers": [str(b).strip() for b in blockers if str(b).strip()],
         "suggested_tweak": str(tweak).strip() if tweak else None,
+        "counter_offer": counter_offer,
     }
 
 
@@ -792,7 +940,7 @@ def validate_trade_with_llm(
         client,
         feature="trade_validation",
         model=resolved_model,
-        max_tokens=900,
+        max_tokens=1100,
         system=_VALIDATION_SYSTEM,
         messages=[
             {

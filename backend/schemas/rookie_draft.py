@@ -31,8 +31,25 @@ class StarterNeeds(BaseModel):
     FLEX: int = 0
 
 
+class ValuePivotPlayer(BaseModel):
+    name: str
+    position: str | None = None
+    ovr: int | None = None
+    adp_pick: int | None = None
+    adp_delta: int | None = None
+    bpa_rank: int | None = None
+    need_rank: int | None = None
+    reason: str | None = None
+
+
+class ValuePivotSummary(BaseModel):
+    take_bpa_over_need: list[ValuePivotPlayer] = Field(default_factory=list)
+    wait_for_later: list[ValuePivotPlayer] = Field(default_factory=list)
+
+
 class RookieBoardRow(BaseModel):
     bpa_rank: int
+    need_rank: int | None = None
     ovr_rank: int | None = None
     player_id: str
     player_name: str | None = None
@@ -86,6 +103,8 @@ class RookieDraftView(BaseModel):
     starter_needs: StarterNeeds
     board: list[RookieBoardRow]
     bpa_top: list[RookieBoardRow]
+    need_top: list[RookieBoardRow] = Field(default_factory=list)
+    value_pivot: ValuePivotSummary = Field(default_factory=ValuePivotSummary)
     timeline: list[RookieDraftTimelineRow]
     strategy_notes: list[str] = Field(default_factory=list)
     adp_source: str | None = None

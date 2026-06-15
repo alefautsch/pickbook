@@ -7,6 +7,8 @@ from backend.services.trade_validation_service import (
     ACCEPT_LIKELIHOOD_SCORE,
     build_fix_payload,
     build_validation_payload,
+    heuristic_validation_skip,
+    resolve_counter_offer_package,
     suggest_trade_fix_with_llm,
     validate_trade_with_llm,
     validation_accept_score,
@@ -349,3 +351,76 @@ def test_suggest_trade_fix_with_llm_mocked():
     assert result["headline"] == "Add late pick to balance"
     assert result["both_sides_likely_accept"] is True
     assert result["adjustments"] == ["Alpha adds 2027 3rd"]
+
+
+def test_heuristic_validation_skip_on_tv_lowball():
+    result = heuristic_validation_skip({"net_delta_adjusted_pct": 8.5})
+    assert result is not None
+    assert result["accept_likelihood"] == "low"
+    assert result["skipped_llm"] is True
+    assert result["counter_offer"] is None
+
+
+def test_heuristic_validation_skip_allows_fair_packages():
+    assert heuristic_validation_skip({"net_delta_adjusted_pct": 2.0}) is None
+
+
+def test_resolve_counter_offer_package_maps_inventory():
+    proposer = {
+        "players": [
+            {"player_id": "w1", "name": "Kenneth Walker", "position": "RB", "tv": 5200},
+        ],
+        "draft_picks": [
+            {
+                "season": "2026",
+                "round": 2,
+                "original_roster_id": "5",
+                "label": "2026 2.10",
+                "trade_value": 1800,
+            },
+        ],
+    }
+    counterparty = {
+        "players": [],
+        "draft_picks": [
+            {
+                "season": "2026",
+                "round": 1,
+                "original_roster_id": "3",
+                "label": "2026 1.01",
+                "trade_value": 10880,
+            },
+        ],
+    }
+    resolved = resolve_counter_offer_package(
+        {
+            "proposer_gives": {
+                "players": ["Kenneth Walker"],
+                "picks": ["2026 2.10"],
+            },
+            "proposer_receives": {"players": [], "picks": ["2026 1.01"]},
+            "rationale": "Walker plus pick bridges the gap.",
+        },
+        proposer_team=proposer,
+        counterparty_team=counterparty,
+    )
+    assert resolved is not None
+    assert resolved["give"]["players"][0]["player_id"] == "w1"
+    assert resolved["receive"]["picks"][0]["label"] == "2026 1.01"
+    assert resolved["rationale"] == "Walker plus pick bridges the gap."
+
+
+def test_resolve_counter_offer_rejects_unknown_assets():
+    proposer = {"players": [], "draft_picks": []}
+    counterparty = {"players": [], "draft_picks": []}
+    assert (
+        resolve_counter_offer_package(
+            {
+                "proposer_gives": {"players": ["Ghost Player"], "picks": []},
+                "proposer_receives": {"players": [], "picks": []},
+            },
+            proposer_team=proposer,
+            counterparty_team=counterparty,
+        )
+        is None
+    )

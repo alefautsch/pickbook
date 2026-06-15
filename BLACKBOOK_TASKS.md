@@ -269,7 +269,6 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 | Left sidebar (Overview, League, My Team, Rankings, Players, Portfolio, Trade Targets, Rookie Draft, Settings) | **6** ✓ | Trade Targets → icebox · Rookie Draft **7** ✓ |
 | League tabs (GLA / Gridiron / …) | `LeagueSwitcher` pills | Tab styling + "my team" shortcut per league |
 | Sync status + Sync Now + settings | **6** ✓ | Global header bar + `/settings` |
-| Pickbook link | **6** ✓ | Footer link via `NEXT_PUBLIC_PICKBOOK_URL` |
 
 ### Overview / league dashboard (`overview_mockupo.png`)
 | Element | Phase | Notes |
@@ -413,7 +412,7 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 
 **Status:** Complete locally (2026-06-07).
 
-- [x] App chrome: sidebar nav, settings page, Pickbook link.
+- [x] App chrome: sidebar nav, settings page.
 - [x] Overview dashboard layout (mockup grid: summary cards + TV, rankings + optimal-starters sidebar + portfolio strip + contender breakdown).
 - [x] Team page: full roster table (OVR, HPPG, W/G, ACTV, TV, WORP, FLEX, PORP), tabs (Roster / Lineup / Depth / Stats), team OVR donut, traits, depth chart, injury watch.
 - [x] Player page: hero OVR gauge, positional/overall rank, dynasty component donut, durability gauge, bio from Sleeper.
@@ -425,7 +424,6 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 - **Migration:** `alembic/versions/c3d4e5f6a7b8_phase6_snapshot_enrichment.py`
 - **Re-sync required** after pull: `just bb-sync-all` (new snapshot columns + team meta in analysis_json).
 - **Frontend:** `SidebarNav`, `SummaryCards`, `OptimalStartersSidebar`, `ContenderBreakdown`, `OvrGauge`, `DonutChart`, `DurabilityGauge`, `TeamTabs`, `DepthChartPanel`, `InjuryWatchPanel`; pages `/settings`, `/players`.
-- **Pickbook link:** local dev defaults to `http://localhost:8501`; production hides the link unless `NEXT_PUBLIC_PICKBOOK_URL` is set.
 - **Test URLs:** `/leagues/1314731206859853824`, `/leagues/1314731206859853824/teams/3`, `/players/10229?league_id=1314731206859853824`, `/settings`
 
 ---
@@ -440,7 +438,7 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 - [x] Live pick updates: polling first; WebSocket if needed.
 - [x] Rookie draft UI: scrollable board (reuse the full-board pattern already built in Pickbook), BPA / targets, on-the-clock indicator.
 - [x] Validate against a real or mock rookie draft.
-- [x] Decide Streamlit Pickbook retirement once parity is reached.
+- [x] Decide Streamlit Pickbook retirement once parity is reached. *(Retired 2026-06 — sidebar link removed; live drafts in Blackbook only.)*
 
 **Exit criteria:** a rookie draft can be run end-to-end in Blackbook. *(Met — GLA rookie draft `1314731206864027648`, 57-player BPA board, live poll UI.)*
 
@@ -449,7 +447,7 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
 - **API:** `GET /leagues/{league_id}/rookie-draft` — optional `draft_id`, `roster_id` (whose starter needs to show). Poll Sleeper `GET /draft/{id}/picks` on each request; UI polls every `poll_seconds` (default 20, from `config.json`).
 - **Rookie draft resolution:** `GET /league/{id}/drafts` → `settings.player_type == 1` (startup/vet = 2). GLA rookie: `1314731206864027648` (3 rounds, `pre_draft` at validation).
 - **Engine:** `backend/services/rookie_draft_service.py` — `RookieDraftState` subclasses `DraftState` with `strategy.draft_phase = rookies`. Board pool = rookies only; **OVR anchors = full player universe** (§5.7, same as `LeagueScoringState` — Pickbook's rookie-only anchor pool is not used here). BPA via `bpa_recommendations()`, timeline via `build_draft_timeline()`. Positional needs = existing DB roster + rookie picks so far.
-- **Additive `dynasty_draft/`:** `SleeperClient.get_league_drafts()` only; Pickbook path unchanged.
+- **Ported from Pickbook (2026-06):** `value_pivot` alerts, `need_top`, tier-cliff notes in strategy_notes.
 - **Frontend:** `/leagues/[leagueId]/rookie-draft`, `RookieDraftPanel` (BPA table, needs sidebar, targets in `localStorage`, scrollable pick timeline). Sidebar nav item **Rookie Draft**.
 - **Test URLs:**
   - UI: `/leagues/1314731206859853824/rookie-draft`
@@ -462,8 +460,10 @@ Reference mockups: `overview_mockupo.png`, `team_page_mockup.png`, `player_page_
   - [ ] On-the-clock banner updates after **Refresh** or auto-poll when draft is `drafting`
   - [ ] Positional needs reflect my roster (QB/RB/WR/TE/FLEX open slots)
   - [ ] Draft timeline scrolls; pick rows show OVR when picked
+  - [ ] Value-pivot alerts (wait / take BPA) when BPA disagrees with need-adjusted
+  - [ ] Need-adjusted top 5 in sidebar
   - [ ] Startup draft (`player_type=2`) is **not** shown — only rookie draft auto-resolves
-  - [ ] Pickbook Streamlit still runs (`just pickbook` or port 8501)
+  - [ ] Legacy Streamlit still runs locally (`just app`) for engine debugging
 
 ---
 

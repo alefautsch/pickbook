@@ -1,3 +1,4 @@
+# Legacy Pickbook Streamlit deploy — not used; Blackbook uses Dockerfile.blackbook.
 FROM python:3.13-slim-bookworm
 
 WORKDIR /app

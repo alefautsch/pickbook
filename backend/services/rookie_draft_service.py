@@ -18,6 +18,8 @@ from backend.schemas.rookie_draft import (
     RookieDraftTimelineRow,
     RookieDraftView,
     StarterNeeds,
+    ValuePivotPlayer,
+    ValuePivotSummary,
 )
 from backend.services.pick_service import collect_league_traded_picks, pick_slot_by_roster
 from backend.services.read_service import headshot_url, ovr_tier
@@ -255,6 +257,20 @@ def starter_needs_for_roster(
     base_skill = sum(1 for p in roster_positions if p in {"RB", "WR", "TE"})
     needs["FLEX"] = max(0, flex_slots - max(0, skill - base_skill))
     return StarterNeeds(**needs)
+
+
+def _pivot_player(row: dict[str, Any]) -> ValuePivotPlayer:
+    ovr = row.get("dynasty_rating")
+    return ValuePivotPlayer(
+        name=str(row["name"]),
+        position=row.get("pos"),
+        ovr=int(ovr) if ovr is not None else None,
+        adp_pick=row.get("adp_pick"),
+        adp_delta=row.get("adp_delta"),
+        bpa_rank=row.get("bpa_rank"),
+        need_rank=row.get("need_rank"),
+        reason=row.get("reason"),
+    )
 
 
 def _board_row_from_bpa(row: dict[str, Any], rank: int) -> RookieBoardRow:
@@ -515,6 +531,18 @@ def get_rookie_draft_view(
     bpa_all = state.bpa_recommendations(limit=500)
     bpa_rows = [_board_row_from_bpa(row, idx + 1) for idx, row in enumerate(bpa_all)]
     bpa_top = bpa_rows[:15]
+
+    need_all = state.recommend(limit=500)
+    need_top = [
+        _board_row_from_bpa(row, idx + 1).model_copy(update={"need_rank": idx + 1})
+        for idx, row in enumerate(need_all[:15])
+    ]
+
+    pivot_raw = state.value_pivot_summary(limit=6)
+    value_pivot = ValuePivotSummary(
+        take_bpa_over_need=[_pivot_player(row) for row in pivot_raw.get("take_bpa_over_need") or []],
+        wait_for_later=[_pivot_player(row) for row in pivot_raw.get("wait_for_later") or []],
+    )
     by_ovr = sorted(bpa_rows, key=lambda row: (row.ovr is None, -(row.ovr or 0)))
     board = [
         row.model_copy(update={"ovr_rank": idx + 1}) for idx, row in enumerate(by_ovr)
@@ -532,6 +560,16 @@ def get_rookie_draft_view(
         DEFAULT_POLL_SECONDS,
         int(config.get("poll_seconds", DEFAULT_POLL_SECONDS)),
     )
+
+    strategy_notes = list(
+        state.strategy.strategy_notes(state.war, tv_fn=state.blended_trade_value)
+    )
+    for cliff in state.tier_cliffs():
+        gap = cliff.get("gap", 0)
+        strategy_notes.append(
+            f"{cliff['pos']} tier cliff after {cliff['player']} "
+            f"({int(gap)} TV gap to {cliff['next']})"
+        )
 
     return RookieDraftView(
         league_id=league_id,
@@ -559,8 +597,10 @@ def get_rookie_draft_view(
         starter_needs=starter_needs,
         board=board,
         bpa_top=bpa_top,
+        need_top=need_top,
+        value_pivot=value_pivot,
         timeline=timeline,
-        strategy_notes=state.strategy.strategy_notes(state.war, tv_fn=state.blended_trade_value),
+        strategy_notes=strategy_notes,
         adp_source=state._adp_index().source_label,
         fetched_at=datetime.now(timezone.utc),
         poll_seconds=poll_seconds,

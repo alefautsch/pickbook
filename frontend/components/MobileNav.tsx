@@ -9,10 +9,6 @@ import { PlayerSearch } from "./PlayerSearch";
 import { SyncButton } from "./SyncButton";
 import { SyncStatusBar } from "./SyncStatusBar";
 
-const PICKBOOK_URL =
-  process.env.NEXT_PUBLIC_PICKBOOK_URL ??
-  (process.env.NODE_ENV === "development" ? "http://localhost:8501" : "");
-
 type MobileNavProps = {
   leagues: LeagueTileData[];
   activeLeagueId?: string;
@@ -125,20 +121,6 @@ export function MobileNav({
               {activeLeague.my_team_name}
             </p>
             <p className="truncate text-xs text-bb-muted">{activeLeague.name}</p>
-          </div>
-        ) : null}
-
-        {PICKBOOK_URL ? (
-          <div className="border-t border-bb-border/40 px-4 py-4">
-            <a
-              href={PICKBOOK_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-between rounded-lg border border-bb-gold/30 bg-bb-gold/5 px-3 py-2.5 text-sm font-medium text-bb-gold transition hover:bg-bb-gold/10"
-            >
-              <span>View Pickbook</span>
-              <span>↗</span>
-            </a>
           </div>
         ) : null}
       </aside>

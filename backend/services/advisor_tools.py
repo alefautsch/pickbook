@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import json
 import operator
+import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -21,6 +22,8 @@ from backend.services.read_service import get_league_rankings, get_player_card, 
 from backend.services.trade_rookie_context import build_trade_rookie_context
 from backend.services.trade_validation_service import (
     build_validation_payload,
+    heuristic_validation_skip,
+    resolve_counter_offer_package,
     validate_trade_with_llm,
     validation_accept_score,
 )
@@ -208,7 +211,8 @@ def rank_packages_by_counterparty_validation(
     load_team: Callable[[str], dict[str, Any]],
     trade_surplus: dict[str, Any] | None,
     api_key: str | None,
-    max_validate: int = 2,
+    max_validate: int = 1,
+    early_exit_on_acceptable: bool = True,
 ) -> list[dict[str, Any]]:
     """Validate packages from the counterparty lens and re-rank by accept likelihood."""
     if not packages or not api_key or not str(api_key).strip():
@@ -226,9 +230,10 @@ def rank_packages_by_counterparty_validation(
 
     validated: list[dict[str, Any]] = []
     tail: list[dict[str, Any]] = []
+    stop_validating = False
 
     for idx, pkg in enumerate(packages):
-        if idx >= max_validate:
+        if stop_validating or idx >= max_validate:
             tail.extend(packages[idx:])
             break
 
@@ -257,21 +262,58 @@ def rank_packages_by_counterparty_validation(
             tail.append(pkg)
             continue
 
-        payload = build_validation_payload(
-            proposer_roster_id=str(my_roster_id),
-            counterparty_roster_id=cp_id,
-            proposer_team=my_team,
-            counterparty_team=their_team,
-            give=eval_result["give"],
-            receive=eval_result["receive"],
-            tv_evaluation=eval_result,
+        validation = heuristic_validation_skip(
+            {**pkg, "net_delta_adjusted_pct": eval_result.get("net_delta_adjusted_pct")}
         )
-        validation = validate_trade_with_llm(payload, api_key=api_key)
+        if validation is None:
+            payload = build_validation_payload(
+                proposer_roster_id=str(my_roster_id),
+                counterparty_roster_id=cp_id,
+                proposer_team=my_team,
+                counterparty_team=their_team,
+                give=eval_result["give"],
+                receive=eval_result["receive"],
+                tv_evaluation=eval_result,
+            )
+            validation = validate_trade_with_llm(payload, api_key=api_key)
+
         enriched = dict(pkg)
         enriched["counterparty_validation"] = validation
         score = validation_accept_score(validation)
         enriched["validation_accept_score"] = score
+
+        counter_offer = validation.get("counter_offer")
+        if counter_offer:
+            resolved = resolve_counter_offer_package(
+                counter_offer,
+                proposer_team=my_team,
+                counterparty_team=their_team,
+            )
+            if resolved:
+                counter_eval = evaluate_trade_package(
+                    resolved["give"],
+                    resolved["receive"],
+                    resolve_player=resolve_player,
+                    resolve_pick=resolve_pick,
+                )
+                if not counter_eval.get("missing_assets"):
+                    enriched["suggested_package"] = {
+                        "give": counter_eval["give"],
+                        "receive": counter_eval["receive"],
+                        "net_delta_adjusted_pct": counter_eval.get(
+                            "net_delta_adjusted_pct"
+                        ),
+                        "rationale": resolved.get("rationale"),
+                        "source": resolved.get("source"),
+                    }
+
         validated.append(enriched)
+
+        if early_exit_on_acceptable and validation.get("accept_likelihood") in (
+            "high",
+            "medium",
+        ):
+            stop_validating = True
 
     def _sort_key(row: dict[str, Any]) -> tuple[float, float, float]:
         vas = row.get("validation_accept_score")
@@ -529,6 +571,10 @@ ACQUISITION_OVERPAY_BAND = 0.15
 ACQUISITION_MAX_FAVOR_YOU = 0.05
 ACQUISITION_MAX_SWING = 0.28
 CORE_TARGET_EXTRA_OVERPAY = 0.10
+# Premium current-year 1sts (1.01–1.04): block TV-only lowballs; rank by minimum viable give.
+PREMIUM_FIRST_MAX_SLOT = 4
+MINIMUM_ACCEPTED_MAX_FAVOR_ACQUIRER_PCT = 2.0
+PREMIUM_PICK_MIN_STUD_TV = 4500
 
 
 def _find_player_on_rosters(
@@ -541,6 +587,189 @@ def _find_player_on_rosters(
             if str(player.get("player_id") or "") == pid:
                 return str(roster_id), player
     return None
+
+
+def _slot_in_round_from_pick(pick: dict[str, Any]) -> int | None:
+    slot = pick.get("slot_in_round")
+    if slot is not None:
+        return int(slot)
+    label = str(pick.get("label") or "")
+    match = re.search(r"1\.(\d+)", label)
+    if match:
+        return int(match.group(1))
+    tier = str(pick.get("slot_tier") or "").lower()
+    if tier == "early":
+        return 2
+    if tier in {"mid", "middle"}:
+        return 6
+    if tier == "late":
+        return 10
+    return None
+
+
+def _is_premium_current_first(
+    pick: dict[str, Any],
+    *,
+    current_season: str = "2026",
+) -> bool:
+    if pick.get("player_id"):
+        return False
+    if str(pick.get("season")) != current_season:
+        return False
+    if int(pick.get("round") or 0) != 1:
+        return False
+    slot = _slot_in_round_from_pick(pick)
+    if slot is not None:
+        return slot <= PREMIUM_FIRST_MAX_SLOT
+    return str(pick.get("slot_tier") or "").lower() in {"early", "known"}
+
+
+def _package_give_tv(pkg: dict[str, Any]) -> float:
+    give = pkg.get("give") or {}
+    assets = (give.get("players") or []) + (give.get("picks") or [])
+    return sum(asset_tv(a) for a in assets)
+
+
+def _sort_packages_by_offer_mode(
+    packages: list[dict[str, Any]],
+    *,
+    offer_mode: str,
+) -> list[dict[str, Any]]:
+    """minimum_accepted: cheapest TV package the seller might realistically consider."""
+    if offer_mode != "minimum_accepted":
+        return packages
+
+    viable = [
+        p
+        for p in packages
+        if float(p.get("net_delta_adjusted_pct") or 99) <= MINIMUM_ACCEPTED_MAX_FAVOR_ACQUIRER_PCT
+    ]
+    pool = viable if viable else packages
+    ranked = sorted(
+        pool,
+        key=lambda p: (
+            _package_give_tv(p),
+            abs(float(p.get("net_delta_adjusted_pct") or 0)),
+        ),
+    )
+    for idx, pkg in enumerate(ranked):
+        pkg["offer_rank"] = idx + 1
+        if idx == 0:
+            pkg["offer_tier"] = "minimum_tv" if viable else "minimum_unrealistic"
+        elif float(pkg.get("net_delta_adjusted_pct") or 0) <= 0:
+            pkg["offer_tier"] = "fair_or_overpay"
+        else:
+            pkg["offer_tier"] = "stretch"
+    return ranked
+
+
+def _premium_pick_give_is_realistic(
+    give_assets: list[dict[str, Any]],
+    *,
+    target_pick: dict[str, Any],
+) -> bool:
+    """Block solo future-1st lowballs for premium current firsts."""
+    if not _is_premium_current_first(target_pick):
+        return True
+    players = [a for a in give_assets if a.get("player_id")]
+    picks = [a for a in give_assets if not a.get("player_id")]
+    if not picks:
+        return bool(players)
+    future_1sts_only = all(
+        int(p.get("round") or 0) == 1 and str(p.get("season")) > str(target_pick.get("season"))
+        for p in picks
+    )
+    if future_1sts_only and len(picks) == 1 and not players:
+        return False
+    if future_1sts_only and not players and len(picks) < 2:
+        return False
+    has_stud = any(asset_tv(p) >= PREMIUM_PICK_MIN_STUD_TV for p in players)
+    has_current_pick = any(
+        str(p.get("season")) == str(target_pick.get("season")) for p in picks
+    )
+    if has_stud and picks:
+        return True
+    if len([p for p in picks if int(p.get("round") or 0) == 1]) >= 2:
+        return True
+    if has_current_pick and picks:
+        return True
+    give_tv = sum(asset_tv(a) for a in give_assets)
+    return give_tv >= asset_tv(target_pick) * 0.92
+
+
+def _build_premium_pick_give_templates(
+    target_pick: dict[str, Any],
+    *,
+    my_picks: list[dict[str, Any]],
+    my_trade_players: list[dict[str, Any]],
+    their_picks: list[dict[str, Any]],
+    reserved_pick_keys: set[tuple[str, int, str]],
+    current_season: str = "2026",
+    lubricant_mode: bool = True,
+) -> list[tuple[list[dict[str, Any]], list[dict[str, Any]]]]:
+    """Escalating offer shapes for premium current firsts — no solo future-1st lowballs."""
+    templates: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]] = []
+    available = _filter_reserved_picks(my_picks, reserved_pick_keys)
+    current_1sts = [
+        p
+        for p in available
+        if str(p.get("season")) == current_season and int(p.get("round") or 0) == 1
+    ]
+    current_non_r1 = [
+        p
+        for p in available
+        if str(p.get("season")) == current_season and int(p.get("round") or 0) >= 2
+    ]
+    future_1sts = [
+        p
+        for p in available
+        if str(p.get("season")) > current_season and int(p.get("round") or 0) == 1
+    ]
+    studs = [p for p in my_trade_players if asset_tv(p) >= PREMIUM_PICK_MIN_STUD_TV][:5]
+    depth = my_trade_players[:8]
+    their_future_1sts = [
+        p
+        for p in their_picks
+        if str(p.get("season")) > current_season and int(p.get("round") or 0) == 1
+    ]
+
+    def _add(give: list[dict[str, Any]], recv: list[dict[str, Any]] | None = None) -> None:
+        recv_list = recv or [target_pick]
+        if _premium_pick_give_is_realistic(give, target_pick=target_pick):
+            templates.append((give, recv_list))
+
+    for stud in studs[:4]:
+        if future_1sts:
+            _add([stud, future_1sts[0]])
+        if len(future_1sts) >= 2:
+            _add([stud, future_1sts[0], future_1sts[1]])
+        if current_non_r1 and future_1sts:
+            _add([stud, current_non_r1[0], future_1sts[0]])
+        if current_non_r1:
+            _add([stud, current_non_r1[0], current_non_r1[1] if len(current_non_r1) > 1 else current_non_r1[0]])
+
+    for player in depth[:4]:
+        if future_1sts:
+            _add([player, future_1sts[0]])
+        if len(future_1sts) >= 2:
+            _add([player, future_1sts[0], future_1sts[1]])
+
+    if len(future_1sts) >= 2:
+        _add(future_1sts[:2])
+    if len(future_1sts) >= 3:
+        _add(future_1sts[:3])
+
+    if not lubricant_mode and current_1sts:
+        _add([current_1sts[0]])
+        for stud in studs[:2]:
+            _add([stud, current_1sts[0]])
+    if current_1sts and future_1sts:
+        _add([current_1sts[0], future_1sts[0]])
+
+    if future_1sts and their_future_1sts:
+        _add([future_1sts[0]], [target_pick, their_future_1sts[0]])
+
+    return templates
 
 
 def _acquisition_package_ok(
@@ -1195,6 +1424,179 @@ def _flip_package_for_seller(
     }
 
 
+def generate_pick_acquisition_packages(
+    *,
+    my_roster_id: str,
+    target_roster_id: str,
+    target_picks: list[dict[str, Any]],
+    roster_players: dict[str, list[dict[str, Any]]],
+    picks_by_roster: dict[str, list[dict[str, Any]]],
+    trade_surplus: dict[str, Any] | None = None,
+    contender_tier_by_roster: dict[str, str] | None = None,
+    team_names: dict[str, str] | None = None,
+    max_suggestions: int = 10,
+    keep_current_first: bool = True,
+    lubricant_mode: bool = True,
+    offer_mode: str = "minimum_accepted",
+    current_season: str = "2026",
+) -> list[dict[str, Any]]:
+    """Acquire premium picks with escalating, realistic offer ladders."""
+    their_id = str(target_roster_id)
+    if their_id == str(my_roster_id) or not target_picks:
+        return []
+
+    my_tier = (contender_tier_by_roster or {}).get(str(my_roster_id))
+    their_tier = (contender_tier_by_roster or {}).get(their_id)
+    ts = trade_surplus or {}
+    my_surplus_positions = {row["position"] for row in ts.get("surplus") or []}
+    my_need_positions = {row["position"] for row in ts.get("needs") or []}
+
+    my_players = roster_players.get(str(my_roster_id), [])
+    my_annotated = annotate_players_with_trade_tags(
+        my_players,
+        surplus_positions=my_surplus_positions,
+        contender_tier=my_tier,
+    )
+    my_trade_players = [
+        p
+        for p in my_annotated
+        if (
+            p.get("trade_tag") != "core"
+            or asset_tv(p) >= PREMIUM_PICK_MIN_STUD_TV
+        )
+        and (
+            p.get("trade_tag") == "trade"
+            or (p.get("depth_rank") or 99) >= 2
+            or asset_tv(p) >= PREMIUM_PICK_MIN_STUD_TV
+        )
+    ]
+    if not my_trade_players:
+        my_trade_players = sorted(my_annotated, key=lambda p: asset_tv(p), reverse=True)[:6]
+    my_trade_players.sort(key=lambda p: asset_tv(p), reverse=True)
+
+    my_picks = annotate_picks_with_trade_tags(
+        picks_by_roster.get(str(my_roster_id), []),
+        contender_tier=my_tier,
+    )
+    my_picks.sort(key=lambda p: asset_tv(p), reverse=True)
+    reserved_keys = _default_reserved_picks(
+        str(my_roster_id), my_picks, keep_current_first=keep_current_first, current_season=current_season
+    )
+    their_picks = sorted(
+        picks_by_roster.get(their_id, []),
+        key=lambda p: asset_tv(p),
+        reverse=True,
+    )
+    tradability_by_id = {
+        str(p["player_id"]): (
+            0.85 if p.get("trade_tag") == "trade" else 0.05 if p.get("trade_tag") == "core" else 0.35
+        )
+        for p in my_annotated
+    }
+
+    templates: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]] = []
+    for target_pick in target_picks:
+        if _is_premium_current_first(target_pick, current_season=current_season):
+            templates.extend(
+                _build_premium_pick_give_templates(
+                    target_pick,
+                    my_picks=my_picks,
+                    my_trade_players=my_trade_players,
+                    their_picks=their_picks,
+                    reserved_pick_keys=reserved_keys,
+                    current_season=current_season,
+                    lubricant_mode=lubricant_mode,
+                )
+            )
+        else:
+            base = _build_acquisition_templates(
+                target_pick,
+                my_picks=my_picks,
+                my_trade_players=my_trade_players,
+                their_picks=their_picks,
+                reserved_pick_keys=reserved_keys,
+                current_season=current_season,
+                lubricant_mode=lubricant_mode,
+            )
+            for give_list, recv_list in base:
+                if _premium_pick_give_is_realistic(give_list, target_pick=target_pick):
+                    templates.append((give_list, recv_list if len(recv_list) > 1 else target_picks))
+
+    recv_assets = list(target_picks)
+    names = ", ".join(str(p.get("label") or "?") for p in recv_assets[:4])
+    suggestions: list[dict[str, Any]] = []
+
+    for give_list, recv_list in _unique_packages(templates):
+        if any(
+            p.get("trade_tag") == "core"
+            for p in give_list
+            if p.get("player_id")
+            and not any(_is_premium_current_first(tp, current_season=current_season) for tp in target_picks)
+        ):
+            continue
+        if reserved_keys and any(
+            _pick_slot_key(p) in reserved_keys for p in give_list if not p.get("player_id")
+        ):
+            continue
+        primary = max(recv_list, key=asset_tv)
+        if not _premium_pick_give_is_realistic(give_list, target_pick=primary):
+            continue
+
+        fairness = evaluate_package_fairness(give_list, recv_list)
+        pct = float(fairness.get("net_delta_adjusted_pct") or 0) / 100.0
+        max_swing = 0.45 if offer_mode == "minimum_accepted" else ACQUISITION_MAX_SWING
+        if abs(pct) > max_swing:
+            continue
+        if offer_mode == "minimum_accepted" and pct > MINIMUM_ACCEPTED_MAX_FAVOR_ACQUIRER_PCT / 100.0:
+            continue
+
+        give_player_rows = [p for p in give_list if p.get("player_id")]
+        recv_player_rows = [p for p in recv_list if p.get("player_id")]
+        quality = package_quality_score(
+            give_players=give_player_rows,
+            recv_players=recv_player_rows,
+            give_assets=give_list,
+            tradability_by_id=tradability_by_id,
+            acquirer_need_positions=my_need_positions,
+            acquirer_surplus_positions=my_surplus_positions,
+            acquirer_tier=my_tier,
+            seller_tier=their_tier,
+            fairness=fairness,
+        )
+        closeness = 1.0 - abs(pct)
+        suggestions.append(
+            {
+                "counterparty": {
+                    "roster_id": their_id,
+                    "team_name": (team_names or {}).get(their_id),
+                    "direction": "acquire",
+                    "contender_tier": their_tier,
+                    "target_roster_id": their_id,
+                    "trade_pattern": "premium_pick_acquire",
+                    "offer_mode": offer_mode,
+                },
+                "give": {
+                    "players": give_player_rows,
+                    "picks": [p for p in give_list if not p.get("player_id")],
+                },
+                "receive": {
+                    "players": recv_player_rows,
+                    "picks": [p for p in recv_list if not p.get("player_id")],
+                },
+                **fairness,
+                "package_quality": quality,
+                "acquisition_score": round(quality * 0.6 + closeness * 40, 2),
+                "rationale": (
+                    f"Acquire {names} — give TV {sum(asset_tv(a) for a in give_list):.0f} "
+                    f"({fairness.get('net_delta_adjusted_pct'):+.1f}% adj)"
+                ),
+            }
+        )
+
+    suggestions = _sort_packages_by_offer_mode(suggestions, offer_mode=offer_mode)
+    return suggestions[:max_suggestions]
+
+
 def generate_bundle_acquisition_packages(
     *,
     my_roster_id: str,
@@ -1209,6 +1611,7 @@ def generate_bundle_acquisition_packages(
     max_suggestions: int = 8,
     keep_current_first: bool = True,
     lubricant_mode: bool = True,
+    offer_mode: str = "minimum_accepted",
     current_season: str = "2026",
 ) -> list[dict[str, Any]]:
     """Acquire one or more players/picks from a specific counterparty."""
@@ -1221,6 +1624,23 @@ def generate_bundle_acquisition_packages(
     )
     if not recv_players and not recv_picks:
         return []
+
+    if not recv_players and recv_picks:
+        return generate_pick_acquisition_packages(
+            my_roster_id=my_roster_id,
+            target_roster_id=str(target_roster_id),
+            target_picks=recv_picks,
+            roster_players=roster_players,
+            picks_by_roster=picks_by_roster,
+            trade_surplus=trade_surplus,
+            contender_tier_by_roster=contender_tier_by_roster,
+            team_names=team_names,
+            max_suggestions=max_suggestions,
+            keep_current_first=keep_current_first,
+            lubricant_mode=lubricant_mode,
+            offer_mode=offer_mode,
+            current_season=current_season,
+        )
 
     if len(recv_players) == 1 and not recv_picks:
         packages = generate_acquisition_packages(
@@ -1651,6 +2071,7 @@ def generate_trade_calc_packages(
     max_suggestions: int = 10,
     keep_current_first: bool = True,
     lubricant_mode: bool = True,
+    offer_mode: str = "minimum_accepted",
 ) -> list[dict[str, Any]]:
     """Trade calculator: acquire targets from another team or sell assets league-wide."""
     proposer = str(proposer_roster_id)
@@ -1676,6 +2097,7 @@ def generate_trade_calc_packages(
             max_suggestions=max_suggestions,
             keep_current_first=keep_current_first,
             lubricant_mode=lubricant_mode,
+            offer_mode=offer_mode,
         )
 
     return generate_disposal_packages(
@@ -2697,8 +3119,8 @@ class AdvisorTools:
         counterparty_roster_id: str | None = None,
         player_ids: list[str] | None = None,
         pick_refs: list[dict[str, Any]] | None = None,
-        rank_by_validation: bool = True,
-        max_validate: int = 3,
+        rank_by_validation: bool = False,
+        max_validate: int = 1,
         keep_current_first: bool = True,
         lubricant_mode: bool = True,
         max_suggestions: int = 10,
@@ -2738,14 +3160,28 @@ class AdvisorTools:
             max_suggestions=max_suggestions,
             keep_current_first=keep_current_first,
             lubricant_mode=lubricant_mode,
+            offer_mode="minimum_accepted" if mode == "acquire" else "best",
         )
 
         validation_ranked = False
         if rank_by_validation and packages:
             settings = get_settings()
             trade_surplus = self._trade_surplus()
-            ranked = rank_packages_by_counterparty_validation(
+            validate_pool = sorted(
                 packages,
+                key=lambda p: (
+                    sum(
+                        asset_tv(a)
+                        for a in (p.get("give") or {}).get("players") or []
+                    )
+                    + sum(
+                        asset_tv(a)
+                        for a in (p.get("give") or {}).get("picks") or []
+                    ),
+                ),
+            )
+            ranked = rank_packages_by_counterparty_validation(
+                validate_pool,
                 my_roster_id=proposer_id,
                 resolve_player=self._resolve_player,
                 resolve_pick=self._resolve_pick,

@@ -184,7 +184,7 @@ class TradeSuggestRequest(BaseModel):
     counterparty_roster_id: str | None = None
     player_ids: list[str] = Field(default_factory=list)
     picks: list[TradePickRef] = Field(default_factory=list)
-    rank_by_validation: bool = True
+    rank_by_validation: bool = False
     lubricant_mode: bool = True
     keep_current_first: bool = True
 
@@ -211,8 +211,11 @@ class TradeSuggestPackage(BaseModel):
     acquisition_score: float | None = None
     disposal_score: float | None = None
     rationale: str | None = None
+    offer_tier: str | None = None
+    offer_rank: int | None = None
     validation_accept_score: float | None = None
     counterparty_validation: dict[str, Any] | None = None
+    suggested_package: dict[str, Any] | None = None
 
 
 class TradeSuggestResponse(BaseModel):

@@ -6,7 +6,7 @@ Blackbook deploys as three Railway resources:
 - `api` service from the repo root using `Dockerfile.blackbook`
 - `web` service from `frontend/` using `frontend/Dockerfile`
 
-Legacy Pickbook remains a local Streamlit app for now (`just pickbook`). The Blackbook sidebar only shows the Pickbook link in local development unless `NEXT_PUBLIC_PICKBOOK_URL` is explicitly set.
+Live rookie drafts run in Blackbook (`/leagues/[id]/rookie-draft`). The legacy Streamlit app (`just app`) remains in the repo for local engine debugging only — it is not deployed.
 
 ## 1. Create Railway resources
 
@@ -53,7 +53,6 @@ Set variables:
 
 - `API_URL` (required): server-side API base URL. Prefer Railway private networking for server-rendered routes.
 - `NEXT_PUBLIC_API_URL` (required): browser-visible API base URL used by client components like sync, search, advisor, and rookie draft polling. Use the API public URL unless those calls are proxied.
-- `NEXT_PUBLIC_PICKBOOK_URL` (optional): leave unset to hide Pickbook in production. Set only if deploying legacy Pickbook separately.
 
 ## 4. Configure scheduled sync
 
@@ -75,59 +74,3 @@ Check:
 - The web service loads a league dashboard.
 - Manual Sync completes and `/sync/status` shows success.
 - Scheduled sync writes new `sync_runs` rows after the next `SYNC_CRON` fire.
-
----
-
-## Legacy Pickbook Railway notes
-
-## 1. Push to GitHub
-
-```bash
-cd /Users/afautsch/dc
-git init
-git add .
-git commit -m "Pickbook: mobile dynasty draft assistant"
-git remote add origin https://github.com/alefautsch/pickbook.git
-git push -u origin main
-```
-
-## 2. Create Railway service
-
-1. [railway.com](https://railway.com) → **New Project** → **Deploy from GitHub repo** → `alefautsch/pickbook`
-2. Railway detects the `Dockerfile` automatically.
-
-## 3. Set environment variables
-
-In Railway → your service → **Variables**:
-
-| Variable            | Required | Example                           |
-| ------------------- | -------- | --------------------------------- |
-| `ANTHROPIC_API_KEY` | Yes      | `sk-ant-...`                      |
-| `SLEEPER_USERNAME`  | No       | `alefautsch` (default in app)     |
-| `LEAGUE_ID`         | No       | `1314731206859853824`             |
-| `DRAFT_ID`          | No       | `1314734674332880896`             |
-| `SEASON`            | No       | `2026`                            |
-
-Defaults are baked in for Good Luck Assholes — you only need `ANTHROPIC_API_KEY` if those IDs stay the same.
-
-## 4. Generate domain
-
-Railway → service → **Settings** → **Networking** → **Generate Domain**.
-
-Open that URL on your phone. Add to home screen for an app-like shortcut (Safari: Share → Add to Home Screen).
-
-## 5. CLI deploy (alternative)
-
-```bash
-railway login
-railway link          # pick project
-railway variable set ANTHROPIC_API_KEY=sk-ant-...
-railway up --detach
-railway domain
-```
-
-## Notes
-
-- `war.csv` ships in the Docker image — no object storage needed.
-- Settings saved in the UI write to ephemeral disk on Railway; use env vars for production config.
-- Slow draft: enable **Auto-refresh** in Settings (default on, 20s).

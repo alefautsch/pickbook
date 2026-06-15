@@ -27,9 +27,9 @@ The Pickbook Streamlit app already proved the **scoring engine** (dynasty OVR, s
 
 **Primary mode:** in-season, asynchronous research — evaluating my teams, scouting opponents, planning trades, prepping for rookie drafts.
 
-**Explicitly not the primary mode:** live startup drafts. I will rarely do startup drafts. Pickbook (Streamlit) remains the draft-night tool for **startup** drafts. Blackbook ships **rookie draft** mode (Phase 7) because rookie drafts happen every year and matter.
+**Live draft mode:** rookie drafts in Blackbook (`/rookie-draft`) — BPA board, needs, value-pivot alerts, mock timeline, auto-poll. The legacy Streamlit app (`dynasty_draft/app.py`) remains for local engine debugging only.
 
-**Cadence:** I open it a few times a week, sometimes daily during trade season or before rookie drafts. Data freshness of minutes-to-hours is fine. Real-time is only relevant for the future rookie-draft feature.
+**Cadence:** I open it a few times a week, sometimes daily during trade season or before rookie drafts. Data freshness of minutes-to-hours is fine. Real-time polling matters on rookie draft night.
 
 ---
 
@@ -278,7 +278,7 @@ PostgreSQL  ·  Sleeper API  ·  Dynasty Daddy API / war.csv fallback + nflverse
 
 **Why Railway-only (no Vercel):** one project, one bill, internal networking between API and DB, shared env vars. Next.js runs as a second Railway service with standalone output. A second platform would add deploy, env-sync, and CORS complexity for no benefit at personal scale.
 
-**Why keep Pickbook (Streamlit) alive:** it's the working **startup** draft tool. Blackbook imports the same engine as a library and does not modify scoring in breaking ways. **Pickbook retirement (2026-06-07):** once rookie-draft parity is validated in production, Streamlit can be retired for annual rookie drafts — Blackbook's `/rookie-draft` page replaces that workflow. Keep Pickbook for startup drafts until Blackbook explicitly adds startup mode (non-goal §13). The sidebar Pickbook link stays as fallback until rookie mode is battle-tested on draft night.
+**Engine library:** `dynasty_draft/` powers both Blackbook and the legacy Streamlit app. Blackbook imports the engine as a library and does not modify scoring in breaking ways. **Pickbook retired (2026-06):** live draft UX lives in Blackbook's `/rookie-draft` page. Streamlit stays in-repo for local debugging (`just app`) only.
 
 ### 9.1 Sync scheduler
 
@@ -379,7 +379,7 @@ The feeling target: opening a **franchise-mode front office**. Dark, premium, nu
 
 High-fidelity mockups (`overview_mockupo.png`, `team_page_mockup.png`, `player_page_mockup.png`) define the **north star** beyond Phase 2. Gap summary vs current build — see `BLACKBOOK_TASKS.md` §Mockup gaps.
 
-**Shared chrome (all pages):** left sidebar nav (Overview, League, My Team, Rankings, Players, Portfolio, Settings), league switcher tabs, sync status + Sync Now + settings gear. Phase 6 adds `SidebarNav`, `/settings`, Pickbook footer link.
+**Shared chrome (all pages):** left sidebar nav (Overview, League, My Team, Rankings, Players, Portfolio, Rookie Draft, Settings), league switcher tabs, sync status + Sync Now + settings gear.
 
 **Overview / league dashboard:** summary cards (rank, OVR, Σ PPG, TV, contender), power rankings, optimal-starters sidebar with projected PPG, portfolio strip, position strength / age / trade surplus panels, contender breakdown bars. Phase 6 league page matches mockup grid layout.
 
@@ -393,7 +393,7 @@ Build order: ship data foundations (history, lenses, portfolio) before visual po
 
 ## 13. Non-goals (v1)
 
-- Live **startup** draft UX (stays on Streamlit Pickbook).
+- Live **startup** draft UX (non-goal; startup drafts are rare).
 - Multi-user / auth (personal tool; a single API key on Railway if anything).
 - Trade calculator, push notifications, native mobile app.
 - A "global" cross-league OVR (grades are league-relative by design; portfolio shows them side by side).

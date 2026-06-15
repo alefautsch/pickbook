@@ -186,6 +186,8 @@ def _print_package(i: int, pkg: dict[str, Any]) -> None:
         print(f"  Pattern: {cp['trade_pattern']}")
     if pkg.get("stretch"):
         print("  Note: stretch package (outside normal overpay band — negotiation opener)")
+    if pkg.get("offer_tier"):
+        print(f"  Offer tier: {pkg.get('offer_tier')} (#{pkg.get('offer_rank')})")
     print(f"  Their tier: {cp.get('contender_tier')} | Fairness: {pkg.get('fairness')} ({pkg.get('net_delta_adjusted_pct')}%)")
     print(f"  Quality: {pkg.get('package_quality')} | Fit: {pkg.get('avg_trade_fit')}")
 
@@ -252,6 +254,21 @@ def main() -> None:
         default=False,
         help="Re-rank packages by counterparty accept_likelihood (default off; needs ANTHROPIC_API_KEY)",
     )
+    parser.add_argument(
+        "--calc-acquire",
+        action="store_true",
+        help="Trade-calculator acquire mode for --acquire-pick / --player on --target",
+    )
+    parser.add_argument(
+        "--acquire-pick",
+        help="Acquire pick ref season:round:original_roster (e.g. 2026:1:3 for 1.01)",
+    )
+    parser.add_argument(
+        "--offer-mode",
+        choices=["minimum_accepted", "best"],
+        default="minimum_accepted",
+        help="Acquire ranking: minimum_accepted = cheapest fair-ish TV offer first",
+    )
     parser.add_argument("--json", action="store_true", help="Dump raw JSON")
     args = parser.parse_args()
 
@@ -280,6 +297,7 @@ def main() -> None:
         evaluate_trade_package,
         generate_need_swap_packages,
         generate_position_acquisition_packages,
+        generate_trade_calc_packages,
         generate_trade_suggestions,
         rank_packages_by_counterparty_validation,
     )
@@ -309,7 +327,38 @@ def main() -> None:
     keep_first = not args.use_101
     lubricant = not args.use_101
 
-    if args.swap:
+    if args.calc_acquire or args.acquire_pick:
+        if not args.target:
+            raise SystemExit("--target <counterparty_roster_id> is required with --acquire-pick")
+        pick_refs: list[dict[str, Any]] = []
+        if args.acquire_pick:
+            parts = args.acquire_pick.split(":")
+            if len(parts) != 3:
+                raise SystemExit("--acquire-pick format: season:round:original_roster (e.g. 2026:1:3)")
+            pick_refs = [
+                {
+                    "season": parts[0],
+                    "round": int(parts[1]),
+                    "original_roster_id": parts[2],
+                }
+            ]
+        packages = generate_trade_calc_packages(
+            mode="acquire",
+            proposer_roster_id=str(args.roster),
+            counterparty_roster_id=str(args.target),
+            player_ids=[str(args.player)] if args.player else [],
+            pick_refs=pick_refs,
+            roster_players=roster_players,
+            picks_by_roster=picks_by_roster,
+            contender_tier_by_roster=tiers,
+            team_names=team_names,
+            position_strength=None,
+            max_suggestions=12,
+            keep_current_first=keep_first,
+            lubricant_mode=lubricant,
+            offer_mode=args.offer_mode,
+        )
+    elif args.swap:
         packages = generate_need_swap_packages(
             my_roster_id=str(args.roster),
             roster_players=roster_players,
@@ -420,7 +469,9 @@ def main() -> None:
             print("\nSkipping validation ranking (ANTHROPIC_API_KEY not set)")
 
     mode = (
-        f"NEED SWAP{f' ({args.need})' if args.need else ''}"
+        f"CALC ACQUIRE ({args.offer_mode})"
+        if args.calc_acquire or args.acquire_pick
+        else f"NEED SWAP{f' ({args.need})' if args.need else ''}"
         if args.swap
         else f"KEY {args.position.upper()} ACQUISITION"
         if args.position and not args.player and not args.target

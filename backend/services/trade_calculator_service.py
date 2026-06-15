@@ -745,6 +745,26 @@ def _pick_asset_from_dict(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _suggested_package_from_dict(raw: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not raw:
+        return None
+    give = raw.get("give") or {}
+    recv = raw.get("receive") or {}
+    return {
+        "give": {
+            "players": [_player_asset_from_dict(p) for p in give.get("players") or []],
+            "picks": [_pick_asset_from_dict(p) for p in give.get("picks") or []],
+        },
+        "receive": {
+            "players": [_player_asset_from_dict(p) for p in recv.get("players") or []],
+            "picks": [_pick_asset_from_dict(p) for p in recv.get("picks") or []],
+        },
+        "net_delta_adjusted_pct": raw.get("net_delta_adjusted_pct"),
+        "rationale": raw.get("rationale"),
+        "source": raw.get("source"),
+    }
+
+
 def suggest_trade_packages(
     db: Session,
     league_id: str,
@@ -814,8 +834,11 @@ def suggest_trade_packages(
                 acquisition_score=pkg.get("acquisition_score"),
                 disposal_score=pkg.get("disposal_score"),
                 rationale=pkg.get("rationale"),
+                offer_tier=pkg.get("offer_tier"),
+                offer_rank=pkg.get("offer_rank"),
                 validation_accept_score=pkg.get("validation_accept_score"),
                 counterparty_validation=pkg.get("counterparty_validation"),
+                suggested_package=_suggested_package_from_dict(pkg.get("suggested_package")),
             )
         )
 

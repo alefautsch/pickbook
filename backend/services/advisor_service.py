@@ -243,6 +243,17 @@ def _rookie_draft_context(db: Session, league_id: str, roster_id: str | None) ->
             }
             for row in view.bpa_top[:12]
         ],
+        "need_top": [
+            {
+                "name": row.player_name,
+                "pos": row.position,
+                "ovr": row.ovr,
+                "adp_pick": row.adp_pick,
+                "need_rank": row.need_rank,
+            }
+            for row in view.need_top[:12]
+        ],
+        "value_pivot": view.value_pivot.model_dump(),
         "board_top": [
             {
                 "name": row.player_name,
