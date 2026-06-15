@@ -107,8 +107,8 @@ def classify_advisor_intent(
     advisor_context = build_inseason_advisor_context(context)
     compact_ctx = {
         "league_name": advisor_context.get("league_name"),
+        "trade_perspective": advisor_context.get("trade_perspective"),
         "focused_team": advisor_context.get("focused_team"),
-        "my_team": advisor_context.get("my_team"),
         "page_context": advisor_context.get("page_context"),
     }
     client = anthropic.Anthropic(api_key=api_key.strip())

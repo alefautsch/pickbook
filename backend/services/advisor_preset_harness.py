@@ -172,6 +172,11 @@ def _compact_rookie_draft(view: Any | None) -> dict[str, Any] | None:
     }
 
 
+def _advising_roster_id(focus_id: str) -> str:
+    """Roster the user selected in the advisor From dropdown."""
+    return str(focus_id)
+
+
 def _suggest_trade_tool_params(
     tools: AdvisorTools,
     context: dict[str, Any],
@@ -179,8 +184,11 @@ def _suggest_trade_tool_params(
     focus_id: str,
     params: dict[str, Any],
 ) -> dict[str, Any]:
-    viewing_opponent = bool((context.get("focused_team") or {}).get("viewing_opponent"))
-    target_roster_id = focus_id if viewing_opponent else params.get("target_roster_id")
+    # Proposer perspective is focus_id via AdvisorTools.proposer_roster_id.
+    # target_roster_id is only for "trade with manager X" — never the advising team itself.
+    target_roster_id = params.get("target_roster_id")
+    if target_roster_id and str(target_roster_id) == str(focus_id):
+        target_roster_id = None
 
     target_position = params.get("position")
     if target_position:
@@ -238,7 +246,10 @@ def _run_suggest_trade(
             packages = result.get("packages") or []
             tool_params = {**tool_params, "target_position": fallback_position}
 
+    proposer_id = _advising_roster_id(focus_id)
     return {
+        "proposer_roster_id": proposer_id,
+        "advising_team": _compact_team(tools.get_team(proposer_id)),
         "target_roster_id": tool_params["target_roster_id"],
         "target_position": tool_params["target_position"],
         "target_player_id": tool_params["target_player_id"],
@@ -256,13 +267,15 @@ def _run_trade_targets(
     focus_id: str,
     params: dict[str, Any],
 ) -> dict[str, Any]:
+    proposer_id = _advising_roster_id(focus_id)
     rankings = tools.get_league_rankings()
-    my_team = tools.get_team(my_roster_id)
+    advising_team = tools.get_team(proposer_id)
     trades = tools.suggest_trades(rank_by_validation=False)
     packages = trades.get("packages") or []
     return {
+        "proposer_roster_id": proposer_id,
         "league_rankings": _compact_rankings(rankings),
-        "my_team": _compact_team(my_team),
+        "advising_team": _compact_team(advising_team),
         "trade_surplus": trades.get("trade_surplus_summary"),
         "packages": [_compact_package(pkg) for pkg in packages[:TOP_PACKAGES]],
         "package_count": len(packages),
@@ -277,11 +290,13 @@ def _run_drop_candidates(
     focus_id: str,
     params: dict[str, Any],
 ) -> dict[str, Any]:
-    my_team = tools.get_team(my_roster_id)
+    proposer_id = _advising_roster_id(focus_id)
+    advising_team = tools.get_team(proposer_id)
     fa = tools.get_free_agents(limit=TOP_FA)
     return {
-        "my_team": _compact_team(my_team),
-        "bench_drop_candidates": _bench_drop_candidates(my_team),
+        "proposer_roster_id": proposer_id,
+        "advising_team": _compact_team(advising_team),
+        "bench_drop_candidates": _bench_drop_candidates(advising_team),
         "top_free_agents": _compact_fa_board(fa),
     }
 
@@ -294,15 +309,17 @@ def _run_rookie_pick_prep(
     focus_id: str,
     params: dict[str, Any],
 ) -> dict[str, Any]:
-    my_team = tools.get_team(my_roster_id)
+    proposer_id = _advising_roster_id(focus_id)
+    advising_team = tools.get_team(proposer_id)
     try:
         rookie_view = get_rookie_draft_view(
-            tools.ctx.db, tools.ctx.league_id, roster_id=my_roster_id
+            tools.ctx.db, tools.ctx.league_id, roster_id=proposer_id
         )
     except (ValueError, FileNotFoundError):
         rookie_view = None
     return {
-        "my_team": _compact_team(my_team),
+        "proposer_roster_id": proposer_id,
+        "advising_team": _compact_team(advising_team),
         "rookie_draft": _compact_rookie_draft(rookie_view),
     }
 
@@ -315,11 +332,13 @@ def _run_waiver(
     focus_id: str,
     params: dict[str, Any],
 ) -> dict[str, Any]:
+    proposer_id = _advising_roster_id(focus_id)
     pos = params.get("position")
     if pos:
         pos = str(pos).upper()
     return {
-        "my_team": _compact_team(tools.get_team(my_roster_id)),
+        "proposer_roster_id": proposer_id,
+        "advising_team": _compact_team(tools.get_team(proposer_id)),
         "free_agents": _compact_fa_board(
             tools.get_free_agents(position=pos, limit=TOP_FA)
         ),
@@ -469,6 +488,20 @@ def run_preset_harness(
     return payload
 
 
+def _trade_perspective_preamble(context: dict[str, Any]) -> str:
+    focused = context.get("focused_team") or {}
+    if not focused.get("viewing_opponent"):
+        return ""
+    team_name = focused.get("team_name") or "the selected team"
+    roster_id = focused.get("roster_id") or "?"
+    logged_in = (context.get("my_team") or {}).get("team_name") or "logged-in user"
+    return (
+        f"TRADE PERSPECTIVE: Advise as **{team_name}** (roster {roster_id}). "
+        f"The logged-in user manages **{logged_in}** — do not recommend moves for "
+        f"{logged_in}'s roster unless explicitly asked.\n\n"
+    )
+
+
 def harness_user_message(
     context: dict[str, Any],
     harness_payload: dict[str, Any],
@@ -477,7 +510,8 @@ def harness_user_message(
     advisor_context = build_inseason_advisor_context(context)
     label = harness_payload.get("preset_id") or harness_payload.get("intent") or "advisor"
     question = user_question.strip() or "Answer using the pre-computed results."
-    return f"""Base context (JSON):
+    preamble = _trade_perspective_preamble(context)
+    return f"""{preamble}Base context (JSON):
 {json.dumps(advisor_context, indent=2, default=str)}
 
 Pre-computed tool results for "{label}" (JSON):
@@ -500,6 +534,11 @@ def _preset_harness_system_prompt() -> str:
 
 You receive pre-computed tool results in JSON. Do NOT invent players, rosters, trade values, or packages.
 Use only data from base context and pre-computed results.
+
+TRADE PERSPECTIVE:
+- `trade_perspective` / `focused_team` is the team you advise FOR (From dropdown).
+- `advising_team` and `proposer_roster_id` in tool results match that team.
+- `my_team` is the logged-in user's Sleeper team only — ignore it for trades when `viewing_opponent` is true.
 
 When relevant, structure your answer with:
 - **Bottom line** — 2–3 sentence verdict

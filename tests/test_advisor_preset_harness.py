@@ -38,10 +38,12 @@ def test_compact_package_shapes_trade_assets():
     assert compact["receive"][1]["pick"] == "2027 1st"
 
 
-def test_run_suggest_trade_targets_focus_when_viewing_opponent():
+def test_run_suggest_trade_does_not_target_self_when_viewing_opponent():
+    """Advising FROM another team must not set target_roster_id to that same team."""
     tools = MagicMock()
     tools.suggest_trades.return_value = {"packages": [], "trade_surplus_summary": {}}
-    context = {"focused_team": {"viewing_opponent": True}}
+    tools.get_team.return_value = {"team_name": "Rivals", "roster_id": "9"}
+    context = {"focused_team": {"viewing_opponent": True, "team_name": "Rivals"}}
 
     from backend.services.advisor_preset_harness import _run_suggest_trade
 
@@ -53,7 +55,7 @@ def test_run_suggest_trade_targets_focus_when_viewing_opponent():
         params={},
     )
     tools.suggest_trades.assert_called_once_with(
-        target_roster_id="9",
+        target_roster_id=None,
         target_player_id=None,
         target_position=None,
         rank_by_validation=False,
@@ -74,6 +76,25 @@ def test_run_suggest_trade_targets_focus_when_viewing_opponent():
         target_position=None,
         rank_by_validation=False,
     )
+
+
+def test_run_suggest_trade_uses_advising_team_in_results():
+    tools = MagicMock()
+    tools.suggest_trades.return_value = {"packages": [], "trade_surplus_summary": {}}
+    tools.get_team.return_value = {"team_name": "Rivals", "roster_id": "9"}
+
+    from backend.services.advisor_preset_harness import _run_suggest_trade
+
+    payload = _run_suggest_trade(
+        tools,
+        {},
+        my_roster_id="3",
+        focus_id="9",
+        params={},
+    )
+    tools.get_team.assert_called_once_with("9")
+    assert payload["proposer_roster_id"] == "9"
+    assert payload["advising_team"]["team_name"] == "Rivals"
 
 
 def test_run_suggest_trade_passes_position_for_stud_need():

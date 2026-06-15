@@ -477,7 +477,7 @@ def build_inseason_context(
             "injuries": [i.model_dump() for i in team_detail.injuries],
             "draft_picks": [p.model_dump() for p in team_detail.draft_picks],
         },
-        "starter_needs": _starter_needs(team_detail if focus_id == my_roster.sleeper_roster_id else my_team_detail),
+        "starter_needs": _starter_needs(team_detail),
         "league_rankings": _rankings_summary(rankings) if rankings else {},
         "league_team_rosters": _league_team_rosters(db, league_id, snapshots),
         "trade_surplus": trade_surplus,
@@ -495,7 +495,7 @@ def build_inseason_context(
         "portfolio": _portfolio_summary(db, league_id),
         "free_agents": free_agents,
         "rookie_draft": _rookie_draft_context(
-            db, league_id, my_roster.sleeper_roster_id
+            db, league_id, focus_id
         ),
     }
 

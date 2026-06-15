@@ -543,7 +543,7 @@ INSEASON_ADVISOR_PROMPTS: list[dict[str, str]] = [
         "id": "suggest_trade",
         "label": "Suggest Trades",
         "question": (
-            "What trades make sense for my team right now? Rank the best packages "
+            "What trades make sense for the advising team right now? Rank the best packages "
             "with manager names, TV math, package quality, and fairness."
         ),
     },
@@ -551,7 +551,7 @@ INSEASON_ADVISOR_PROMPTS: list[dict[str, str]] = [
         "id": "trade_targets",
         "label": "Trade Targets",
         "question": (
-            "Who should I target in trades this week? Find realistic buy-low and "
+            "Who should the advising team target in trades this week? Find realistic buy-low and "
             "sell-high paths — name specific managers and players with OVR context."
         ),
     },
@@ -559,7 +559,7 @@ INSEASON_ADVISOR_PROMPTS: list[dict[str, str]] = [
         "id": "drop_candidates",
         "label": "Drop Candidates",
         "question": (
-            "Which players on my bench are the best drop candidates right now? "
+            "Which players on the advising team's bench are the best drop candidates right now? "
             "Compare roster depth vs top free agents. Prioritize dynasty OVR and "
             "roster construction — not just this week's points."
         ),
@@ -568,9 +568,9 @@ INSEASON_ADVISOR_PROMPTS: list[dict[str, str]] = [
         "id": "rookie_pick_prep",
         "label": "Rookie Pick Prep",
         "question": (
-            "Help me prep for the upcoming rookie draft in this league. Recommend "
-            "positional priorities and archetypes to target with my picks based on "
-            "my roster needs and competitive window."
+            "Help prep for the upcoming rookie draft from the advising team's perspective. Recommend "
+            "positional priorities and archetypes to target with their picks based on "
+            "roster needs and competitive window."
         ),
     },
 ]
@@ -614,7 +614,7 @@ Pull detail on demand via tools — do not guess player grades or roster content
 IN-SEASON PRIORITY:
 1. **dynasty_rating (OVR 50–99)** — primary lens for roster value and trade fairness.
 2. **trade_surplus + league_rankings** — depth to sell vs holes to fill; name counterparties.
-3. **my_team + starter_needs** — lineup gaps and bench clutter (use get_team).
+3. **focused_team / advising_team** — lineup gaps and bench clutter (use get_team on trade_perspective.roster_id).
 4. **free_agents** — waiver adds that move the dynasty needle.
 5. **draft_picks** — valued future picks (early/mid/late tier + TV on get_team).
 6. **rookie_draft** (when in context) — 2026 rookie board + projected player at each upcoming pick slot. Use for pick-for-pick trades: who lands at 1.01 vs 1.04/1.06 matters as much as pick TV.
@@ -627,7 +627,7 @@ TOOLS:
 - get_free_agents(position?, limit?) — top FA board
 - evaluate_trade(give, receive) — raw + effective TV, consolidation-adjusted fairness (±5%)
 - validate_trade(counterparty_roster_id, give, receive) — opt-in LLM check: would they accept?
-- suggest_trades(target_roster_id?, swap_mode?, rank_by_validation?) — surplus/buy/sell packages; set rank_by_validation=true only if user wants accept-likelihood ranking (costs extra LLM calls)
+- suggest_trades(target_roster_id?, swap_mode?, rank_by_validation?) — surplus/buy/sell packages for the advising team; set rank_by_validation=true only if user wants accept-likelihood ranking (costs extra LLM calls)
 - calculate(expression) — safe math for TV sums
 - web_search(query) — recent NFL injury updates, roster moves, beat reports (web only when configured)
 
@@ -642,7 +642,7 @@ TRADE SKILL:
 - Call validate_trade only when the user asks whether a specific package would be accepted.
 - validate_trade includes projected 2026 rookies at each traded pick slot when available.
 - Show TV math (use calculate when summing). Name managers, not just roster ids.
-- Trade perspective: `focused_roster_id` is the manager the user picked in the **From** dropdown (defaults to their team). Use that roster for `suggest_trades` surplus/hooks — not `my_team` when they differ.
+- Trade perspective: `trade_perspective.roster_id` / `focused_team` is the manager in the **From** dropdown. Advise FOR that team — use their surplus/needs in suggest_trades. `my_team` is the logged-in user's team only; when `viewing_opponent` is true, do NOT mix the logged-in roster into trade advice.
 
 Account for superflex/TE premium in scoring, injuries, win-now vs rebuild (contender_tier).
 
@@ -657,6 +657,9 @@ On follow-ups, stay concise. Format with clear headings. Keep under 700 words un
 
 def build_inseason_advisor_context(raw: dict[str, Any]) -> dict[str, Any]:
     """Minimal base context for tool-loop advisor (no full league dump)."""
+    focused = raw.get("focused_team") or {}
+    my_team = raw.get("my_team") or {}
+    viewing_opponent = bool(focused.get("viewing_opponent"))
     return {
         "mode": "in_season",
         "league_id": raw.get("league_id"),
@@ -664,8 +667,15 @@ def build_inseason_advisor_context(raw: dict[str, Any]) -> dict[str, Any]:
         "season": raw.get("season"),
         "scoring": raw.get("scoring"),
         "page_context": raw.get("page_context"),
-        "focused_team": raw.get("focused_team"),
-        "my_team": raw.get("my_team"),
+        "trade_perspective": {
+            "roster_id": focused.get("roster_id"),
+            "team_name": focused.get("team_name"),
+            "viewing_opponent": viewing_opponent,
+            "logged_in_roster_id": my_team.get("roster_id"),
+            "logged_in_team_name": my_team.get("team_name"),
+        },
+        "focused_team": focused,
+        "my_team": my_team,
         "metric_definitions": _inseason_metric_definitions(),
         "prompt_templates": INSEASON_ADVISOR_PROMPTS,
     }
