@@ -136,6 +136,29 @@ def test_build_validation_payload_shapes_counterparty_context():
     assert payload["lineup_impact"]["Mine"]["post_trade_starters"][0]["is_incoming"] is True
 
 
+def test_build_validation_payload_includes_rookie_draft_context():
+    rookie_ctx = {
+        "season": "2026",
+        "picks_in_trade": [
+            {
+                "label": "2026 1.01",
+                "projected_rookie": {"name": "Jeremiyah Love", "pos": "RB"},
+            }
+        ],
+    }
+    payload = build_validation_payload(
+        proposer_roster_id="1",
+        counterparty_roster_id="2",
+        proposer_team={"team_name": "Mine", "players": [], "needs": [], "surplus": []},
+        counterparty_team={"team_name": "Theirs", "players": [], "needs": [], "surplus": []},
+        give={"players": [], "picks": []},
+        receive={"players": [], "picks": []},
+        tv_evaluation={"fairness": "fair", "within_band": True},
+        rookie_draft_context=rookie_ctx,
+    )
+    assert payload["rookie_draft_context"]["picks_in_trade"][0]["projected_rookie"]["name"] == "Jeremiyah Love"
+
+
 def test_parse_validation_json_from_fenced_block():
     raw = """Here is the result:
 ```json

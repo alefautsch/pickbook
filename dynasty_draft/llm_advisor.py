@@ -616,6 +616,7 @@ IN-SEASON PRIORITY:
 3. **my_team + starter_needs** — lineup gaps and bench clutter (use get_team).
 4. **free_agents** — waiver adds that move the dynasty needle.
 5. **draft_picks** — valued future picks (early/mid/late tier + TV on get_team).
+6. **rookie_draft** (when in context) — 2026 rookie board + projected player at each upcoming pick slot. Use for pick-for-pick trades: who lands at 1.01 vs 1.04/1.06 matters as much as pick TV.
 
 TOOLS:
 - get_team(roster_id) — roster, needs, surplus, draft picks
@@ -638,6 +639,7 @@ TOOL CHOICE:
 TRADE SKILL:
 - For trade questions, call suggest_trades and/or evaluate_trade before recommending.
 - Call validate_trade only when the user asks whether a specific package would be accepted.
+- validate_trade includes projected 2026 rookies at each traded pick slot when available.
 - Show TV math (use calculate when summing). Name managers, not just roster ids.
 - Trade perspective: `focused_roster_id` is the manager the user picked in the **From** dropdown (defaults to their team). Use that roster for `suggest_trades` surplus/hooks — not `my_team` when they differ.
 

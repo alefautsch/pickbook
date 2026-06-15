@@ -285,7 +285,7 @@ def _board_row_from_bpa(row: dict[str, Any], rank: int) -> RookieBoardRow:
     )
 
 
-def _project_remaining_picks(state: DraftState) -> dict[int, dict[str, Any]]:
+def project_remaining_picks(state: DraftState) -> dict[int, dict[str, Any]]:
     """Simulate unpicked slots using real Sleeper team order (ADP + positional needs)."""
     start = len(state.picks) + 1
     total = state._teams() * state._rounds()
@@ -336,7 +336,7 @@ def _project_remaining_picks(state: DraftState) -> dict[int, dict[str, Any]]:
 
 def _timeline_rows(state: DraftState) -> list[RookieDraftTimelineRow]:
     raw = build_draft_timeline(state, past=None, upcoming=None)
-    projections = _project_remaining_picks(state)
+    projections = project_remaining_picks(state)
     rows: list[RookieDraftTimelineRow] = []
     for row in raw:
         pick_no = int(row["pick_no"])
@@ -379,27 +379,20 @@ def _timeline_rows(state: DraftState) -> list[RookieDraftTimelineRow]:
     return rows
 
 
-def get_rookie_draft_view(
+def load_rookie_draft_state_for_league(
     db: Session,
     league_id: str,
     *,
     draft_id: str | None = None,
-    roster_id: str | None = None,
     client: SleeperClient | None = None,
-) -> RookieDraftView | None:
+) -> tuple[RookieDraftState, League] | None:
+    """Load rookie draft state without requiring the app user's Sleeper account."""
     league_row = db.get(League, league_id)
     if league_row is None:
         return None
 
     settings = _read_settings(db)
-    username = (settings.get("sleeper_username") or "").strip()
-    if not username:
-        raise ValueError("sleeper_username not configured in settings")
-
     client = client or SleeperClient()
-    user = client.get_user(username)
-    user_id = str(user["user_id"])
-
     resolved_draft_id = resolve_rookie_draft_id(client, league_id, override=draft_id)
     if not resolved_draft_id:
         return None
@@ -429,6 +422,13 @@ def get_rookie_draft_view(
         for row in rosters
         if row.get("roster_id") is not None and row.get("owner_id") is not None
     }
+    user_id = ""
+    username = (settings.get("sleeper_username") or "").strip()
+    if username:
+        try:
+            user_id = str(client.get_user(username)["user_id"])
+        except Exception:
+            user_id = ""
 
     state = build_rookie_draft_state(
         draft=draft,
@@ -442,6 +442,28 @@ def get_rookie_draft_view(
         pick_no_owner_index=pick_no_owner_index,
         roster_owner_ids=roster_owner_ids,
     )
+    return state, league_row
+
+
+def get_rookie_draft_view(
+    db: Session,
+    league_id: str,
+    *,
+    draft_id: str | None = None,
+    roster_id: str | None = None,
+    client: SleeperClient | None = None,
+) -> RookieDraftView | None:
+    settings = _read_settings(db)
+    username = (settings.get("sleeper_username") or "").strip()
+    if not username:
+        raise ValueError("sleeper_username not configured in settings")
+
+    loaded = load_rookie_draft_state_for_league(
+        db, league_id, draft_id=draft_id, client=client
+    )
+    if loaded is None:
+        return None
+    state, league_row = loaded
 
     rosters = db.scalars(select(Roster).where(Roster.league_id == league_id)).all()
     roster_by_sleeper = {r.sleeper_roster_id: r for r in rosters}
@@ -501,7 +523,9 @@ def get_rookie_draft_view(
     teams = state._teams()
     rounds = state._rounds()
     total_picks = teams * rounds
-    picks_made = len(picks)
+    picks_made = len(state.picks)
+    draft = state.draft
+    resolved_draft_id = str(draft.get("draft_id") or "")
 
     config = load_config()
     poll_seconds = max(

@@ -47,6 +47,7 @@ You receive:
 - Per-asset depth context (lineup_delta_ppg = marginal PPG lost if that player is moved)
 - Post-trade ideal starter lineup impact keyed by team name (starter_ppg_before/after/delta)
 - review_for_team_tv: TV math from review_for_team's perspective ONLY — use this for fairness
+- rookie_draft_context (when present): 2026 rookie board + projected player at each traded pick slot
 
 Rules:
 - Judge ONLY from review_for_team's interests. Ignore any other manager's wants.
@@ -61,7 +62,9 @@ Rules:
 - For contenders, weigh starter_ppg_delta heavily: a large positive delta at a need position can justify TV overpay.
 - For rebuilders, negative starter_ppg_delta is acceptable when acquiring youth/picks; positive delta is a bonus.
 - If review_for_team's lineup impact shows new incoming starters or materially higher starter PPG, that supports acceptance.
-- Be specific: name players, positions, pick slots, PPG deltas, and roster holes.
+- When rookie_draft_context is present, weigh projected rookies at traded pick slots — a manager may overpay TV to move up for a specific prospect (e.g. 1.01 for an elite RB) or accept less when the picks they give up project to weaker fits.
+- Use picks_in_trade.projected_rookie and fills_need_for_acquirer; in TEP leagues (te_premium > 0), TE prospects at mid-first slots matter more.
+- Be specific: name players, positions, pick slots, PPG deltas, roster holes, and projected rookies when relevant.
 
 Respond with ONLY valid JSON (no markdown):
 {
@@ -287,6 +290,7 @@ def build_validation_payload(
     tv_evaluation: dict[str, Any],
     proposer_lineup: dict[str, Any] | None = None,
     counterparty_lineup: dict[str, Any] | None = None,
+    rookie_draft_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Shape context for the validation LLM."""
     proposer_index = _player_roster_index(proposer_team)
@@ -345,6 +349,8 @@ def build_validation_payload(
         lineup_impact[other_name] = proposer_lineup_compact
     if lineup_impact:
         payload["lineup_impact"] = lineup_impact
+    if rookie_draft_context:
+        payload["rookie_draft_context"] = rookie_draft_context
 
     return payload
 

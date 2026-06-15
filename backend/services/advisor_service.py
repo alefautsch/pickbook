@@ -252,6 +252,20 @@ def _rookie_draft_context(db: Session, league_id: str, roster_id: str | None) ->
             }
             for row in view.board[:18]
         ],
+        "upcoming_pick_projections": [
+            {
+                "pick_no": row.pick_no,
+                "round": row.round,
+                "team_name": row.team_name,
+                "projected_rookie": {
+                    "name": row.player_name,
+                    "pos": row.position,
+                    "ovr": row.ovr,
+                },
+            }
+            for row in view.timeline
+            if row.status == "projected" and row.player_name
+        ][:15],
     }
 
 
@@ -323,6 +337,7 @@ def build_minimal_advisor_context(
                 "total_trade_value": my_team_detail.total_trade_value,
                 "draft_pick_value": my_team_detail.draft_pick_value,
             },
+            "rookie_draft": _rookie_draft_context(db, league_id, focus_id),
         },
         my_roster.sleeper_roster_id,
         focus_id,

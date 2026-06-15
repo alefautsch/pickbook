@@ -18,6 +18,7 @@ from backend.services.analysis_service import TRADE_SURPLUS_BOTTOM_N, TRADE_SURP
 from backend.services.pick_service import get_roster_draft_picks
 from backend.services.portfolio_service import get_free_agents
 from backend.services.read_service import get_league_rankings, get_player_card, get_team_detail
+from backend.services.trade_rookie_context import build_trade_rookie_context
 from backend.services.trade_validation_service import (
     build_validation_payload,
     validate_trade_with_llm,
@@ -1917,6 +1918,15 @@ class AdvisorTools:
         if their_team.get("error"):
             return their_team
 
+        rookie_ctx = build_trade_rookie_context(
+            self.ctx.db,
+            self.ctx.league_id,
+            review_team=their_team,
+            other_team=my_team,
+            review_acquires_picks=list(eval_result["give"].get("picks") or []),
+            review_gives_picks=list(eval_result["receive"].get("picks") or []),
+        )
+
         payload = build_validation_payload(
             proposer_roster_id=proposer_id,
             counterparty_roster_id=str(counterparty_roster_id),
@@ -1925,6 +1935,7 @@ class AdvisorTools:
             give=eval_result["give"],
             receive=eval_result["receive"],
             tv_evaluation=eval_result,
+            rookie_draft_context=rookie_ctx,
         )
         settings = get_settings()
         validation = validate_trade_with_llm(

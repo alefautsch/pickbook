@@ -27,6 +27,7 @@ from backend.services.analysis_service import _player_row_from_snapshot
 from backend.services.league_context import build_league_scoring_context
 from backend.services.read_service import get_team_detail
 from backend.services.trade_engine import evaluate_trade_lineup_deltas
+from backend.services.trade_rookie_context import build_trade_rookie_context
 from backend.services.trade_validation_service import (
     build_validation_payload,
     validate_trade_with_llm,
@@ -353,6 +354,15 @@ def _run_side_validation(
     if tv_fairness_grade:
         tv_ctx["tv_fairness_grade"] = tv_fairness_grade
 
+    rookie_ctx = build_trade_rookie_context(
+        tools.ctx.db,
+        tools.ctx.league_id,
+        review_team=counterparty_team,
+        other_team=proposer_team,
+        review_acquires_picks=list(give.get("picks") or []),
+        review_gives_picks=list(receive.get("picks") or []),
+    )
+
     payload = build_validation_payload(
         proposer_roster_id=proposer_roster_id,
         counterparty_roster_id=counterparty_roster_id,
@@ -363,6 +373,7 @@ def _run_side_validation(
         tv_evaluation=tv_ctx,
         proposer_lineup=proposer_lineup,
         counterparty_lineup=counterparty_lineup,
+        rookie_draft_context=rookie_ctx,
     )
     validation = validate_trade_with_llm(
         payload,

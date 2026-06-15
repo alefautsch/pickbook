@@ -156,6 +156,19 @@ def _compact_rookie_draft(view: Any | None) -> dict[str, Any] | None:
             }
             for row in view.board[:12]
         ],
+        "upcoming_pick_projections": [
+            {
+                "pick_no": row.pick_no,
+                "team_name": row.team_name,
+                "projected_rookie": {
+                    "name": row.player_name,
+                    "pos": row.position,
+                    "ovr": row.ovr,
+                },
+            }
+            for row in view.timeline
+            if row.status == "projected" and row.player_name
+        ][:12],
     }
 
 
