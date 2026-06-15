@@ -20,6 +20,7 @@ from dynasty_draft.strategy import DraftStrategy
 from dynasty_draft.war_data import POSITIONS, PlayerValue, WarData, normalize_name
 from dynasty_draft.projections import SleeperProjectionStore
 from dynasty_draft.ktc_values import KtcStore
+from dynasty_draft.dynasty_dealer import DynastyDealerStore
 from dynasty_draft.trade_value_blend import TradeValueBlend
 from dynasty_draft.worp_blend import WorpBlend
 from dynasty_draft.worp_projection import WorpProjector
@@ -62,6 +63,7 @@ class DraftState:
     projection_store: SleeperProjectionStore | None = None
     healthy_ppg_store: Any | None = None
     ktc: KtcStore | None = None
+    dealer: DynastyDealerStore | None = None
     adp_store: AdpStore | None = None
     trade_blend: TradeValueBlend = field(default_factory=TradeValueBlend)
     worp_blend: WorpBlend = field(default_factory=WorpBlend)
@@ -292,33 +294,66 @@ class DraftState:
             return None
         return self.ktc.lookup(name)
 
-    def blended_trade_value(self, player: PlayerValue) -> float:
-        blended = self.trade_blend.blend(player.trade_value, self.ktc_value(player.name))
+    def dealer_value(self, name: str, *, player_id: str | None = None) -> float | None:
+        if self.dealer is None or not name:
+            return None
+        return self.dealer.lookup_player_value(name=name, player_id=player_id)
+
+    def blended_trade_value(self, player: PlayerValue, *, player_id: str | None = None) -> float:
+        blended = self.trade_blend.blend(
+            player.trade_value,
+            self.ktc_value(player.name),
+            dealer=self.dealer_value(player.name, player_id=player_id),
+        )
         return blended if blended is not None else player.trade_value
 
-    def with_blended_tv(self, player: PlayerValue) -> PlayerValue:
-        return self.trade_blend.apply(player, self.ktc_value(player.name))
+    def with_blended_tv(self, player: PlayerValue, *, player_id: str | None = None) -> PlayerValue:
+        return self.trade_blend.apply(
+            player,
+            self.ktc_value(player.name),
+            dealer=self.dealer_value(player.name, player_id=player_id),
+        )
 
-    def value_inputs(self, player: PlayerValue, blended: PlayerValue | None = None) -> dict[str, Any]:
+    def value_inputs(
+        self,
+        player: PlayerValue,
+        blended: PlayerValue | None = None,
+        *,
+        player_id: str | None = None,
+    ) -> dict[str, Any]:
         ktc = self.ktc_value(player.name)
-        blended_value = (blended or self.with_blended_tv(player)).trade_value
+        dealer = self.dealer_value(player.name, player_id=player_id)
+        blended_value = (
+            blended or self.with_blended_tv(player, player_id=player_id)
+        ).trade_value
         inputs = self.war.lookup_value_inputs(player.name)
         inputs["ktc"] = {
             "enabled": self.ktc is not None,
             "trade_value": ktc,
             "format": "superflex" if self.is_superflex() else "standard",
         }
+        inputs["dynasty_dealer"] = {
+            "enabled": self.dealer is not None,
+            "trade_value": dealer,
+            "format": "superflex" if self.is_superflex() else "standard",
+            "source": "trade_engine",
+        }
         inputs["blend"] = {
             "dd_weight": self.trade_blend.dd_weight,
             "ktc_weight": self.trade_blend.ktc_weight,
+            "dealer_weight": self.trade_blend.dealer_weight,
             "dd_trade_value": player.trade_value,
             "ktc_trade_value": ktc,
+            "dealer_trade_value": dealer,
             "trade_value": blended_value,
         }
         return inputs
 
     def blend_pool(self, pool: list[tuple[str, PlayerValue]]) -> list[tuple[str, PlayerValue]]:
-        return [(player_id, self.with_blended_tv(player)) for player_id, player in pool]
+        return [
+            (player_id, self.with_blended_tv(player, player_id=player_id))
+            for player_id, player in pool
+        ]
 
     def _eligible_players(self) -> list[tuple[str, PlayerValue]]:
         """Full draft-eligible board (ignores who has been picked)."""
@@ -351,9 +386,63 @@ class DraftState:
         ref_pool = self._dynasty_reference_pool()
         per_game = self._per_game_by_id_for_pool(ref_pool) or {}
         pos_by_id = {player_id: player.pos for player_id, player in ref_pool}
-        self._dynasty_per_game_anchors = compute_per_game_anchor_maxes(per_game, pos_by_id)
+        anchors = compute_per_game_anchor_maxes(per_game, pos_by_id)
+        qb_replacement: float | None = None
+        projections = getattr(self, "projection_store", None)
+        if projections is not None:
+            try:
+                qb_replacement = float(projections.replacement_ppg("QB"))
+            except Exception:
+                qb_replacement = None
+        self._dynasty_per_game_anchors = PerGameAnchorMaxes(
+            qb=anchors.qb,
+            flex=anchors.flex,
+            qb_replacement_ppg=qb_replacement,
+        )
         self._dynasty_per_game_ref_ready = True
         return self._dynasty_per_game_anchors
+
+    def _stabilize_per_game_metrics(
+        self,
+        player_id: str,
+        metrics: dict[str, float | int | str | bool],
+    ) -> dict[str, float | int | str | bool]:
+        """Discount thin nflverse samples; cap spikes above Sleeper season PPG."""
+        if metrics.get("hppg_expected"):
+            return metrics
+        healthy_games = int(metrics.get("healthy_games") or 0)
+        if healthy_games >= 16:
+            return metrics
+        adjusted = dict(metrics)
+        hppg = float(adjusted.get("healthy_ppg") or 0.0)
+        if hppg <= 0:
+            return adjusted
+        sleeper_ppg: float | None = None
+        projections = getattr(self, "projection_store", None)
+        if projections is not None:
+            season_pts = projections.projected_points(str(player_id))
+            if season_pts is not None:
+                sleeper_ppg = float(season_pts) / 17.0
+        if healthy_games < 12 and sleeper_ppg is not None:
+            adjusted["healthy_ppg"] = round(min(hppg, sleeper_ppg), 2)
+        elif healthy_games < 16:
+            rel = healthy_games / 16.0
+            if sleeper_ppg is not None:
+                adjusted["healthy_ppg"] = round(hppg * rel + sleeper_ppg * (1.0 - rel), 2)
+            else:
+                adjusted["healthy_ppg"] = round(hppg * rel, 2)
+        return adjusted
+
+    def _per_game_by_id_for_pool(
+        self,
+        pool: list[tuple[str, PlayerValue]],
+    ) -> dict[str, dict[str, float]] | None:
+        result: dict[str, dict[str, float]] = {}
+        for player_id, player in pool:
+            metrics = self._healthy_ppg_metrics(player_id, player)
+            if metrics:
+                result[player_id] = self._stabilize_per_game_metrics(player_id, metrics)
+        return result or None
 
     def _pos_by_id_for_pool(self, pool: list[tuple[str, PlayerValue]]) -> dict[str, str]:
         return {player_id: player.pos for player_id, player in pool}
@@ -570,17 +659,6 @@ class DraftState:
             )
             self._cached_dynasty_scorer = cached
         return cached
-
-    def _per_game_by_id_for_pool(
-        self,
-        pool: list[tuple[str, PlayerValue]],
-    ) -> dict[str, dict[str, float]] | None:
-        result: dict[str, dict[str, float]] = {}
-        for player_id, player in pool:
-            metrics = self._healthy_ppg_metrics(player_id, player)
-            if metrics:
-                result[player_id] = metrics
-        return result or None
 
     def dynasty_scores(
         self, players: list[tuple[str, PlayerValue]] | None = None

@@ -198,7 +198,7 @@ def compute_player_snapshots(
         scored = dynasty_by_id.get(player_id) or {}
         flex = flex_by_id.get(player_id) or {}
         healthy = state._healthy_ppg_metrics(player_id, war_player) or {}
-        blended = state.with_blended_tv(war_player)
+        blended = state.with_blended_tv(war_player, player_id=player_id)
         sleeper = state.sleeper_players.get(player_id) or {}
         age = state._player_age(player_id)
         bio = _bio_from_sleeper(sleeper)
@@ -223,7 +223,7 @@ def compute_player_snapshots(
                 "dynasty_score": scored.get("dynasty_score"),
                 "dynasty_rookie": bool(scored.get("dynasty_rookie")),
                 "components_json": scored.get("dynasty_components") or {},
-                "value_inputs_json": state.value_inputs(war_player, blended),
+                "value_inputs_json": state.value_inputs(war_player, blended, player_id=player_id),
                 "hppg": hppg,
                 "worp_ppg": worp_ppg,
                 "availability": healthy.get("availability"),

@@ -14,29 +14,14 @@ from backend.services.rookie_draft_service import load_rookie_draft_state_for_le
 from dynasty_draft.draft_pick_ownership import pick_slot_for_pick_no
 from dynasty_draft.war_data import PlayerValue, WarData, normalize_name
 
-ROOKIE_TRADE_SEASON = "2026"
+from backend.services.rookie_consensus import (
+    CONSENSUS_ROOKIE_ADP,
+    ROOKIE_PICK_LOCKS,
+    ROOKIE_TRADE_SEASON,
+)
+
 ROOKIE_POSITIONS = frozenset({"QB", "RB", "WR", "TE"})
 _PICK_LABEL_RE = re.compile(r"(?:\d{4}\s+)?(\d+)\.(\d+)")
-
-# Consensus startup ADP for 2026 rookies — overrides global TV rank and noisy sims.
-CONSENSUS_ROOKIE_ADP: dict[str, int] = {
-    "Jeremiyah Love": 1,
-    "Carnell Tate": 2,
-    "Fernando Mendoza": 3,
-    "Makai Lemon": 4,
-    "Jordyn Tyson": 5,
-    "Kenyon Sadiq": 6,
-    "Jadarian Price": 7,
-    "KC Concepcion": 8,
-    "Ty Simpson": 12,
-    "Omar Cooper": 14,
-    "Eli Stowers": 18,
-}
-
-# Picks where the class consensus is effectively locked for trade reasoning.
-ROOKIE_PICK_LOCKS: dict[int, str] = {
-    1: "Jeremiyah Love",
-}
 
 
 def parse_pick_slot_from_label(label: str | None) -> tuple[int, int] | None:

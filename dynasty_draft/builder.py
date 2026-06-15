@@ -8,6 +8,7 @@ from dynasty_draft.draft_pick_ownership import build_pick_owner_index, collect_t
 from dynasty_draft.draft_context import build_scoring_context
 from dynasty_draft.external_adp import AdpStore
 from dynasty_draft.dynasty_score import DynastyRatingCurve, DynastyWeights
+from dynasty_draft.dynasty_dealer import load_dynasty_dealer_store
 from dynasty_draft.ktc_values import KtcStore
 from dynasty_draft.trade_value_blend import TradeValueBlend
 from dynasty_draft.worp_blend import WorpBlend
@@ -111,9 +112,14 @@ def build_state(config: dict[str, Any], *, exit_on_error: bool = True) -> DraftS
             state.ktc = KtcStore.load(superflex=state.is_superflex())
         except Exception:
             state.ktc = None
-    state.trade_blend = TradeValueBlend.from_config(config, ktc_available=state.ktc is not None)
-    state.worp_blend = WorpBlend.from_config(config)
     force_metric_refresh = bool(config.get("_force_metric_refresh"))
+    state.trade_blend = TradeValueBlend.from_config(config, ktc_available=state.ktc is not None)
+    state.dealer = load_dynasty_dealer_store(
+        config,
+        superflex=state.is_superflex(),
+        force_refresh=force_metric_refresh,
+    )
+    state.worp_blend = WorpBlend.from_config(config)
     try:
         state.adp_store = AdpStore.load(config, superflex=state.is_superflex())
     except Exception:

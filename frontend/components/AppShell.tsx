@@ -11,6 +11,7 @@ import { PlayerSearch } from "./PlayerSearch";
 import { SidebarNav } from "./SidebarNav";
 import { SyncButton } from "./SyncButton";
 import { SyncStatusBar } from "./SyncStatusBar";
+import { MarketAttribution } from "./MarketAttribution";
 
 type AppShellProps = {
   leagues: LeagueTileData[];
@@ -116,7 +117,12 @@ export function AppShell({
           </div>
         </header>
 
-        <main className="flex min-w-0 flex-1 flex-col pb-20 lg:pb-0">{children}</main>
+        <main className="flex min-w-0 flex-1 flex-col pb-20 lg:pb-0">
+          {children}
+          <footer className="mt-auto border-t border-white/6 px-3 py-3 sm:px-6 md:px-8">
+            <MarketAttribution />
+          </footer>
+        </main>
       </div>
 
       <AdvisorShell

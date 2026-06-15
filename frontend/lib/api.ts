@@ -59,6 +59,16 @@ export type PlayerRanks = {
   overall_rank: number | null;
 };
 
+export type TradeValueSources = {
+  blended: number | null;
+  dynasty_daddy: number | null;
+  ktc: number | null;
+  dynasty_dealer: number | null;
+  dd_weight: number | null;
+  ktc_weight: number | null;
+  dealer_weight: number | null;
+};
+
 export type PlayerCard = {
   player_id: string;
   player_name: string | null;
@@ -79,6 +89,7 @@ export type PlayerCard = {
   total_games: number | null;
   hppg_expected: boolean;
   trade_value: number | null;
+  trade_value_sources: TradeValueSources | null;
   season_worp: number | null;
   porp: number | null;
   injury_status: string | null;

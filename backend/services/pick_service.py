@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from backend.api.settings import _read_settings
 from backend.db.models import League, LeagueSnapshot, RosterDraftPick
+from backend.services.pick_valuation import apply_market_pick_adjustments
+from dynasty_draft.dynasty_dealer import DynastyDealerStore
 from dynasty_draft.inseason_pick_values import (
     SlotTier,
     infer_slot_tier,
@@ -371,6 +373,34 @@ def _ktc_slot_lookup(
     return _lookup
 
 
+def _load_dynasty_dealer(league_row: League | None) -> DynastyDealerStore | None:
+    if league_row is None:
+        return DynastyDealerStore.load(superflex=True)
+    return DynastyDealerStore.load(superflex=bool(league_row.superflex))
+
+
+def _finalize_pick_trade_value(
+    base_tv: float,
+    *,
+    pick_season: str,
+    current_season: str,
+    round_no: int,
+    slot_no: int | None,
+    ktc_store: KtcStore | None,
+    dd_store: DynastyDealerStore | None,
+) -> tuple[float, dict[str, Any] | None]:
+    adjusted, meta = apply_market_pick_adjustments(
+        base_tv,
+        pick_season=pick_season,
+        current_season=current_season,
+        round_no=round_no,
+        slot_in_round=slot_no,
+        ktc_store=ktc_store,
+        dd_store=dd_store,
+    )
+    return adjusted, meta
+
+
 def sync_league_draft_picks(
     db: Session,
     league_id: str,
@@ -424,6 +454,7 @@ def sync_league_draft_picks(
         current_season=current_season,
         rookie_values=rookie_values,
     )
+    dd_store = _load_dynasty_dealer(league_row)
 
     db.execute(delete(RosterDraftPick).where(RosterDraftPick.league_id == league_id))
 
@@ -459,6 +490,15 @@ def sync_league_draft_picks(
             ktc_lookup=ktc_lookup,
             ktc_slot_lookup=ktc_slot_lookup,
             league_size=league_size,
+        )
+        tv, _ = _finalize_pick_trade_value(
+            tv,
+            pick_season=row["season"],
+            current_season=current_season,
+            round_no=row["round"],
+            slot_no=slot_no,
+            ktc_store=ktc_store,
+            dd_store=dd_store,
         )
         label = pick_label(
             season=row["season"],
@@ -550,6 +590,7 @@ def get_roster_draft_picks(
         current_season=current_season,
         rookie_values=rookie_values,
     )
+    dd_store = _load_dynasty_dealer(league_row)
 
     out: list[dict[str, Any]] = []
     for row in rows:
@@ -581,6 +622,15 @@ def get_roster_draft_picks(
             ktc_slot_lookup=ktc_slot_lookup,
             league_size=league_size,
         )
+        trade_value, valuation_meta = _finalize_pick_trade_value(
+            trade_value,
+            pick_season=row.season,
+            current_season=current_season,
+            round_no=row.round,
+            slot_no=slot_no,
+            ktc_store=ktc_store,
+            dd_store=dd_store,
+        )
         label = pick_label(
             season=row.season,
             round_no=row.round,
@@ -599,6 +649,7 @@ def get_roster_draft_picks(
                 "trade_value": trade_value,
                 "label": label,
                 "is_own_slot": is_own,
+                "valuation_meta": valuation_meta,
             }
         )
     return out

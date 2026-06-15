@@ -1,6 +1,7 @@
 import type { DraftPickAsset } from "@/lib/api";
 import { formatTv } from "@/lib/format";
 import { TradeTagBadge } from "@/components/ExpendabilityBadge";
+import { MarketAttribution } from "@/components/MarketAttribution";
 
 type DraftPicksPanelProps = {
   picks?: DraftPickAsset[];
@@ -54,6 +55,7 @@ export function DraftPicksPanel({ picks, compact = false }: DraftPicksPanelProps
           </li>
         ))}
       </ul>
+      <MarketAttribution className="mt-3" />
     </div>
   );
 }

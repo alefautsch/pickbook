@@ -26,6 +26,7 @@ from backend.schemas.player import (
     PlayerOutlook,
     PlayerRanks,
     StatisticalPercentiles,
+    TradeValueSources,
 )
 from backend.schemas.team import (
     DepthChartGroup,
@@ -110,6 +111,21 @@ def _outlook_from_snapshot(snapshot: PlayerSnapshot) -> PlayerOutlook:
     )
 
 
+def _trade_value_sources_from_snapshot(snapshot: PlayerSnapshot) -> TradeValueSources | None:
+    blend = (snapshot.value_inputs_json or {}).get("blend") or {}
+    if not blend:
+        return None
+    return TradeValueSources(
+        blended=blend.get("trade_value"),
+        dynasty_daddy=blend.get("dd_trade_value"),
+        ktc=blend.get("ktc_trade_value"),
+        dynasty_dealer=blend.get("dealer_trade_value"),
+        dd_weight=blend.get("dd_weight"),
+        ktc_weight=blend.get("ktc_weight"),
+        dealer_weight=blend.get("dealer_weight"),
+    )
+
+
 def _player_card_from_snapshot(snapshot: PlayerSnapshot, league_name: str) -> PlayerCard:
     components_raw = snapshot.components_json or {}
     nfl_team = snapshot.nfl_team or _fallback_nfl_team(
@@ -154,6 +170,7 @@ def _player_card_from_snapshot(snapshot: PlayerSnapshot, league_name: str) -> Pl
         total_games=snapshot.total_games,
         hppg_expected=snapshot.hppg_expected,
         trade_value=snapshot.trade_value,
+        trade_value_sources=_trade_value_sources_from_snapshot(snapshot),
         season_worp=snapshot.season_worp,
         porp=snapshot.porp,
         injury_status=snapshot.injury_status,

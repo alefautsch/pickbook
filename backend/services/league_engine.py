@@ -8,6 +8,7 @@ from typing import Any
 
 from dynasty_draft.dynasty_score import DynastyRatingCurve, DynastyWeights
 from dynasty_draft.dynasty_daddy import DynastyDaddyStore
+from dynasty_draft.dynasty_dealer import load_dynasty_dealer_store
 from dynasty_draft.healthy_ppg import HealthyPpgStore
 from dynasty_draft.ktc_values import KtcStore
 from dynasty_draft.projections import SleeperProjectionStore
@@ -78,6 +79,11 @@ class LeagueScoringState(DraftState):
         self.trade_blend = TradeValueBlend.from_config(
             settings, ktc_available=self.ktc is not None
         )
+        self.dealer = load_dynasty_dealer_store(
+            settings,
+            superflex=self.is_superflex(),
+            force_refresh=bool(settings.get("_force_metric_refresh")),
+        )
         self.worp_blend = WorpBlend.from_config(settings)
         force_metric_refresh = bool(settings.get("_force_metric_refresh"))
 
@@ -117,11 +123,11 @@ class LeagueScoringState(DraftState):
     def scoring_context(self) -> LeagueScoringContext:
         return self._scoring_context
 
-    def blended_trade_value(self, player: PlayerValue) -> float:
-        return self.with_blended_tv(player).trade_value
+    def blended_trade_value(self, player: PlayerValue, *, player_id: str | None = None) -> float:
+        return self.with_blended_tv(player, player_id=player_id).trade_value
 
-    def with_blended_tv(self, player: PlayerValue) -> PlayerValue:
-        blended = super().with_blended_tv(player)
+    def with_blended_tv(self, player: PlayerValue, *, player_id: str | None = None) -> PlayerValue:
+        blended = super().with_blended_tv(player, player_id=player_id)
         if player.pos != "TE" or self._scoring_context.te_premium <= 0:
             return blended
         store = getattr(self, "healthy_ppg_store", None)

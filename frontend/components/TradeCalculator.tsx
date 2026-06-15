@@ -24,6 +24,7 @@ import {
 import { formatPpg, formatTv } from "@/lib/format";
 import { matchesPositionFilter } from "@/lib/positions";
 import { AnimatedTradeValue } from "@/components/AnimatedTradeValue";
+import { MarketAttribution } from "@/components/MarketAttribution";
 import { DarkMenu, DarkSelect } from "@/components/DarkSelect";
 import { OvrBadge } from "@/components/OvrBadge";
 import { PlayerHeadshot } from "@/components/PlayerHeadshot";
@@ -728,6 +729,8 @@ export function TradeCalculator({
       {rookieContext && rookieContext.picks_in_trade.length > 0 ? (
         <RookiePickContextPanel context={rookieContext} tePremium={rookieContext.te_premium} />
       ) : null}
+
+      <MarketAttribution className="mt-4" />
     </div>
   );
 }

@@ -49,6 +49,18 @@ class PlayerRanks(BaseModel):
     overall_rank: int | None = None
 
 
+class TradeValueSources(BaseModel):
+    """Market inputs behind blended trade_value (feeds OVR TV component)."""
+
+    blended: float | None = None
+    dynasty_daddy: float | None = None
+    ktc: float | None = None
+    dynasty_dealer: float | None = None
+    dd_weight: float | None = None
+    ktc_weight: float | None = None
+    dealer_weight: float | None = None
+
+
 class PlayerCard(BaseModel):
     """Pre-shaped player DTO for cards and detail views (§11)."""
 
@@ -73,6 +85,7 @@ class PlayerCard(BaseModel):
     total_games: int | None = None
     hppg_expected: bool = False
     trade_value: float | None = None
+    trade_value_sources: TradeValueSources | None = None
     season_worp: float | None = None
     porp: float | None = None
     injury_status: str | None = None

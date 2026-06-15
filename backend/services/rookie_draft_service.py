@@ -34,6 +34,7 @@ from dynasty_draft.draft_context import build_draft_timeline, build_scoring_cont
 from dynasty_draft.dynasty_score import DynastyRatingCurve, DynastyWeights
 from dynasty_draft.external_adp import AdpStore
 from dynasty_draft.healthy_ppg import HealthyPpgStore
+from dynasty_draft.dynasty_dealer import load_dynasty_dealer_store
 from dynasty_draft.ktc_values import KtcStore
 from dynasty_draft.projections import SleeperProjectionStore
 from dynasty_draft.pick_projector import (
@@ -160,6 +161,11 @@ def build_rookie_draft_state(
         except Exception:
             state.ktc = None
     state.trade_blend = TradeValueBlend.from_config(settings, ktc_available=state.ktc is not None)
+    state.dealer = load_dynasty_dealer_store(
+        settings,
+        superflex=state.is_superflex(),
+        force_refresh=bool(settings.get("_force_metric_refresh")),
+    )
     state.worp_blend = WorpBlend.from_config(settings)
 
     config = load_config()

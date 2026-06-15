@@ -6,15 +6,15 @@
   "trade_weight": 0.65,
   "worp_weight": 0.35,
   "dynasty_weights": {
-    "tv": 0.45,
-    "worp": 0.25,
+    "tv": 0.37,
+    "worp": 0.33,
     "upside": 0.15,
     "age": 0.10,
     "trajectory": 0.05
   },
   "dynasty_rating_curve": {
-    "exponent": 0.54,
-    "per_game_tilt": 0.65
+    "exponent": 0.62,
+    "per_game_tilt": 0.73
   },
   "adp": {
     "source": "auto",
@@ -23,8 +23,12 @@
   "poll_seconds": 20,
   "ktc_enabled": true,
   "trade_value_blend": {
-    "dd_weight": 0.5,
-    "ktc_weight": 0.5
+    "dealer_weight": 0.5,
+    "dd_weight": 0.25,
+    "ktc_weight": 0.25
+  },
+  "dynasty_dealer": {
+    "enabled": true
   },
   "worp_blend": {
     "historical_weight": 0.7,

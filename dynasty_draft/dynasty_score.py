@@ -24,17 +24,17 @@ def composite_to_rating(composite: float) -> int:
 class DynastyRatingCurve:
     """Stretch raw composite scores so elites land in the mid/high 90s."""
 
-    exponent: float = 0.54
+    exponent: float = 0.62
     # Share of the WORP component replaced by snap-filtered per-game production (W/g + HPPG).
-    per_game_tilt: float = 0.65
+    per_game_tilt: float = 0.73
 
     @classmethod
     def from_config(cls, raw: dict[str, float] | None) -> DynastyRatingCurve:
         if not raw:
             return cls()
         return cls(
-            exponent=float(raw.get("exponent", 0.54)),
-            per_game_tilt=float(raw.get("per_game_tilt", 0.65)),
+            exponent=float(raw.get("exponent", 0.62)),
+            per_game_tilt=float(raw.get("per_game_tilt", 0.73)),
         )
 
 
@@ -43,7 +43,7 @@ def curved_composite_to_rating(
     *,
     raw_min: float,
     raw_max: float,
-    exponent: float = 0.54,
+    exponent: float = 0.62,
 ) -> int:
     """
     Map raw 0–1 composite to 50–99 using board min/max stretch + power curve.
@@ -60,8 +60,8 @@ def curved_composite_to_rating(
 
 
 DEFAULT_DYNASTY_WEIGHTS: dict[str, float] = {
-    "tv": 0.45,
-    "worp": 0.25,
+    "tv": 0.37,
+    "worp": 0.33,
     "upside": 0.15,
     "age": 0.10,
     "trajectory": 0.05,
@@ -70,8 +70,8 @@ DEFAULT_DYNASTY_WEIGHTS: dict[str, float] = {
 
 @dataclass(frozen=True)
 class DynastyWeights:
-    tv: float = 0.45
-    worp: float = 0.25
+    tv: float = 0.37
+    worp: float = 0.33
     upside: float = 0.15
     age: float = 0.10
     trajectory: float = 0.05
@@ -120,6 +120,7 @@ class PerGameAnchorMaxes:
 
     qb: tuple[float, float]  # (max_worp_ppg, max_hppg)
     flex: tuple[float, float]  # RB/WR/TE shared flex pool
+    qb_replacement_ppg: float | None = None
 
 
 def _ppg_anchor_group(pos: str) -> str:
@@ -170,6 +171,8 @@ def _per_game_production_norm(
     *,
     max_worp_ppg: float,
     max_hppg: float,
+    position: str | None = None,
+    replacement_ppg: float | None = None,
 ) -> float:
     """0–1: healthy-week W/g + HPPG vs pool, lightly discounted for low availability."""
     worp_ppg = metrics.get("worp_ppg")
@@ -180,6 +183,13 @@ def _per_game_production_norm(
         return 0.0
     w_norm = (float(worp_ppg) / max_worp_ppg) if has_worp and max_worp_ppg > 0 else 0.0
     h_norm = (float(hppg) / max_hppg) if has_hppg and max_hppg > 0 else 0.0
+    # QBs: blend peak-relative and replacement-relative so ~12 PPG isn't "half of Allen"
+    # but also isn't zeroed out entirely in superflex (replacement ~16 PPG).
+    if (position or "").upper() == "QB" and has_hppg and replacement_ppg is not None:
+        span = max_hppg - replacement_ppg
+        vor_norm = max(0.0, min(1.0, (float(hppg) - replacement_ppg) / span)) if span > 0 else 0.0
+        peak_norm = (float(hppg) / max_hppg) if max_hppg > 0 else 0.0
+        h_norm = 0.40 * peak_norm + 0.60 * vor_norm
     # Ignore noise-level W/g — otherwise 0.0048 W/g dilutes HPPG while 0.0 does not.
     has_material_worp = has_worp and w_norm >= 0.02
     if has_material_worp and has_hppg:
@@ -219,23 +229,76 @@ def _pool_per_game_norms(
         if anchor_maxes is not None:
             group = _ppg_anchor_group((pos_by_id or {}).get(player_id, "").upper())
             max_worp_ppg, max_hppg = anchor_maxes.qb if group == "qb" else anchor_maxes.flex
+            replacement_ppg = (
+                anchor_maxes.qb_replacement_ppg if group == "qb" else None
+            )
+        else:
+            replacement_ppg = None
         norms[player_id] = _per_game_production_norm(
             metrics,
             max_worp_ppg=max_worp_ppg or 1.0,
             max_hppg=max_hppg or 1.0,
+            position=(pos_by_id or {}).get(player_id),
+            replacement_ppg=replacement_ppg,
         )
     return norms
 
 
-def _trajectory_signal(tv_norm: float, worp_norm: float, years_exp: int | None) -> float:
+def _trajectory_signal(
+    tv_norm: float,
+    worp_norm: float,
+    years_exp: int | None,
+    *,
+    pg_norm: float | None = None,
+) -> float:
     """
     Market (TV) ahead of production (WORP) on young players — development bet.
     Loveland pattern: high dynasty capital, low historical WORP.
     """
     if years_exp is None or years_exp > 2:
         return 0.0
+    if pg_norm is not None and pg_norm < 0.35:
+        return 0.0
     gap = tv_norm - worp_norm
-    return max(0.0, min(1.0, gap * 1.4))
+    raw = max(0.0, min(1.0, gap * 1.4))
+    if pg_norm is not None and pg_norm < 0.50:
+        # Ramp trajectory in as per-game production proves out (0.35–0.50).
+        raw *= max(0.0, min(1.0, (pg_norm - 0.35) / 0.15))
+    return raw
+
+
+def _ovr_tv_norm(pos: str, tv_norm: float, pg_norm: float | None) -> float:
+    """Dampen market TV in OVR when production hasn't backed up the price."""
+    if pg_norm is None:
+        return tv_norm
+    pos_u = (pos or "").upper()
+    if pos_u == "QB":
+        if pg_norm >= 0.30:
+            return tv_norm
+        return tv_norm * (0.65 + pg_norm * 1.167)
+    # RB/WR/TE: hype rookies with weak per-game output
+    if pg_norm >= 0.45:
+        return tv_norm
+    if pg_norm < 0.35:
+        return tv_norm * (0.62 + pg_norm * 0.90)
+    # 0.35–0.45: blend toward full TV
+    ramp = (pg_norm - 0.35) / 0.10
+    low_factor = 0.62 + pg_norm * 0.90
+    return tv_norm * (low_factor * (1.0 - ramp) + ramp)
+
+
+def _ovr_age_norm(pos: str, age_norm: float, pg_norm: float | None) -> float:
+    """Youth premium requires some on-field production."""
+    if pg_norm is None:
+        return age_norm
+    pos_u = (pos or "").upper()
+    if pos_u == "QB":
+        if pg_norm >= 0.28:
+            return age_norm
+        return age_norm * (0.70 + pg_norm * 1.07)
+    if pg_norm >= 0.40:
+        return age_norm
+    return age_norm * (0.78 + pg_norm * 0.70)
 
 
 class DynastyScorer:
@@ -312,11 +375,14 @@ class DynastyScorer:
             upside_norm = min(player.upside, 1.0)
             age = age_by_id.get(player_id)
             years_exp = years_exp_by_id.get(player_id)
-            age_norm = _age_premium(player.pos, age)
-            traj_norm = _trajectory_signal(tv_norm, worp_norm, years_exp)
+            tv_norm_adj = _ovr_tv_norm(player.pos, tv_norm, pg_norm)
+            age_norm = _ovr_age_norm(player.pos, _age_premium(player.pos, age), pg_norm)
+            traj_norm = _trajectory_signal(
+                tv_norm_adj, worp_norm, years_exp, pg_norm=pg_norm
+            )
 
             composite = (
-                w.tv * tv_norm
+                w.tv * tv_norm_adj
                 + w.worp * worp_norm
                 + w.upside * upside_norm
                 + w.age * age_norm
