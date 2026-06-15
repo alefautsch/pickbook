@@ -1,6 +1,8 @@
 """Tests for trade tagging and package valuation."""
 
 from backend.services.trade_engine import (
+    STUD_PREMIUM_ELITE,
+    STUD_PREMIUM_HIGH,
     annotate_players_with_trade_tags,
     assign_pick_trade_tag,
     assign_player_trade_tag,
@@ -19,6 +21,21 @@ def _player(pid: str, pos: str, tv: float, **kwargs) -> dict:
 
 def test_effective_package_tv_single_asset():
     assert effective_package_tv([{"tv": 8000}]) == 8000.0
+
+
+def test_stud_value_adjustment_tiers():
+    from backend.services.trade_engine import stud_value_adjustment
+
+    elite = stud_value_adjustment([_player("1", "RB", 8000)])
+    assert elite == round(8000 * STUD_PREMIUM_ELITE, 1)
+
+    high = stud_value_adjustment([_player("2", "WR", 6500)])
+    assert high == round(6500 * STUD_PREMIUM_HIGH, 1)
+
+    depth_pkg = stud_value_adjustment(
+        [_player("a", "WR", 3000), _player("b", "WR", 2500), _player("c", "WR", 2000)]
+    )
+    assert depth_pkg == round(-7500 * 0.12, 1)
 
 
 def test_effective_package_tv_depth_discount():

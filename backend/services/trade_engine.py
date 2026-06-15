@@ -14,6 +14,14 @@ PIECE_COUNT_PENALTY = 0.95
 CONSOLIDATION_PREMIUM = 0.12
 FAIRNESS_BAND = 0.05
 
+# KTC-style stud premium (% of single-player TV) — consolidation is worth paying up for.
+STUD_PREMIUM_ELITE = 0.40  # TV >= 7500
+STUD_PREMIUM_HIGH = 0.30  # TV >= 6000
+STUD_PREMIUM_MID = 0.20  # TV >= 5000
+STUD_PREMIUM_SOLID = 0.12  # TV >= 4500
+DEPTH_VOLUME_PENALTY = 0.12  # 3+ asset packages
+TWIN_DEPTH_BONUS = 0.08  # two similar-value players
+
 TradeTag = Literal["core", "trade"]
 
 _DEPTH_RANK_SCORES = (0.05, 0.35, 0.65, 1.0)
@@ -120,17 +128,19 @@ def stud_value_adjustment(assets: list[dict[str, Any]]) -> float:
     if len(players) == 1:
         tv = asset_tv(players[0])
         if tv >= 7500:
-            return round(tv * 0.28, 1)
+            return round(tv * STUD_PREMIUM_ELITE, 1)
         if tv >= 6000:
-            return round(tv * 0.20, 1)
+            return round(tv * STUD_PREMIUM_HIGH, 1)
         if tv >= 5000:
-            return round(tv * 0.12, 1)
+            return round(tv * STUD_PREMIUM_MID, 1)
+        if tv >= 4500:
+            return round(tv * STUD_PREMIUM_SOLID, 1)
     if len(assets) >= 3:
-        return round(-raw * 0.08, 1)
+        return round(-raw * DEPTH_VOLUME_PENALTY, 1)
     if len(players) == 2:
         tvs = sorted((asset_tv(p) for p in players), reverse=True)
         if tvs[0] > 0 and (tvs[0] - tvs[1]) / tvs[0] < 0.35:
-            return round(raw * 0.05, 1)
+            return round(raw * TWIN_DEPTH_BONUS, 1)
     return 0.0
 
 
