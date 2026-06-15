@@ -93,6 +93,10 @@ Your job: propose ONE concrete fix so BOTH sides are more likely to accept.
 - Use each side's blockers and suggested_tweak as hints.
 - When picks are involved, reference projected rookies at those slots.
 - Prefer minimal changes (small pick swap, add a depth piece, shave TV on one side).
+- CRITICAL: tradable_inventory lists every pick label and player each team actually owns.
+  Only assign a pick or player to a team if it appears in that team's tradable_inventory.
+  Never invent picks (e.g. do not add a 2026 2.05 or 2027 1st unless that exact label is listed).
+  Swaps must use picks from the current trade_package and/or tradable_inventory on the giving team.
 - Name specific players and pick labels from the payload only.
 - Use team names — never "you" or "they".
 
@@ -104,6 +108,123 @@ Respond with ONLY valid JSON (no markdown):
   "both_sides_likely_accept": true | false
 }
 """
+
+
+_PICK_LABEL_IN_TEXT_RE = re.compile(r"20\d{2}\s+\d+\.\d{2}")
+
+
+def _tradable_inventory(team: dict[str, Any]) -> dict[str, Any]:
+    picks = [_compact_pick(pick) for pick in (team.get("draft_picks") or [])]
+    pick_labels = sorted(
+        {
+            str(pick.get("label") or "").strip()
+            for pick in picks
+            if str(pick.get("label") or "").strip()
+        }
+    )
+    player_names: set[str] = set()
+    for row in team.get("players") or []:
+        name = str(row.get("name") or row.get("player_name") or "").strip()
+        if name:
+            player_names.add(name)
+    for row in team.get("trade_candidates") or []:
+        name = str(row.get("name") or row.get("player_name") or "").strip()
+        if name:
+            player_names.add(name)
+    return {
+        "draft_picks": picks,
+        "pick_labels": pick_labels,
+        "player_names": sorted(player_names),
+    }
+
+
+def _pick_labels_in_text(text: str) -> set[str]:
+    return {match.group(0).strip() for match in _PICK_LABEL_IN_TEXT_RE.finditer(text)}
+
+
+def _teams_attributed_as_giver(text: str, team_names: list[str]) -> list[str]:
+    lowered = text.lower()
+    givers: list[str] = []
+    for name in team_names:
+        marker = name.lower()
+        idx = lowered.find(marker)
+        if idx < 0:
+            continue
+        after = lowered[idx + len(marker) : idx + len(marker) + 48]
+        if re.search(r"\b(gives?|adds?|sends?|includes?)\b", after):
+            givers.append(name)
+    return givers
+
+
+def _invalid_pick_assignments(
+    text: str,
+    *,
+    team_names: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Pick labels a team is asked to give but does not own."""
+    violations: list[str] = []
+    labels = _pick_labels_in_text(text)
+    if not labels:
+        return violations
+
+    names = list(team_names.keys())
+    givers = _teams_attributed_as_giver(text, names)
+    if not givers:
+        return violations
+
+    for giver in givers:
+        owned = set(team_names[giver].get("pick_labels") or [])
+        for label in labels:
+            if label not in owned:
+                violations.append(f"{giver} does not own {label}")
+    return violations
+
+
+def _sanitize_fix_against_inventory(
+    fix: dict[str, Any],
+    *,
+    tradable_inventory: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Drop adjustments that reference picks a team does not own."""
+    if not tradable_inventory:
+        return fix
+
+    valid_adjustments: list[str] = []
+    dropped: list[str] = []
+    for adjustment in fix.get("adjustments") or []:
+        violations = _invalid_pick_assignments(adjustment, team_names=tradable_inventory)
+        if violations:
+            dropped.append(adjustment)
+            continue
+        valid_adjustments.append(adjustment)
+
+    reasoning = str(fix.get("reasoning") or "")
+    reasoning_violations = _invalid_pick_assignments(reasoning, team_names=tradable_inventory)
+
+    result = dict(fix)
+    result["adjustments"] = valid_adjustments
+
+    if dropped or reasoning_violations:
+        result["both_sides_likely_accept"] = False
+        notes: list[str] = []
+        if dropped:
+            notes.append(
+                "Removed suggestions that used picks not in either team's inventory: "
+                + "; ".join(dropped[:2])
+            )
+        if reasoning_violations:
+            notes.append(
+                "Reasoning referenced unavailable picks: "
+                + "; ".join(sorted(set(reasoning_violations))[:3])
+            )
+        warning = " ".join(notes)
+        if reasoning:
+            result["reasoning"] = f"{reasoning} ({warning})"
+        else:
+            result["reasoning"] = warning
+        if not valid_adjustments and not result.get("headline"):
+            result["headline"] = "No valid fix using owned assets"
+    return result
 
 
 def _compact_side_validation_for_fix(validation: dict[str, Any]) -> dict[str, Any]:
@@ -130,9 +251,15 @@ def build_fix_payload(
 ) -> dict[str, Any]:
     a_name = str(side_a_team.get("team_name") or "Side A")
     b_name = str(side_b_team.get("team_name") or "Side B")
+    inventory_a = _tradable_inventory(side_a_team)
+    inventory_b = _tradable_inventory(side_b_team)
     payload: dict[str, Any] = {
         "side_a_team": _compact_team_context(side_a_team),
         "side_b_team": _compact_team_context(side_b_team),
+        "tradable_inventory": {
+            a_name: inventory_a,
+            b_name: inventory_b,
+        },
         "trade_package": {
             a_name: {
                 "gives": {
@@ -215,7 +342,11 @@ def suggest_trade_fix_with_llm(
     ]
     raw_text = "".join(text_parts)
     parsed = _parse_validation_json(raw_text)
-    return _normalize_fix(parsed)
+    normalized = _normalize_fix(parsed)
+    return _sanitize_fix_against_inventory(
+        normalized,
+        tradable_inventory=payload.get("tradable_inventory") or {},
+    )
 
 
 def _compact_player(row: dict[str, Any]) -> dict[str, Any]:

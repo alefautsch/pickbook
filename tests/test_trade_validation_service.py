@@ -12,6 +12,7 @@ from backend.services.trade_validation_service import (
     validation_accept_score,
     _fairness_label_for_counterparty,
     _parse_validation_json,
+    _sanitize_fix_against_inventory,
 )
 
 
@@ -248,8 +249,14 @@ def test_fairness_label_uses_team_names():
 
 def test_build_fix_payload_includes_both_validations():
     payload = build_fix_payload(
-        side_a_team={"team_name": "Alpha"},
-        side_b_team={"team_name": "Beta"},
+        side_a_team={
+            "team_name": "Alpha",
+            "draft_picks": [{"label": "2026 1.04", "season": "2026", "round": 1}],
+        },
+        side_b_team={
+            "team_name": "Beta",
+            "draft_picks": [{"label": "2026 1.06", "season": "2026", "round": 1}],
+        },
         give={"players": [], "picks": [{"label": "2026 1.01"}]},
         receive={"players": [], "picks": []},
         tv_evaluation={"net_delta_adjusted_pct": 8, "within_band": False},
@@ -268,6 +275,28 @@ def test_build_fix_payload_includes_both_validations():
     assert "Alpha" in payload["trade_package"]
     assert payload["side_a_validation"]["accept_likelihood"] == "low"
     assert payload["side_b_validation"]["accept_likelihood"] == "high"
+    assert payload["tradable_inventory"]["Alpha"]["pick_labels"] == ["2026 1.04"]
+    assert payload["tradable_inventory"]["Beta"]["pick_labels"] == ["2026 1.06"]
+
+
+def test_sanitize_fix_drops_picks_not_owned():
+    inventory = {
+        "bruno caboclo": {"pick_labels": ["2026 1.04", "2026 1.06"]},
+        "Jackson Nine": {"pick_labels": ["2027 2.01"]},
+    }
+    fix = {
+        "headline": "Swap picks",
+        "reasoning": "Balances TV for both sides.",
+        "adjustments": [
+            "bruno caboclo gives: Nico Collins, 2026 1.06, 2026 2.05 (instead of 1.04)",
+            "Jackson Nine gives: Jahmyr Gibbs",
+        ],
+        "both_sides_likely_accept": True,
+    }
+    cleaned = _sanitize_fix_against_inventory(fix, tradable_inventory=inventory)
+    assert cleaned["adjustments"] == ["Jackson Nine gives: Jahmyr Gibbs"]
+    assert cleaned["both_sides_likely_accept"] is False
+    assert "2.05" in cleaned["reasoning"] or "Removed suggestions" in cleaned["reasoning"]
 
 
 def test_suggest_trade_fix_with_llm_mocked():
