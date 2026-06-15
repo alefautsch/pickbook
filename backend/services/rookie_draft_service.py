@@ -21,22 +21,27 @@ from backend.schemas.rookie_draft import (
     ValuePivotPlayer,
     ValuePivotSummary,
 )
+from backend.services.league_context import build_league_scoring_context
+from backend.services.league_engine import LeagueScoringState
+from backend.services.metrics_service import _collect_rostered_player_ids
 from backend.services.pick_service import collect_league_traded_picks, pick_slot_by_roster
-from backend.services.read_service import headshot_url, ovr_tier
+from backend.services.read_service import (
+    SnapshotDynasty,
+    apply_snapshot_dynasty,
+    headshot_url,
+    ovr_tier,
+    snapshot_dynasty_by_id,
+)
+from dynasty_draft.config import load_config
+from dynasty_draft.draft_context import build_draft_timeline
 from dynasty_draft.draft_pick_ownership import (
     PickOwnerIndex,
     build_pick_no_owner_index,
     build_pick_owner_index,
     merge_pick_slot_order,
 )
-from dynasty_draft.config import load_config
-from dynasty_draft.draft_context import build_draft_timeline, build_scoring_context
-from dynasty_draft.dynasty_score import DynastyRatingCurve, DynastyWeights
+from dynasty_draft.dynasty_daddy import DynastyDaddyStore
 from dynasty_draft.external_adp import AdpStore
-from dynasty_draft.healthy_ppg import HealthyPpgStore
-from dynasty_draft.dynasty_dealer import load_dynasty_dealer_store
-from dynasty_draft.ktc_values import KtcStore
-from dynasty_draft.projections import SleeperProjectionStore
 from dynasty_draft.pick_projector import (
     _available_pool,
     _initial_roster_counts,
@@ -46,34 +51,50 @@ from dynasty_draft.pick_projector import (
 from dynasty_draft.recommender import DraftState
 from dynasty_draft.sleeper_client import SleeperClient
 from dynasty_draft.strategy import DraftStrategy
-from dynasty_draft.trade_value_blend import TradeValueBlend
-from dynasty_draft.worp_blend import WorpBlend
 from dynasty_draft.war_data import POSITIONS, PlayerValue, WarData
 
 ROOKIE_PLAYER_TYPE = 1
 DEFAULT_POLL_SECONDS = 30
 
 
-class RookieDraftState(DraftState):
-    """Rookie board pool = rookies only; OVR anchors = full universe (§5.7, same as LeagueScoringState)."""
+class RookieDraftState(LeagueScoringState):
+    """Rookie draft mechanics on top of league sync scoring (§5.7)."""
 
-    def _universe_pool(self) -> list[tuple[str, PlayerValue]]:
-        pool: list[tuple[str, PlayerValue]] = []
-        for player_id, sleeper_player in self.sleeper_players.items():
-            pos = (sleeper_player.get("position") or "").upper()
-            if pos not in POSITIONS:
-                continue
-            war_player = self._match_war(str(player_id))
-            if war_player is None:
-                continue
-            if self.blended_trade_value(war_player) <= 0:
-                continue
-            pool.append((str(player_id), war_player))
-        return pool
-
-    def _dynasty_reference_pool(self) -> list[tuple[str, PlayerValue]]:
-        """Fixed anchors from the full player universe — not the rookie sub-pool."""
-        return self._universe_pool()
+    def __init__(
+        self,
+        *,
+        draft: dict[str, Any],
+        picks: list[dict[str, Any]],
+        league_users: list[dict[str, Any]] | None = None,
+        strategy: DraftStrategy,
+        pick_owner_index: PickOwnerIndex | None = None,
+        pick_no_owner_index: dict[int, int] | None = None,
+        roster_owner_ids: dict[int, str] | None = None,
+        league_row: League,
+        roster_player_ids: set[str],
+        user_id: str,
+        settings: dict[str, Any],
+        war: WarData,
+        sleeper_players: dict[str, dict[str, Any]],
+        client: SleeperClient,
+    ) -> None:
+        super().__init__(
+            league_row=league_row,
+            roster_player_ids=roster_player_ids,
+            user_id=user_id,
+            settings=settings,
+            war=war,
+            sleeper_players=sleeper_players,
+            client=client,
+        )
+        self.draft = draft
+        self.picks = picks
+        self.league_users = league_users or []
+        self.strategy = strategy
+        self.pick_owner_index = pick_owner_index or {}
+        self.pick_no_owner_index = pick_no_owner_index or {}
+        self.roster_owner_ids = roster_owner_ids or {}
+        self.__post_init__()
 
 
 def resolve_rookie_draft_id(
@@ -107,12 +128,21 @@ def _load_strategy(settings: dict[str, Any]) -> DraftStrategy:
     return DraftStrategy.from_config({"strategy": raw})
 
 
+def _overlay_snapshot_rows(
+    rows: list[dict[str, Any]],
+    snapshot_by_id: dict[str, SnapshotDynasty],
+) -> None:
+    for row in rows:
+        apply_snapshot_dynasty(row, snapshot_by_id)
+
+
 def build_rookie_draft_state(
     *,
     draft: dict[str, Any],
     picks: list[dict[str, Any]],
     league_row: League,
     league_users: list[dict[str, Any]],
+    roster_player_ids: set[str],
     user_id: str,
     settings: dict[str, Any],
     client: SleeperClient,
@@ -126,81 +156,44 @@ def build_rookie_draft_state(
 
     players = client.get_players()
     war = WarData(war_path)
-    strategy = _load_strategy(settings)
+    scoring = build_league_scoring_context(league_row)
+    dd_config = settings.get("dynasty_daddy") or {}
+    if bool(dd_config.get("enabled", True)):
+        try:
+            dd_store = DynastyDaddyStore.load(
+                league_row=league_row,
+                superflex=scoring.superflex,
+                config=dd_config,
+                force_refresh=bool(settings.get("_force_metric_refresh")),
+            )
+            war = dd_store.overlay_war_data(war)
+        except Exception:
+            pass
 
-    league_dict = {
-        "league_id": league_row.sleeper_league_id,
-        "name": league_row.name,
-        "season": league_row.season,
-        "total_rosters": league_row.total_rosters,
-        "roster_positions": league_row.roster_positions_json,
-        "scoring_settings": league_row.scoring_json,
-    }
+    strategy = _load_strategy(settings)
 
     state = RookieDraftState(
         draft=draft,
         picks=picks,
-        league=league_dict,
         league_users=league_users,
+        strategy=strategy,
+        pick_owner_index=pick_owner_index,
+        pick_no_owner_index=pick_no_owner_index,
+        roster_owner_ids=roster_owner_ids,
+        league_row=league_row,
+        roster_player_ids=roster_player_ids,
         user_id=user_id,
+        settings=settings,
         war=war,
         sleeper_players=players,
-        trade_weight=float(settings.get("trade_weight", 0.65)),
-        worp_weight=float(settings.get("worp_weight", 0.35)),
-        dynasty_weights=DynastyWeights.from_config(settings.get("dynasty_weights")),
-        dynasty_rating_curve=DynastyRatingCurve.from_config(settings.get("dynasty_rating_curve")),
-        strategy=strategy,
-        pick_owner_index=pick_owner_index or {},
-        pick_no_owner_index=pick_no_owner_index or {},
-        roster_owner_ids=roster_owner_ids or {},
+        client=client,
     )
-
-    if settings.get("ktc_enabled", True):
-        try:
-            state.ktc = KtcStore.load(superflex=state.is_superflex())
-        except Exception:
-            state.ktc = None
-    state.trade_blend = TradeValueBlend.from_config(settings, ktc_available=state.ktc is not None)
-    state.dealer = load_dynasty_dealer_store(
-        settings,
-        superflex=state.is_superflex(),
-        force_refresh=bool(settings.get("_force_metric_refresh")),
-    )
-    state.worp_blend = WorpBlend.from_config(settings)
 
     config = load_config()
     try:
         state.adp_store = AdpStore.load(config, superflex=state.is_superflex())
     except Exception:
         state.adp_store = None
-
-    try:
-        scoring = build_scoring_context(state)
-        state.projection_store = SleeperProjectionStore.load(
-            client,
-            season=str(settings.get("season", league_row.season)),
-            teams=state._teams(),
-            roster_positions=state.roster_positions,
-            superflex=state.is_superflex(),
-            ppr=float(scoring.get("ppr", 0.5)),
-            war=war,
-            sleeper_players=players,
-        )
-    except Exception:
-        state.projection_store = None
-
-    try:
-        scoring = build_scoring_context(state)
-        state.healthy_ppg_store = HealthyPpgStore.load(
-            sleeper_players=players,
-            war=war,
-            teams=state._teams(),
-            roster_positions=state.roster_positions,
-            superflex=state.is_superflex(),
-            ppr=float(scoring.get("ppr", 0.5)),
-        )
-    except Exception:
-        state.healthy_ppg_store = None
 
     return state
 
@@ -307,7 +300,11 @@ def _board_row_from_bpa(row: dict[str, Any], rank: int) -> RookieBoardRow:
     )
 
 
-def project_remaining_picks(state: DraftState) -> dict[int, dict[str, Any]]:
+def project_remaining_picks(
+    state: DraftState,
+    *,
+    snapshot_by_id: dict[str, SnapshotDynasty] | None = None,
+) -> dict[int, dict[str, Any]]:
     """Simulate unpicked slots using real Sleeper team order (ADP + positional needs)."""
     start = len(state.picks) + 1
     total = state._teams() * state._rounds()
@@ -352,13 +349,24 @@ def project_remaining_picks(state: DraftState) -> dict[int, dict[str, Any]]:
             dynasty = dynasty_by_id.get(str(player_id)) or {}
             row["dynasty_rating"] = dynasty.get("dynasty_rating")
             row["dynasty_rookie"] = dynasty.get("dynasty_rookie")
+            if snapshot_by_id:
+                apply_snapshot_dynasty(row, snapshot_by_id)
 
     return projections
 
 
-def _timeline_rows(state: DraftState) -> list[RookieDraftTimelineRow]:
+def _timeline_rows(
+    state: DraftState,
+    *,
+    snapshot_by_id: dict[str, SnapshotDynasty] | None = None,
+) -> list[RookieDraftTimelineRow]:
     raw = build_draft_timeline(state, past=None, upcoming=None)
-    projections = project_remaining_picks(state)
+    if snapshot_by_id:
+        for row in raw:
+            if row.get("player_id"):
+                apply_snapshot_dynasty(row, snapshot_by_id)
+
+    projections = project_remaining_picks(state, snapshot_by_id=snapshot_by_id)
     rows: list[RookieDraftTimelineRow] = []
     for row in raw:
         pick_no = int(row["pick_no"])
@@ -452,11 +460,14 @@ def load_rookie_draft_state_for_league(
         except Exception:
             user_id = ""
 
+    roster_player_ids = _collect_rostered_player_ids(db, league_id)
+
     state = build_rookie_draft_state(
         draft=draft,
         picks=picks,
         league_row=league_row,
         league_users=league_users,
+        roster_player_ids=roster_player_ids,
         user_id=user_id,
         settings=settings,
         client=client,
@@ -486,6 +497,7 @@ def get_rookie_draft_view(
     if loaded is None:
         return None
     state, league_row = loaded
+    snapshot_by_id = snapshot_dynasty_by_id(db, league_id)
 
     rosters = db.scalars(select(Roster).where(Roster.league_id == league_id)).all()
     roster_by_sleeper = {r.sleeper_roster_id: r for r in rosters}
@@ -499,7 +511,7 @@ def get_rookie_draft_view(
         target_roster = my_roster
 
     next_info = state.next_pick_info()
-    timeline = _timeline_rows(state)
+    timeline = _timeline_rows(state, snapshot_by_id=snapshot_by_id)
     clock_row = next((row for row in timeline if row.status == "on_clock"), None)
 
     on_clock_roster_id: str | None = None
@@ -535,16 +547,20 @@ def get_rookie_draft_view(
         )
 
     bpa_all = state.bpa_recommendations(limit=500)
+    _overlay_snapshot_rows(bpa_all, snapshot_by_id)
     bpa_rows = [_board_row_from_bpa(row, idx + 1) for idx, row in enumerate(bpa_all)]
     bpa_top = bpa_rows[:15]
 
     need_all = state.recommend(limit=500)
+    _overlay_snapshot_rows(need_all, snapshot_by_id)
     need_top = [
         _board_row_from_bpa(row, idx + 1).model_copy(update={"need_rank": idx + 1})
         for idx, row in enumerate(need_all[:15])
     ]
 
     pivot_raw = state.value_pivot_summary(limit=6)
+    for key in ("take_bpa_over_need", "wait_for_later"):
+        _overlay_snapshot_rows(list(pivot_raw.get(key) or []), snapshot_by_id)
     value_pivot = ValuePivotSummary(
         take_bpa_over_need=[_pivot_player(row) for row in pivot_raw.get("take_bpa_over_need") or []],
         wait_for_later=[_pivot_player(row) for row in pivot_raw.get("wait_for_later") or []],

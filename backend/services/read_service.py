@@ -68,6 +68,37 @@ def headshot_url(player_id: str) -> str:
     return SLEEPER_HEADSHOT.format(player_id=player_id)
 
 
+SnapshotDynasty = tuple[int | None, bool]
+
+
+def snapshot_dynasty_by_id(db: Session, league_id: str) -> dict[str, SnapshotDynasty]:
+    """League snapshot OVR + rookie flag — single source of truth for UI (§5.7)."""
+    rows = db.scalars(
+        select(PlayerSnapshot).where(PlayerSnapshot.league_id == league_id)
+    ).all()
+    return {
+        row.sleeper_player_id: (row.dynasty_rating, row.dynasty_rookie)
+        for row in rows
+    }
+
+
+def apply_snapshot_dynasty(
+    row: dict[str, Any],
+    by_id: dict[str, SnapshotDynasty],
+) -> None:
+    """Overlay stored dynasty_rating onto an engine row when a snapshot exists."""
+    player_id = row.get("player_id")
+    if player_id is None:
+        return
+    snap = by_id.get(str(player_id))
+    if snap is None:
+        return
+    rating, rookie = snap
+    if rating is not None:
+        row["dynasty_rating"] = rating
+    row["dynasty_rookie"] = rookie
+
+
 def sleeper_avatar_url(avatar_id: str | None) -> str | None:
     if not avatar_id:
         return None
