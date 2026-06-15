@@ -204,15 +204,12 @@ def test_validate_trade_with_llm_mocked():
             ),
         )
     ]
-    mock_client = MagicMock()
-    mock_client.messages.create.return_value = mock_response
 
-    with patch("backend.services.trade_validation_service.anthropic.Anthropic", return_value=mock_client):
+    with patch("backend.services.trade_validation_service.create_message", return_value=mock_response):
         result = validate_trade_with_llm({"x": 1}, api_key="test-key")
 
     assert result["accept_likelihood"] == "medium"
     assert result["would_improve_their_roster"] is True
-    mock_client.messages.create.assert_called_once()
 
 
 def test_fairness_label_uses_team_names():

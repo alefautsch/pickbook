@@ -336,6 +336,7 @@ def _run_side_validation(
     proposer_lineup: dict[str, Any] | None = None,
     counterparty_lineup: dict[str, Any] | None = None,
     tv_fairness_grade: str | None = None,
+    validation_model: str | None = None,
 ) -> TradeSideValidation:
     proposer_team = tools.get_team(proposer_roster_id)
     counterparty_team = tools.get_team(counterparty_roster_id)
@@ -363,7 +364,11 @@ def _run_side_validation(
         proposer_lineup=proposer_lineup,
         counterparty_lineup=counterparty_lineup,
     )
-    validation = validate_trade_with_llm(payload, api_key=api_key)
+    validation = validate_trade_with_llm(
+        payload,
+        api_key=api_key,
+        model=validation_model,
+    )
     if validation.get("skipped"):
         return TradeSideValidation(
             roster_id=counterparty_roster_id,
@@ -406,6 +411,8 @@ def validate_trade_dual(
     db: Session,
     league_id: str,
     req: TradeEvaluateRequest,
+    *,
+    validation_model: str | None = None,
 ) -> TradeValidationResult | None:
     tools_a = _make_tools(db, league_id, req.side_a_roster_id)
     give, receive = _trade_inputs(req)
@@ -473,6 +480,7 @@ def validate_trade_dual(
         proposer_lineup=lineup_a,
         counterparty_lineup=lineup_b,
         tv_fairness_grade=evaluation.tv_fairness_grade,
+        validation_model=validation_model,
     )
     side_b_validation.roster_id = req.side_b_roster_id
     side_b_validation.team_name = team_b.team_name
@@ -494,6 +502,7 @@ def validate_trade_dual(
         proposer_lineup=lineup_b,
         counterparty_lineup=lineup_a,
         tv_fairness_grade=evaluation.tv_fairness_grade,
+        validation_model=validation_model,
     )
     side_a_validation.roster_id = req.side_a_roster_id
     side_a_validation.team_name = team_a.team_name

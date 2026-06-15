@@ -249,8 +249,8 @@ def main() -> None:
     parser.add_argument(
         "--rank-validation",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Re-rank packages by counterparty accept_likelihood (default on; needs ANTHROPIC_API_KEY)",
+        default=False,
+        help="Re-rank packages by counterparty accept_likelihood (default off; needs ANTHROPIC_API_KEY)",
     )
     parser.add_argument("--json", action="store_true", help="Dump raw JSON")
     args = parser.parse_args()

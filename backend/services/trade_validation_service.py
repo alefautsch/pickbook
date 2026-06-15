@@ -8,7 +8,8 @@ from typing import Any, Literal
 
 import anthropic
 
-from dynasty_draft.llm_advisor import DEFAULT_MODEL
+from backend.config import get_settings
+from backend.services.llm_usage import DEFAULT_VALIDATION_MODEL, create_message
 
 AcceptLikelihood = Literal["low", "medium", "high"]
 FairnessView = Literal["favors_them", "fair", "favors_you"]
@@ -384,7 +385,7 @@ def validate_trade_with_llm(
     payload: dict[str, Any],
     *,
     api_key: str | None,
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
 ) -> dict[str, Any]:
     """Run counterparty-perspective validation. Requires Anthropic API key."""
     if not api_key or not api_key.strip():
@@ -393,9 +394,12 @@ def validate_trade_with_llm(
             "skipped": True,
         }
 
+    resolved_model = model or get_settings().llm_validation_model or DEFAULT_VALIDATION_MODEL
     client = anthropic.Anthropic(api_key=api_key.strip())
-    response = client.messages.create(
-        model=model,
+    response = create_message(
+        client,
+        feature="trade_validation",
+        model=resolved_model,
         max_tokens=900,
         system=_VALIDATION_SYSTEM,
         messages=[

@@ -38,8 +38,8 @@ def test_rank_packages_sorts_by_accept_score(mock_eval, mock_validate):
         "missing_assets": [],
     }
 
-    def validation_side_effect(payload, api_key=None):
-        cp = payload["counterparty"]["roster_id"]
+    def validation_side_effect(payload, api_key=None, model=None):
+        cp = payload["review_for_team_context"]["roster_id"]
         if cp == "2":
             return {
                 "accept_likelihood": "low",

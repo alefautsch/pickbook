@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://blackbook:blackbook@localhost:5444/blackbook"
     sleeper_username: str = "alefautsch"
     anthropic_api_key: str | None = None
+    # Cheaper model for structured trade-validation JSON (Haiku default).
+    llm_validation_model: str = "claude-haiku-4-5"
+    # Route free-form advisor questions via Haiku intent classifier + tool DAG (vs tool loop).
+    llm_advisor_router_enabled: bool = True
     # Moonshot API — Kimi models in the in-season advisor. Optional.
     moonshot_api_key: str | None = None
     # Brave Search API — advisor web_search tool (injury/news). Optional.

@@ -20,6 +20,12 @@ from backend.services.read_service import (
     get_team_detail,
 )
 from backend.services.rookie_draft_service import get_rookie_draft_view
+from backend.services.advisor_intent_router import stream_routed_advisor
+from backend.services.advisor_preset_harness import (
+    HARNESS_PRESET_IDS,
+    run_preset_harness,
+    stream_preset_advisor,
+)
 from backend.services.advisor_tools import (
     ADVISOR_TOOL_SPECS,
     AdvisorToolContext,
@@ -532,6 +538,47 @@ def stream_advisor_chat(
 
     tool_specs = ADVISOR_TOOL_SPECS if row["provider"] in _TOOL_PROVIDERS else None
     tool_dispatch = dispatch_tool if tool_specs else None
+
+    use_harness = (
+        prompt_id
+        and not messages
+        and prompt_id in HARNESS_PRESET_IDS
+        and row["provider"] in _TOOL_PROVIDERS
+    )
+    if use_harness:
+        harness_payload = run_preset_harness(
+            prompt_id,
+            advisor_tools,
+            context,
+            my_roster_id=my_roster_id,
+            focus_id=_focus_id,
+        )
+        yield from stream_preset_advisor(
+            context,
+            harness_payload,
+            api_key,
+            user_question=user_question,
+            model=row["model"],
+        )
+        return
+
+    settings = get_settings()
+    use_router = (
+        row["provider"] in _TOOL_PROVIDERS
+        and settings.llm_advisor_router_enabled
+        and tool_dispatch is not None
+    )
+    if use_router:
+        yield from stream_routed_advisor(
+            context,
+            advisor_tools,
+            api_key,
+            user_question=user_question,
+            model=row["model"],
+            my_roster_id=my_roster_id,
+            focus_id=_focus_id,
+        )
+        return
 
     if messages:
         yield from stream_inseason_advisor(

@@ -207,7 +207,7 @@ def rank_packages_by_counterparty_validation(
     load_team: Callable[[str], dict[str, Any]],
     trade_surplus: dict[str, Any] | None,
     api_key: str | None,
-    max_validate: int = 8,
+    max_validate: int = 2,
 ) -> list[dict[str, Any]]:
     """Validate packages from the counterparty lens and re-rank by accept likelihood."""
     if not packages or not api_key or not str(api_key).strip():
@@ -1964,7 +1964,7 @@ class AdvisorTools:
         swap_mode: bool = False,
         keep_current_first: bool = True,
         lubricant_mode: bool = True,
-        rank_by_validation: bool = True,
+        rank_by_validation: bool = False,
     ) -> dict[str, Any]:
         proposer_id = self.proposer_roster_id
         trade_surplus = self._trade_surplus()
@@ -2115,7 +2115,7 @@ class AdvisorTools:
                 swap_mode=bool(tool_input.get("swap_mode", False)),
                 keep_current_first=bool(tool_input.get("keep_current_first", True)),
                 lubricant_mode=bool(tool_input.get("lubricant_mode", True)),
-                rank_by_validation=bool(tool_input.get("rank_by_validation", True)),
+                rank_by_validation=bool(tool_input.get("rank_by_validation", False)),
             )
         if name == "calculate":
             return self.calculate(str(tool_input.get("expression", "")))
@@ -2303,8 +2303,8 @@ ADVISOR_TOOL_SPECS: list[dict[str, Any]] = [
         "description": (
             "Trade ideas: surplus-based hooks or targeted stud acquisition when "
             "target_player_id / target_position is set. Uses KTC-adjusted fairness "
-            "with acquisition overpay band. Packages are ranked by counterparty "
-            "accept_likelihood when rank_by_validation is true (default)."
+            "with acquisition overpay band. Set rank_by_validation=true to re-rank by "
+            "counterparty accept_likelihood (extra LLM calls; default off)."
         ),
         "input_schema": {
             "type": "object",
@@ -2339,7 +2339,7 @@ ADVISOR_TOOL_SPECS: list[dict[str, Any]] = [
                 },
                 "rank_by_validation": {
                     "type": "boolean",
-                    "description": "Re-rank packages by counterparty accept_likelihood via LLM (default true).",
+                    "description": "Re-rank packages by counterparty accept_likelihood via LLM (default false; costs extra).",
                 },
             },
         },

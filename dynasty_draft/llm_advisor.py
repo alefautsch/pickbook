@@ -7,6 +7,8 @@ from typing import Any, Literal
 import anthropic
 import requests
 
+from backend.services.llm_usage import create_message, stream_message
+
 from dynasty_draft.draft_context import (
     build_league_team_rosters,
     build_scoring_context,
@@ -443,9 +445,12 @@ def _stream_anthropic(
     messages: list[dict[str, str]],
     max_tokens: int = 2500,
     system: str | None = None,
+    feature: str = "advisor_stream",
 ) -> Iterator[str]:
     client = anthropic.Anthropic(api_key=api_key.strip())
-    with client.messages.stream(
+    with stream_message(
+        client,
+        feature=feature,
         model=model,
         max_tokens=max_tokens,
         system=system or _system_prompt(),
@@ -507,6 +512,7 @@ def stream_advisor_reply(
     model: str,
     messages: list[dict[str, str]],
     system: str | None = None,
+    feature: str = "advisor_stream",
 ) -> Iterator[str]:
     if not api_key.strip():
         raise ValueError("API key is required for the selected advisor.")
@@ -516,7 +522,11 @@ def stream_advisor_reply(
 
     if provider == "anthropic":
         yield from _stream_anthropic(
-            api_key=api_key, model=model, messages=messages, system=system
+            api_key=api_key,
+            model=model,
+            messages=messages,
+            system=system,
+            feature=feature,
         )
         return
     if provider == "moonshot":
@@ -532,19 +542,16 @@ INSEASON_ADVISOR_PROMPTS: list[dict[str, str]] = [
         "id": "suggest_trade",
         "label": "Suggest Trades",
         "question": (
-            "Call suggest_trades first (use focused_team roster_id as target_roster_id when "
-            "viewing an opponent). For the top 1–2 packages, call validate_trade with the "
-            "counterparty roster_id. Then explain packages with manager names, TV math, and "
-            "whether the other side would likely accept."
+            "What trades make sense for my team right now? Rank the best packages "
+            "with manager names, TV math, package quality, and fairness."
         ),
     },
     {
         "id": "trade_targets",
         "label": "Trade Targets",
         "question": (
-            "Who should I target in trades this week? Use get_league_rankings, get_team, and "
-            "suggest_trades to find realistic buy-low and sell-high paths. "
-            "Name specific managers and players with OVR context."
+            "Who should I target in trades this week? Find realistic buy-low and "
+            "sell-high paths — name specific managers and players with OVR context."
         ),
     },
     {
@@ -552,18 +559,17 @@ INSEASON_ADVISOR_PROMPTS: list[dict[str, str]] = [
         "label": "Drop Candidates",
         "question": (
             "Which players on my bench are the best drop candidates right now? "
-            "Compare my roster depth vs league needs, injuries, and top free_agents. "
-            "Prioritize dynasty OVR and roster construction — not just this week's points."
+            "Compare roster depth vs top free agents. Prioritize dynasty OVR and "
+            "roster construction — not just this week's points."
         ),
     },
     {
         "id": "rookie_pick_prep",
         "label": "Rookie Pick Prep",
         "question": (
-            "Help me prep for the upcoming rookie draft in this league. "
-            "Use my starter_needs, positional depth, league competitive window, and "
-            "rookie_draft board (if present). Recommend positional priorities and "
-            "archetypes to target with my picks."
+            "Help me prep for the upcoming rookie draft in this league. Recommend "
+            "positional priorities and archetypes to target with my picks based on "
+            "my roster needs and competitive window."
         ),
     },
 ]
@@ -619,7 +625,7 @@ TOOLS:
 - get_free_agents(position?, limit?) — top FA board
 - evaluate_trade(give, receive) — raw + effective TV, consolidation-adjusted fairness (±5%)
 - validate_trade(counterparty_roster_id, give, receive) — opt-in LLM check: would they accept?
-- suggest_trades(target_roster_id?, swap_mode?, rank_by_validation?) — surplus/buy/sell packages ranked by counterparty accept_likelihood when validation is on
+- suggest_trades(target_roster_id?, swap_mode?, rank_by_validation?) — surplus/buy/sell packages; set rank_by_validation=true only if user wants accept-likelihood ranking (costs extra LLM calls)
 - calculate(expression) — safe math for TV sums
 - web_search(query) — recent NFL injury updates, roster moves, beat reports (web only when configured)
 
@@ -631,7 +637,7 @@ TOOL CHOICE:
 
 TRADE SKILL:
 - For trade questions, call suggest_trades and/or evaluate_trade before recommending.
-- Call validate_trade on specific packages when judging acceptability or before urging an offer.
+- Call validate_trade only when the user asks whether a specific package would be accepted.
 - Show TV math (use calculate when summing). Name managers, not just roster ids.
 - Trade perspective: `focused_roster_id` is the manager the user picked in the **From** dropdown (defaults to their team). Use that roster for `suggest_trades` surplus/hooks — not `my_team` when they differ.
 
@@ -686,7 +692,7 @@ def stream_inseason_advisor(
     messages: list[dict[str, str]] | None = None,
     tools: list[dict[str, Any]] | None = None,
     tool_handler: Any | None = None,
-    max_tool_rounds: int = 8,
+    max_tool_rounds: int = 4,
 ) -> Iterator[str]:
     """Stream in-season advisor reply with optional Anthropic tool-use loop."""
     row = advisor_model_by_id(model)
@@ -770,12 +776,15 @@ def _stream_inseason_with_tools(
         if round_idx == 0:
             yield "⏳ Running league tools…\n\n"
 
-        response = client.messages.create(
+        response = create_message(
+            client,
+            feature="advisor_tool_loop",
             model=model,
             max_tokens=2500,
             system=system,
             messages=thread,
             tools=tools,
+            extra={"round": round_idx},
         )
 
         if response.stop_reason == "tool_use":
