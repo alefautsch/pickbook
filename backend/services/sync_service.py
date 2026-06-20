@@ -46,6 +46,18 @@ def _draft_picks_by_roster(
     return by_roster
 
 
+def _unique_player_ids(player_ids: list[Any]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for player_id in player_ids:
+        pid = str(player_id)
+        if pid in seen:
+            continue
+        seen.add(pid)
+        unique.append(pid)
+    return unique
+
+
 def _resolve_my_user_id(client: SleeperClient, settings: dict[str, Any]) -> str:
     username = (settings.get("sleeper_username") or get_settings().sleeper_username or "").strip()
     if not username:
@@ -134,7 +146,7 @@ def sync_league_from_sleeper(
             if not roster_player_ids and draft_players_by_roster:
                 roster_player_ids = draft_players_by_roster.get(sleeper_roster_id, [])
 
-            for player_id in roster_player_ids:
+            for player_id in _unique_player_ids(roster_player_ids):
                 pid = str(player_id)
                 sleeper = sleeper_players.get(pid) or {}
                 db.add(

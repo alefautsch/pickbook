@@ -88,12 +88,13 @@ def read_recent_trades(
 @router.post("/{league_id}/trades/analyze", response_model=TradeAnalysisResponse)
 def analyze_recent_trades(
     league_id: str,
+    reanalyze: bool = Query(default=False),
     db: Session = Depends(get_db),
 ) -> TradeAnalysisResponse:
     if get_recent_trades(db, league_id) is None:
         raise HTTPException(status_code=404, detail="League not found")
     try:
-        result = analyze_pending_league_trades(db, league_id)
+        result = analyze_pending_league_trades(db, league_id, reanalyze=reanalyze)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return TradeAnalysisResponse(**result)

@@ -165,11 +165,11 @@ export function RecentTradesPanel({
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleAnalyze() {
+  async function handleAnalyze(reanalyze = false) {
     setAnalyzing(true);
     setError(null);
     try {
-      await postAnalyzeTrades(leagueId);
+      await postAnalyzeTrades(leagueId, { reanalyze });
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Analysis failed");
@@ -198,7 +198,7 @@ export function RecentTradesPanel({
         {unanalyzedCount > 0 ? (
           <button
             type="button"
-            onClick={handleAnalyze}
+            onClick={() => handleAnalyze(false)}
             disabled={analyzing}
             className="rounded-md border border-bb-gold/40 bg-bb-gold/10 px-3 py-1.5 text-xs font-medium text-bb-gold transition hover:bg-bb-gold/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -206,7 +206,16 @@ export function RecentTradesPanel({
               ? "Analyzing…"
               : `Analyze ${unanalyzedCount} trade${unanalyzedCount === 1 ? "" : "s"}`}
           </button>
-        ) : null}
+        ) : (
+          <button
+            type="button"
+            onClick={() => handleAnalyze(true)}
+            disabled={analyzing}
+            className="rounded-md border border-bb-border/60 bg-white/5 px-3 py-1.5 text-xs font-medium text-bb-muted transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {analyzing ? "Reanalyzing…" : "Reanalyze trades"}
+          </button>
+        )}
       </div>
       {error ? <p className="text-xs text-red-400">{error}</p> : null}
       {trades.map((trade) => (

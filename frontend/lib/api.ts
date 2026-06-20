@@ -556,8 +556,12 @@ export function getRecentTrades(
   return apiFetch<RecentTradesResponse>(`/leagues/${leagueId}/trades/recent?limit=${limit}`);
 }
 
-export function postAnalyzeTrades(leagueId: string): Promise<TradeAnalysisResponse> {
-  return apiFetch<TradeAnalysisResponse>(`/leagues/${leagueId}/trades/analyze`, {
+export function postAnalyzeTrades(
+  leagueId: string,
+  options?: { reanalyze?: boolean },
+): Promise<TradeAnalysisResponse> {
+  const query = options?.reanalyze ? "?reanalyze=true" : "";
+  return apiFetch<TradeAnalysisResponse>(`/leagues/${leagueId}/trades/analyze${query}`, {
     method: "POST",
   });
 }

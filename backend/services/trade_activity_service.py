@@ -194,6 +194,8 @@ def _analyze_transaction(
     db: Session,
     league_id: str,
     row: LeagueTransaction,
+    *,
+    force: bool = False,
 ) -> None:
     roster_ids = list(row.roster_ids_json or [])
     sides = dict(row.sides_json or {})
@@ -215,7 +217,7 @@ def _analyze_transaction(
         {"transaction_id": row.sleeper_transaction_id},
         sides,
     )
-    if row.analysis_json and row.analysis_context_hash == context_hash:
+    if not force and row.analysis_json and row.analysis_context_hash == context_hash:
         return
 
     req = _build_evaluate_request(roster_ids[0], roster_ids[1], sides)
@@ -314,6 +316,8 @@ def sync_league_trades(
 def analyze_pending_league_trades(
     db: Session,
     league_id: str,
+    *,
+    reanalyze: bool = False,
 ) -> dict[str, int]:
     """Run AI analysis on trades that have not been analyzed yet."""
     if not get_settings().anthropic_api_key:
@@ -321,18 +325,18 @@ def analyze_pending_league_trades(
 
     analyzed = 0
     failed = 0
-    pending = db.scalars(
+    query = (
         select(LeagueTransaction)
-        .where(
-            LeagueTransaction.league_id == league_id,
-            LeagueTransaction.analysis_json.is_(None),
-        )
+        .where(LeagueTransaction.league_id == league_id)
         .order_by(LeagueTransaction.created_ms.desc())
-    ).all()
+    )
+    if not reanalyze:
+        query = query.where(LeagueTransaction.analysis_json.is_(None))
+    pending = db.scalars(query).all()
 
     for row in pending:
         try:
-            _analyze_transaction(db, league_id, row)
+            _analyze_transaction(db, league_id, row, force=reanalyze)
             analyzed += 1
         except Exception as exc:
             failed += 1
