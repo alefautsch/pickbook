@@ -86,9 +86,11 @@ def parse_trade_sides(txn: dict[str, Any]) -> dict[str, dict[str, Any]]:
 def _current_nfl_week(client: SleeperClient) -> int:
     try:
         state = client.get_nfl_state()
-        return max(1, int(state.get("week") or state.get("leg") or 1))
+        week = int(state.get("week") or state.get("leg") or 0)
+        # Offseason week=0 — scan full recent window for backfill/incremental.
+        return week if week > 0 else MAX_BACKFILL_WEEKS
     except Exception:
-        return 18
+        return MAX_BACKFILL_WEEKS
 
 
 def _fetch_trades_from_sleeper(
@@ -217,7 +219,17 @@ def _analyze_transaction(
         return
 
     req = _build_evaluate_request(roster_ids[0], roster_ids[1], sides)
-    result = validate_trade_dual(db, league_id, req, include_fix=False)
+    try:
+        result = validate_trade_dual(db, league_id, req, include_fix=False)
+    except Exception as exc:
+        row.analysis_json = {
+            "skipped": True,
+            "error": f"AI analysis failed: {exc}",
+        }
+        row.analysis_context_hash = context_hash
+        row.analyzed_at = datetime.now(timezone.utc)
+        return
+
     if result is None:
         row.analysis_json = {
             "skipped": True,
@@ -309,8 +321,17 @@ def sync_and_analyze_league_trades(
                 }
                 row.analyzed_at = datetime.now(timezone.utc)
             continue
-        _analyze_transaction(db, league_id, row)
-        analyzed += 1
+        try:
+            _analyze_transaction(db, league_id, row)
+            analyzed += 1
+        except Exception as exc:
+            row.analysis_json = {
+                "skipped": True,
+                "error": f"Trade analysis failed: {exc}",
+            }
+            row.analyzed_at = datetime.now(timezone.utc)
+
+    db.commit()
 
     return {
         "trades_fetched": len(trades),

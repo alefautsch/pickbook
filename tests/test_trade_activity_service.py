@@ -4,8 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from backend.services.trade_activity_service import (
     INITIAL_TRADE_BACKFILL,
+    MAX_BACKFILL_WEEKS,
     parse_trade_sides,
     _transaction_context_hash,
+    _current_nfl_week,
 )
 
 
@@ -102,3 +104,12 @@ def test_sync_backfill_requests_initial_limit(mock_fetch):
             sync_and_analyze_league_trades(db, "league1", client=MagicMock())
 
     assert mock_fetch.call_args.kwargs["stop_when"] == INITIAL_TRADE_BACKFILL
+    db.commit.assert_called_once()
+
+
+def test_current_nfl_week_offseason_uses_full_scan_window():
+    from backend.services.trade_activity_service import _current_nfl_week
+
+    client = MagicMock()
+    client.get_nfl_state.return_value = {"week": 0, "season_type": "off"}
+    assert _current_nfl_week(client) == MAX_BACKFILL_WEEKS

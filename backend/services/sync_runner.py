@@ -36,7 +36,12 @@ def run_full_league_sync(
             force_refresh=force_refresh,
         )
         rankings = compute_league_rankings(db, league_id)
-        trade_counts = sync_and_analyze_league_trades(db, league_id, client=client)
+        trade_counts: dict[str, int] = {}
+        trade_errors: list[str] = []
+        try:
+            trade_counts = sync_and_analyze_league_trades(db, league_id, client=client)
+        except Exception as exc:
+            trade_errors.append(f"trade sync: {exc}")
         duration_ms = int((time.perf_counter() - started) * 1000)
         counts = dict(ingest.get("counts") or {})
         counts.update(trade_counts)
@@ -49,6 +54,7 @@ def run_full_league_sync(
             sync_run_id=ingest.get("sync_run_id"),
             metrics=metrics,
             rankings=rankings,
+            errors=trade_errors,
         )
     except Exception as exc:
         duration_ms = int((time.perf_counter() - started) * 1000)
