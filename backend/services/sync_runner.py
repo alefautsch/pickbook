@@ -41,6 +41,7 @@ def run_full_league_sync(
         try:
             trade_counts = sync_and_analyze_league_trades(db, league_id, client=client)
         except Exception as exc:
+            db.rollback()
             trade_errors.append(f"trade sync: {exc}")
         duration_ms = int((time.perf_counter() - started) * 1000)
         counts = dict(ingest.get("counts") or {})
@@ -78,7 +79,17 @@ def run_sync_all(
     league_ids = list(db.scalars(select(League.sleeper_league_id).order_by(League.name)).all())
     results: list[SyncLeagueResult] = []
     for league_id in league_ids:
-        results.append(run_full_league_sync(db, league_id, client=client, force_refresh=force_refresh))
+        try:
+            results.append(run_full_league_sync(db, league_id, client=client, force_refresh=force_refresh))
+        except Exception as exc:
+            db.rollback()
+            results.append(
+                SyncLeagueResult(
+                    league_id=league_id,
+                    status="failed",
+                    errors=[str(exc)],
+                )
+            )
 
     return SyncAllResponse(
         results=results,

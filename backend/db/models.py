@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Date,
     DateTime,
@@ -217,7 +218,7 @@ class LeagueTransaction(Base):
     type: Mapped[str] = mapped_column(String(32), nullable=False, default="trade")
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     leg: Mapped[int | None] = mapped_column(Integer)
-    created_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
     roster_ids_json: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     adds_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     drops_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
