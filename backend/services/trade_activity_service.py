@@ -252,13 +252,13 @@ def _analyze_transaction(
     row.analyzed_at = datetime.now(timezone.utc)
 
 
-def sync_and_analyze_league_trades(
+def sync_league_trades(
     db: Session,
     league_id: str,
     *,
     client: SleeperClient | None = None,
 ) -> dict[str, int]:
-    """Pull recent trades from Sleeper, upsert, and analyze new/changed rows."""
+    """Pull recent trades from Sleeper and upsert — no AI analysis."""
     client = client or SleeperClient()
     stored_count = db.scalar(
         select(func.count())
@@ -297,34 +297,45 @@ def sync_and_analyze_league_trades(
         if existed is None:
             new_count += 1
 
-    db.flush()
+    db.commit()
+
+    return {
+        "trades_fetched": len(trades),
+        "trades_new": new_count,
+        "trades_stored": db.scalar(
+            select(func.count())
+            .select_from(LeagueTransaction)
+            .where(LeagueTransaction.league_id == league_id)
+        )
+        or 0,
+    }
+
+
+def analyze_pending_league_trades(
+    db: Session,
+    league_id: str,
+) -> dict[str, int]:
+    """Run AI analysis on trades that have not been analyzed yet."""
+    if not get_settings().anthropic_api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY not configured — cannot analyze trades")
 
     analyzed = 0
+    failed = 0
     pending = db.scalars(
         select(LeagueTransaction)
-        .where(LeagueTransaction.league_id == league_id)
+        .where(
+            LeagueTransaction.league_id == league_id,
+            LeagueTransaction.analysis_json.is_(None),
+        )
         .order_by(LeagueTransaction.created_ms.desc())
     ).all()
+
     for row in pending:
-        context_hash = _transaction_context_hash(
-            {"transaction_id": row.sleeper_transaction_id},
-            dict(row.sides_json or {}),
-        )
-        needs_analysis = row.analysis_json is None or row.analysis_context_hash != context_hash
-        if not needs_analysis:
-            continue
-        if not get_settings().anthropic_api_key:
-            if row.analysis_json is None:
-                row.analysis_json = {
-                    "skipped": True,
-                    "error": "ANTHROPIC_API_KEY not configured — analysis skipped",
-                }
-                row.analyzed_at = datetime.now(timezone.utc)
-            continue
         try:
             _analyze_transaction(db, league_id, row)
             analyzed += 1
         except Exception as exc:
+            failed += 1
             row.analysis_json = {
                 "skipped": True,
                 "error": f"Trade analysis failed: {exc}",
@@ -333,17 +344,36 @@ def sync_and_analyze_league_trades(
 
     db.commit()
 
-    return {
-        "trades_fetched": len(trades),
-        "trades_new": new_count,
-        "trades_analyzed": analyzed,
-        "trades_stored": db.scalar(
-            select(func.count())
-            .select_from(LeagueTransaction)
-            .where(LeagueTransaction.league_id == league_id)
+    remaining = db.scalar(
+        select(func.count())
+        .select_from(LeagueTransaction)
+        .where(
+            LeagueTransaction.league_id == league_id,
+            LeagueTransaction.analysis_json.is_(None),
         )
-        or 0,
+    ) or 0
+
+    return {
+        "trades_analyzed": analyzed,
+        "trades_failed": failed,
+        "trades_pending": remaining,
     }
+
+
+def sync_and_analyze_league_trades(
+    db: Session,
+    league_id: str,
+    *,
+    client: SleeperClient | None = None,
+) -> dict[str, int]:
+    """Backward-compatible helper: sync then analyze."""
+    counts = sync_league_trades(db, league_id, client=client)
+    try:
+        analysis = analyze_pending_league_trades(db, league_id)
+    except RuntimeError:
+        analysis = {"trades_analyzed": 0, "trades_failed": 0, "trades_pending": 0}
+    counts.update(analysis)
+    return counts
 
 
 def _roster_names(db: Session, league_id: str) -> dict[str, str]:
@@ -430,6 +460,15 @@ def get_recent_trades(
         .where(LeagueTransaction.league_id == league_id)
     ) or 0
 
+    unanalyzed = db.scalar(
+        select(func.count())
+        .select_from(LeagueTransaction)
+        .where(
+            LeagueTransaction.league_id == league_id,
+            LeagueTransaction.analysis_json.is_(None),
+        )
+    ) or 0
+
     rows = db.scalars(
         select(LeagueTransaction)
         .where(LeagueTransaction.league_id == league_id)
@@ -508,4 +547,4 @@ def get_recent_trades(
             )
         )
 
-    return RecentTradesResponse(trades=trades, total_stored=total)
+    return RecentTradesResponse(trades=trades, total_stored=total, unanalyzed_count=unanalyzed)

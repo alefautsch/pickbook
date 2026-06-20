@@ -39,3 +39,11 @@ class RecentTrade(BaseModel):
 class RecentTradesResponse(BaseModel):
     trades: list[RecentTrade] = Field(default_factory=list)
     total_stored: int = 0
+    unanalyzed_count: int = 0
+
+
+class TradeAnalysisResponse(BaseModel):
+    trades_analyzed: int = 0
+    trades_failed: int = 0
+    trades_pending: int = 0
+    error: str | None = None

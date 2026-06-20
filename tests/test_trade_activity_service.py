@@ -81,27 +81,18 @@ def test_transaction_context_hash_changes_with_sides():
 
 @patch("backend.services.trade_activity_service._fetch_trades_from_sleeper")
 def test_sync_backfill_requests_initial_limit(mock_fetch):
-    from backend.services.trade_activity_service import sync_and_analyze_league_trades
+    from backend.services.trade_activity_service import sync_league_trades
 
     db = MagicMock()
     db.scalar.side_effect = lambda *a, **k: 0
-    db.scalars.return_value.all.return_value = []
     mock_fetch.return_value = [
         {"transaction_id": str(i), "type": "trade", "status": "complete", "created": i, "roster_ids": [1, 2]}
         for i in range(INITIAL_TRADE_BACKFILL)
     ]
 
     with patch("backend.services.trade_activity_service._upsert_transaction") as mock_upsert:
-        row = MagicMock(
-            roster_ids_json=["1", "2"],
-            sides_json={},
-            analysis_json=None,
-            analysis_context_hash=None,
-        )
-        mock_upsert.return_value = row
-        with patch("backend.services.trade_activity_service.get_settings") as mock_settings:
-            mock_settings.return_value.anthropic_api_key = None
-            sync_and_analyze_league_trades(db, "league1", client=MagicMock())
+        mock_upsert.return_value = MagicMock()
+        sync_league_trades(db, "league1", client=MagicMock())
 
     assert mock_fetch.call_args.kwargs["stop_when"] == INITIAL_TRADE_BACKFILL
     db.commit.assert_called_once()

@@ -1,8 +1,14 @@
-import type { RecentTrade, TradeActivitySide } from "@/lib/api";
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { postAnalyzeTrades, type RecentTrade, type TradeActivitySide } from "@/lib/api";
 
 type RecentTradesPanelProps = {
+  leagueId: string;
   trades: RecentTrade[];
   totalStored: number;
+  unanalyzedCount: number;
 };
 
 function formatTradeDate(createdMs: number): string {
@@ -65,6 +71,7 @@ function AssetList({ side, direction }: { side: TradeActivitySide; direction: "g
 function TradeCard({ trade }: { trade: RecentTrade }) {
   const [sideA, sideB] = trade.sides;
   const analysis = trade.analysis;
+  const pendingAnalysis = analysis == null;
 
   return (
     <article className="rounded-lg border border-bb-border/40 bg-black/20 p-4">
@@ -86,13 +93,17 @@ function TradeCard({ trade }: { trade: RecentTrade }) {
           >
             {analysis.overall_grade}
           </span>
+        ) : pendingAnalysis ? (
+          <span className="rounded bg-bb-border/30 px-2 py-0.5 text-xs text-bb-muted">
+            Not analyzed
+          </span>
         ) : null}
       </div>
 
       {sideA && sideB ? (
         <div className="mb-4 grid gap-3 sm:grid-cols-2">
           {[sideA, sideB].map((side) => (
-            <div key={side.roster_id} className="rounded bg-white/[0.03] p-3">
+            <div key={side.roster_id} className="rounded bg-white/3 p-3">
               <p className="mb-2 text-xs font-medium uppercase tracking-wider text-bb-muted">
                 {side.team_name}
               </p>
@@ -141,20 +152,60 @@ function TradeCard({ trade }: { trade: RecentTrade }) {
   );
 }
 
-export function RecentTradesPanel({ trades, totalStored }: RecentTradesPanelProps) {
+export function RecentTradesPanel({
+  leagueId,
+  trades,
+  totalStored,
+  unanalyzedCount,
+}: RecentTradesPanelProps) {
+  const router = useRouter();
+  const [analyzing, setAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleAnalyze() {
+    setAnalyzing(true);
+    setError(null);
+    try {
+      await postAnalyzeTrades(leagueId);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Analysis failed");
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
   if (trades.length === 0) {
     return (
       <p className="text-sm text-bb-muted">
-        No trades synced yet. Run a league sync to pull recent trades and generate AI analysis.
+        No trades synced yet. Run a league sync to pull recent trades.
       </p>
     );
   }
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-bb-muted">
-        Showing {trades.length} of {totalStored} stored trade{totalStored === 1 ? "" : "s"}
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-bb-muted">
+          Showing {trades.length} of {totalStored} stored trade{totalStored === 1 ? "" : "s"}
+          {unanalyzedCount > 0
+            ? ` · ${unanalyzedCount} awaiting analysis`
+            : ""}
+        </p>
+        {unanalyzedCount > 0 ? (
+          <button
+            type="button"
+            onClick={handleAnalyze}
+            disabled={analyzing}
+            className="rounded-md border border-bb-gold/40 bg-bb-gold/10 px-3 py-1.5 text-xs font-medium text-bb-gold transition hover:bg-bb-gold/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {analyzing
+              ? "Analyzing…"
+              : `Analyze ${unanalyzedCount} trade${unanalyzedCount === 1 ? "" : "s"}`}
+          </button>
+        ) : null}
+      </div>
+      {error ? <p className="text-xs text-red-400">{error}</p> : null}
       {trades.map((trade) => (
         <TradeCard key={trade.transaction_id} trade={trade} />
       ))}

@@ -385,6 +385,14 @@ export type RecentTrade = {
 export type RecentTradesResponse = {
   trades: RecentTrade[];
   total_stored: number;
+  unanalyzed_count: number;
+};
+
+export type TradeAnalysisResponse = {
+  trades_analyzed: number;
+  trades_failed: number;
+  trades_pending: number;
+  error?: string | null;
 };
 
 export type LeagueRankings = {
@@ -544,6 +552,12 @@ export function getRecentTrades(
   limit = 10,
 ): Promise<RecentTradesResponse> {
   return apiFetch<RecentTradesResponse>(`/leagues/${leagueId}/trades/recent?limit=${limit}`);
+}
+
+export function postAnalyzeTrades(leagueId: string): Promise<TradeAnalysisResponse> {
+  return apiFetch<TradeAnalysisResponse>(`/leagues/${leagueId}/trades/analyze`, {
+    method: "POST",
+  });
 }
 
 export function getTeam(leagueId: string, rosterId: string): Promise<TeamDetail> {

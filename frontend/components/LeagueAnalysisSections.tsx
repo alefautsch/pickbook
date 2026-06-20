@@ -30,8 +30,13 @@ export function LeagueAnalysisSections({
 }: LeagueAnalysisSectionsProps) {
   return (
     <div className="flex flex-col gap-4 md:gap-5">
-      <CollapsibleSection title="Recent Trades" defaultOpen subtitle="AI-analyzed league activity">
-        <RecentTradesPanel trades={recentTrades.trades} totalStored={recentTrades.total_stored} />
+      <CollapsibleSection title="Recent Trades" defaultOpen subtitle="League trade activity">
+        <RecentTradesPanel
+          leagueId={leagueId}
+          trades={recentTrades.trades}
+          totalStored={recentTrades.total_stored}
+          unanalyzedCount={recentTrades.unanalyzed_count}
+        />
       </CollapsibleSection>
 
       <CollapsibleSection title="All Teams" defaultOpen>

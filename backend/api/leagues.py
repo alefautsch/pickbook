@@ -8,7 +8,7 @@ from backend.schemas.analysis import LeagueAnalysis
 from backend.schemas.free_agent import FreeAgentBoard
 from backend.schemas.league import LeagueDetail, LeagueRankings, LeagueTile
 from backend.schemas.league_players import LeaguePlayerDirectory
-from backend.schemas.trade_activity import RecentTradesResponse
+from backend.schemas.trade_activity import RecentTradesResponse, TradeAnalysisResponse
 from backend.services.portfolio_service import get_free_agents, get_league_players
 from backend.services.read_service import (
     get_league_analysis,
@@ -16,7 +16,10 @@ from backend.services.read_service import (
     get_league_rankings,
     list_league_tiles,
 )
-from backend.services.trade_activity_service import get_recent_trades
+from backend.services.trade_activity_service import (
+    analyze_pending_league_trades,
+    get_recent_trades,
+)
 
 router = APIRouter(prefix="/leagues", tags=["leagues"])
 
@@ -80,3 +83,17 @@ def read_recent_trades(
     if trades is None:
         raise HTTPException(status_code=404, detail="League not found")
     return trades
+
+
+@router.post("/{league_id}/trades/analyze", response_model=TradeAnalysisResponse)
+def analyze_recent_trades(
+    league_id: str,
+    db: Session = Depends(get_db),
+) -> TradeAnalysisResponse:
+    if get_recent_trades(db, league_id) is None:
+        raise HTTPException(status_code=404, detail="League not found")
+    try:
+        result = analyze_pending_league_trades(db, league_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return TradeAnalysisResponse(**result)

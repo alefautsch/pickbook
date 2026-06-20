@@ -12,7 +12,7 @@ from backend.schemas.sync import SyncAllResponse, SyncLeagueResult
 from backend.services.analysis_service import compute_league_rankings
 from backend.services.metrics_service import compute_player_snapshots
 from backend.services.sync_service import sync_league_from_sleeper
-from backend.services.trade_activity_service import sync_and_analyze_league_trades
+from backend.services.trade_activity_service import sync_league_trades
 from dynasty_draft.sleeper_client import SleeperClient
 
 
@@ -39,7 +39,7 @@ def run_full_league_sync(
         trade_counts: dict[str, int] = {}
         trade_errors: list[str] = []
         try:
-            trade_counts = sync_and_analyze_league_trades(db, league_id, client=client)
+            trade_counts = sync_league_trades(db, league_id, client=client)
         except Exception as exc:
             db.rollback()
             trade_errors.append(f"trade sync: {exc}")
