@@ -8,6 +8,7 @@ from backend.schemas.analysis import LeagueAnalysis
 from backend.schemas.free_agent import FreeAgentBoard
 from backend.schemas.league import LeagueDetail, LeagueRankings, LeagueTile
 from backend.schemas.league_players import LeaguePlayerDirectory
+from backend.schemas.trade_activity import RecentTradesResponse
 from backend.services.portfolio_service import get_free_agents, get_league_players
 from backend.services.read_service import (
     get_league_analysis,
@@ -15,6 +16,7 @@ from backend.services.read_service import (
     get_league_rankings,
     list_league_tiles,
 )
+from backend.services.trade_activity_service import get_recent_trades
 
 router = APIRouter(prefix="/leagues", tags=["leagues"])
 
@@ -66,3 +68,15 @@ def read_free_agents(
     if board is None:
         raise HTTPException(status_code=404, detail="League not found")
     return board
+
+
+@router.get("/{league_id}/trades/recent", response_model=RecentTradesResponse)
+def read_recent_trades(
+    league_id: str,
+    limit: int = Query(default=10, ge=1, le=50),
+    db: Session = Depends(get_db),
+) -> RecentTradesResponse:
+    trades = get_recent_trades(db, league_id, limit=limit)
+    if trades is None:
+        raise HTTPException(status_code=404, detail="League not found")
+    return trades

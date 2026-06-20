@@ -52,6 +52,14 @@ class SleeperClient:
         """Future and traded draft picks for a league."""
         return self._get(f"/league/{league_id}/traded_picks")
 
+    def get_transactions(self, league_id: str, week: int) -> list[dict[str, Any]]:
+        """Completed and pending transactions for an NFL week (Sleeper 'round')."""
+        return self._get(f"/league/{league_id}/transactions/{week}")
+
+    def get_nfl_state(self) -> dict[str, Any]:
+        """Current NFL season/week from Sleeper."""
+        return self._get("/state/nfl")
+
     def get_players(self, force_refresh: bool = False) -> dict[str, dict[str, Any]]:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         if (

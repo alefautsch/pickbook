@@ -12,6 +12,7 @@ from backend.schemas.sync import SyncAllResponse, SyncLeagueResult
 from backend.services.analysis_service import compute_league_rankings
 from backend.services.metrics_service import compute_player_snapshots
 from backend.services.sync_service import sync_league_from_sleeper
+from backend.services.trade_activity_service import sync_and_analyze_league_trades
 from dynasty_draft.sleeper_client import SleeperClient
 
 
@@ -35,12 +36,15 @@ def run_full_league_sync(
             force_refresh=force_refresh,
         )
         rankings = compute_league_rankings(db, league_id)
+        trade_counts = sync_and_analyze_league_trades(db, league_id, client=client)
         duration_ms = int((time.perf_counter() - started) * 1000)
+        counts = dict(ingest.get("counts") or {})
+        counts.update(trade_counts)
         return SyncLeagueResult(
             league_id=league_id,
             league_name=ingest.get("league_name"),
             status="success",
-            counts=ingest.get("counts") or {},
+            counts=counts,
             duration_ms=duration_ms,
             sync_run_id=ingest.get("sync_run_id"),
             metrics=metrics,

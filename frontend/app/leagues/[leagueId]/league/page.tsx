@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { LeagueAnalysisSections } from "@/components/LeagueAnalysisSections";
-import { getLeague, getLeagueAnalysis, getLeagues } from "@/lib/api";
+import { getLeague, getLeagueAnalysis, getLeagues, getRecentTrades } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 
 type PageProps = {
@@ -14,12 +14,14 @@ export default async function LeagueAnalysisPage({ params }: PageProps) {
   let leagues = [];
   let league;
   let analysis;
+  let recentTrades;
 
   try {
-    [leagues, league, analysis] = await Promise.all([
+    [leagues, league, analysis, recentTrades] = await Promise.all([
       getLeagues(),
       getLeague(leagueId),
       getLeagueAnalysis(leagueId),
+      getRecentTrades(leagueId),
     ]);
   } catch {
     notFound();
@@ -39,6 +41,7 @@ export default async function LeagueAnalysisPage({ params }: PageProps) {
           leagueId={leagueId}
           league={league}
           analysis={analysis}
+          recentTrades={recentTrades}
         />
       </div>
     </AppShell>

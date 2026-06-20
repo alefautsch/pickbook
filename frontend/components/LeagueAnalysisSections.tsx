@@ -6,10 +6,12 @@ import type {
   LeagueAnalysis,
   LeagueDetail,
   PositionStrengthMap,
+  RecentTradesResponse,
 } from "@/lib/api";
 import { AgeProfilePanel } from "@/components/AgeProfilePanel";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { PositionHeatmap } from "@/components/PositionHeatmap";
+import { RecentTradesPanel } from "@/components/RecentTradesPanel";
 import { TradeSurplusPanel } from "@/components/TradeSurplusPanel";
 import { OvrBadge } from "@/components/OvrBadge";
 
@@ -17,15 +19,21 @@ type LeagueAnalysisSectionsProps = {
   leagueId: string;
   league: LeagueDetail;
   analysis: LeagueAnalysis;
+  recentTrades: RecentTradesResponse;
 };
 
 export function LeagueAnalysisSections({
   leagueId,
   league,
   analysis,
+  recentTrades,
 }: LeagueAnalysisSectionsProps) {
   return (
     <div className="flex flex-col gap-4 md:gap-5">
+      <CollapsibleSection title="Recent Trades" defaultOpen subtitle="AI-analyzed league activity">
+        <RecentTradesPanel trades={recentTrades.trades} totalStored={recentTrades.total_stored} />
+      </CollapsibleSection>
+
       <CollapsibleSection title="All Teams" defaultOpen>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {league.teams.map((team) => (

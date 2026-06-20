@@ -332,6 +332,61 @@ export type LeagueAnalysis = {
   trade_surplus: TradeSurplus | null;
 };
 
+export type TradeActivityAssetPlayer = {
+  player_id: string;
+  name: string | null;
+  position: string | null;
+  tv: number | null;
+  ovr: number | null;
+};
+
+export type TradeActivityAssetPick = {
+  season: string;
+  round: number;
+  original_roster_id: string;
+  label: string | null;
+};
+
+export type TradeActivitySide = {
+  roster_id: string;
+  team_name: string | null;
+  gives: {
+    players: TradeActivityAssetPlayer[];
+    picks: TradeActivityAssetPick[];
+  };
+  receives: {
+    players: TradeActivityAssetPlayer[];
+    picks: TradeActivityAssetPick[];
+  };
+};
+
+export type TradeActivityAnalysis = {
+  side_a: TradeSideValidation | null;
+  side_b: TradeSideValidation | null;
+  overall_grade: string | null;
+  summary: string | null;
+  tv_fairness_grade: string | null;
+  favors_roster_id: string | null;
+  skipped: boolean;
+  error: string | null;
+  multi_party: boolean;
+};
+
+export type RecentTrade = {
+  transaction_id: string;
+  created_ms: number;
+  leg: number | null;
+  roster_ids: string[];
+  sides: TradeActivitySide[];
+  waiver_budget: Array<{ sender: number; receiver: number; amount: number }>;
+  analysis: TradeActivityAnalysis | null;
+};
+
+export type RecentTradesResponse = {
+  trades: RecentTrade[];
+  total_stored: number;
+};
+
 export type LeagueRankings = {
   league_id: string;
   league_name: string;
@@ -482,6 +537,13 @@ export function getLeagueRankings(leagueId: string): Promise<LeagueRankings> {
 
 export function getLeagueAnalysis(leagueId: string): Promise<LeagueAnalysis> {
   return apiFetch<LeagueAnalysis>(`/leagues/${leagueId}/analysis`);
+}
+
+export function getRecentTrades(
+  leagueId: string,
+  limit = 10,
+): Promise<RecentTradesResponse> {
+  return apiFetch<RecentTradesResponse>(`/leagues/${leagueId}/trades/recent?limit=${limit}`);
 }
 
 export function getTeam(leagueId: string, rosterId: string): Promise<TeamDetail> {

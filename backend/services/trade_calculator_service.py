@@ -516,6 +516,7 @@ def validate_trade_dual(
     req: TradeEvaluateRequest,
     *,
     validation_model: str | None = None,
+    include_fix: bool = True,
 ) -> TradeValidationResult | None:
     tools_a = _make_tools(db, league_id, req.side_a_roster_id)
     give, receive = _trade_inputs(req)
@@ -640,7 +641,7 @@ def validate_trade_dual(
         "suggested_tweak": side_b_validation.suggested_tweak,
     }
     trade_fix: TradeFixSuggestion | None = None
-    if not side_a_validation.skipped and not side_b_validation.skipped:
+    if include_fix and not side_a_validation.skipped and not side_b_validation.skipped:
         fix_payload = build_fix_payload(
             side_a_team=team_a_ctx if not team_a_ctx.get("error") else {"team_name": team_a.team_name},
             side_b_team=team_b_ctx if not team_b_ctx.get("error") else {"team_name": team_b.team_name},

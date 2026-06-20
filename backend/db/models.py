@@ -52,6 +52,9 @@ class League(Base):
     league_snapshot_history: Mapped[list[LeagueSnapshotHistory]] = relationship(
         back_populates="league", cascade="all, delete-orphan"
     )
+    transactions: Mapped[list[LeagueTransaction]] = relationship(
+        back_populates="league", cascade="all, delete-orphan"
+    )
 
 
 class Roster(Base):
@@ -196,6 +199,40 @@ class LeagueSnapshot(Base):
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     league: Mapped[League] = relationship(back_populates="league_snapshots")
+
+
+class LeagueTransaction(Base):
+    """Completed league trades synced from Sleeper with cached AI analysis."""
+
+    __tablename__ = "league_transactions"
+    __table_args__ = (
+        UniqueConstraint("league_id", "sleeper_transaction_id", name="uq_league_transaction"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    league_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("leagues.sleeper_league_id", ondelete="CASCADE"), nullable=False
+    )
+    sleeper_transaction_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    type: Mapped[str] = mapped_column(String(32), nullable=False, default="trade")
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    leg: Mapped[int | None] = mapped_column(Integer)
+    created_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    roster_ids_json: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    adds_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    drops_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    draft_picks_json: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    waiver_budget_json: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    sides_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    tv_evaluation_json: Mapped[dict | None] = mapped_column(JSONB)
+    analysis_json: Mapped[dict | None] = mapped_column(JSONB)
+    analysis_context_hash: Mapped[str | None] = mapped_column(String(64))
+    analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    league: Mapped[League] = relationship(back_populates="transactions")
 
 
 class SyncRun(Base):
