@@ -11,7 +11,15 @@ from backend.services.analysis_service import (
 
 DEPTH_TV_DISCOUNT = 0.70
 PIECE_COUNT_PENALTY = 0.95
-CONSOLIDATION_PREMIUM = 0.12
+CONSOLIDATION_PREMIUM = 0.15
+# Catalog pick TV overstates trade certainty for mid/late rounds.
+PICK_TRADE_TV_MULTIPLIER: dict[int, float] = {
+    1: 1.0,
+    2: 0.50,
+    3: 0.32,
+    4: 0.22,
+}
+PICK_TRADE_TV_DEFAULT = 0.15
 FAIRNESS_BAND = 0.05
 
 # KTC-style stud premium (% of single-player TV) — consolidation is worth paying up for.
@@ -89,6 +97,34 @@ def asset_tv(asset: dict[str, Any]) -> float:
     return float(asset.get("tv") or asset.get("trade_value") or 0)
 
 
+def is_pick_asset(asset: dict[str, Any]) -> bool:
+    if asset.get("player_id"):
+        return False
+    return asset.get("round") is not None or bool(asset.get("label"))
+
+
+def pick_trade_tv_multiplier(round_no: int) -> float:
+    if round_no <= 1:
+        return 1.0
+    return PICK_TRADE_TV_MULTIPLIER.get(round_no, PICK_TRADE_TV_DEFAULT)
+
+
+def pick_trade_profile(round_no: int) -> str:
+    if round_no <= 1:
+        return "first_round_capital"
+    if round_no == 2:
+        return "dart_throw"
+    return "long_shot"
+
+
+def asset_tv_for_trade(asset: dict[str, Any]) -> float:
+    raw = asset_tv(asset)
+    if not is_pick_asset(asset):
+        return raw
+    round_no = int(asset.get("round") or 0)
+    return round(raw * pick_trade_tv_multiplier(round_no), 2)
+
+
 def production_ppg(player: dict[str, Any]) -> float:
     """Recent actuals weighted more than projection."""
     hppg = player.get("hppg")
@@ -106,7 +142,7 @@ def effective_package_tv(assets: list[dict[str, Any]]) -> float:
     """Discount depth pieces; penalize multi-asset packages vs a single stud."""
     if not assets:
         return 0.0
-    tvs = sorted((asset_tv(a) for a in assets), reverse=True)
+    tvs = sorted((asset_tv_for_trade(a) for a in assets), reverse=True)
     if len(tvs) == 1:
         return tvs[0]
     top = tvs[0]
@@ -146,7 +182,7 @@ def stud_value_adjustment(assets: list[dict[str, Any]]) -> float:
 
 def package_adjusted_tv(assets: list[dict[str, Any]]) -> tuple[float, float]:
     """Return (raw_total, raw_total + stud adjustment)."""
-    raw = sum(asset_tv(a) for a in assets)
+    raw = sum(asset_tv_for_trade(a) for a in assets)
     return raw, raw + stud_value_adjustment(assets)
 
 
@@ -200,8 +236,8 @@ def evaluate_package_fairness(
     fairness_band: float = FAIRNESS_BAND,
 ) -> dict[str, Any]:
     """Fairness: raw TV + one-sided stud adjustment + consolidation tax."""
-    give_raw = sum(asset_tv(a) for a in give_assets)
-    recv_raw = sum(asset_tv(a) for a in recv_assets)
+    give_raw = sum(asset_tv_for_trade(a) for a in give_assets)
+    recv_raw = sum(asset_tv_for_trade(a) for a in recv_assets)
     give_adj, recv_adj, give_consolidating, recv_consolidating = _assign_package_stud_adjustments(
         give_assets, recv_assets
     )
@@ -251,6 +287,9 @@ def evaluate_package_fairness(
         "fairness_band": f"±{int(fairness_band * 100)}%",
         "within_band": within,
         "fairness": label,
+        "pick_trade_tv_note": (
+            "Round 2+ pick catalog TV discounted in totals (dart throws / long shots)."
+        ),
     }
 
 

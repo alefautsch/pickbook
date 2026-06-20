@@ -10,6 +10,7 @@ import anthropic
 
 from backend.config import get_settings
 from backend.services.llm_usage import DEFAULT_VALIDATION_MODEL, create_message
+from backend.services.trade_engine import pick_trade_profile, pick_trade_tv_multiplier
 
 AcceptLikelihood = Literal["low", "medium", "high"]
 FairnessView = Literal["favors_them", "fair", "favors_you"]
@@ -65,6 +66,9 @@ Rules:
 - When rookie_draft_context is present, weigh projected rookies at traded pick slots — a manager may overpay TV to move up for a specific prospect (e.g. 1.01 for an elite RB) or accept less when the picks they give up project to weaker fits.
 - REQUIRED when rookie_draft_context.picks_in_trade is non-empty: reasoning MUST cite pick labels and likely_range prospects (e.g. "2026 1.01 is Jeremiyah Love; 1.04 may land Makai Lemon or Kenyon Sadiq").
 - Use picks_in_trade.likely_range / projected_rookie and fills_need_for_acquirer; in TEP leagues (te_premium > 0), TE prospects at mid-first slots matter more.
+- Pick framing (CRITICAL): review_for_team_tv and tv_evaluation use trade-adjusted pick values. Round 1 = meaningful capital. Round 2 = dart throws with upside. Round 3+ = long-shot lottery tickets. Do NOT mentally sum catalog pick TV on labels — bundles of 2nds/3rds are NOT equivalent to one proven starter.
+- Contenders vs rebuilders: rebuilders want pick volume and upside tickets; contenders want starter certainty at need positions. When review_for_team_context.contender_tier is "contender" and they acquire a clear starter upgrade (especially QB), accept_likelihood can be high despite moderate negative net_adjusted_tv_delta (roughly up to 12–15%). Weigh ovr, hppg, and starter_ppg_delta over raw TV.
+- Quality gaps matter: a top-10 dynasty QB (high ovr, strong starter PPG) is worth far more to a contender than a depth/bridge QB with similar catalog TV or a pile of 2nds/3rds. Do not call a contender "overpaying" when they consolidate depth + dart picks into a proven elite starter at QB.
 - Be specific: name players, positions, pick slots, PPG deltas, roster holes, and projected rookies when relevant.
 - tradable_inventory lists exact player names and pick labels each team owns — use ONLY those in counter_offer.
 - When accept_likelihood is low or medium, propose counter_offer: a revised package from the_other_team's perspective (what they give / receive) that review_for_team is more likely to accept. Keep the same core acquisition goal when possible (e.g. same target pick/player in proposer_receives).
@@ -106,6 +110,8 @@ Your job: propose ONE concrete fix so BOTH sides are more likely to accept.
 - pick_downgrade_options: per team giving a pick — owned picks with LOWER TV than what they currently give. Empty list means no first-round (or pick) downgrade exists in inventory; remove the pick from their offer or have the other side add assets instead.
 - tv_by_side: each team's gives/receives adjusted TV and net (negative net_adjusted_tv = that team overpays).
 - pick_tv_catalog: exact TV for every owned pick label.
+- Round 2+ picks are dart throws in trade math — catalog TV is discounted in tv_evaluation totals; do not treat a pile of 2nds/3rds as equal to a proven starter.
+- Contenders consolidating into elite starters (especially QB) routinely overpay raw TV for certainty — that is rational, not a fairness error.
 - Pick TV direction: earlier slot = higher TV (2026 1.04 > 2026 1.06 > 2026 1.08 in the same round).
 - If a team overpays (net_adjusted_tv negative), they give MORE adjusted TV than they receive.
   To reduce their overpay, remove assets from THEIR give package or substitute a LATER pick (higher round.decimal, LOWER TV) THEY are giving.
@@ -809,15 +815,23 @@ def _compact_team_context(team: dict[str, Any]) -> dict[str, Any]:
 
 
 def _compact_pick(row: dict[str, Any]) -> dict[str, Any]:
-    return {
+    round_no = int(row.get("round") or 0)
+    catalog_tv = row.get("trade_value") or row.get("tv")
+    out: dict[str, Any] = {
         "label": row.get("label"),
         "season": row.get("season"),
         "round": row.get("round"),
-        "tv": row.get("trade_value") or row.get("tv"),
+        "tv": catalog_tv,
         "slot_tier": row.get("slot_tier"),
         "trade_tag": row.get("trade_tag"),
         "is_own_slot": row.get("is_own_slot"),
     }
+    if round_no:
+        out["pick_profile"] = pick_trade_profile(round_no)
+    if catalog_tv is not None and round_no >= 2:
+        mult = pick_trade_tv_multiplier(round_no)
+        out["trade_adj_tv"] = round(float(catalog_tv) * mult, 1)
+    return out
 
 
 def _review_team_tv_summary(

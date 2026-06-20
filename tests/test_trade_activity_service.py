@@ -98,6 +98,24 @@ def test_sync_backfill_requests_initial_limit(mock_fetch):
     db.commit.assert_called_once()
 
 
+def test_enrich_asset_picks_includes_trade_value():
+    from backend.services.trade_activity_service import _enrich_asset_picks
+
+    pick_rows = {
+        ("2026", 1, "4"): type(
+            "PickRow",
+            (),
+            {"label": "2026 1.09", "trade_value": 4200.0, "slot_tier": "mid"},
+        )(),
+    }
+    enriched = _enrich_asset_picks(
+        [{"season": "2026", "round": 1, "original_roster_id": "4"}],
+        pick_rows,
+    )
+    assert enriched[0]["label"] == "2026 1.09"
+    assert enriched[0]["tv"] == 4200.0
+
+
 def test_current_nfl_week_offseason_uses_full_scan_window():
     from backend.services.trade_activity_service import _current_nfl_week
 

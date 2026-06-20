@@ -62,6 +62,9 @@ function AssetList({ side, direction }: { side: TradeActivitySide; direction: "g
       {picks.map((pick) => (
         <li key={`${pick.season}-${pick.round}-${pick.original_roster_id}`} className="text-white">
           {pick.label ?? `${pick.season} R${pick.round}`}
+          {pick.tv != null ? (
+            <span className="ml-1 text-bb-muted">· {Math.round(pick.tv).toLocaleString()} TV</span>
+          ) : null}
         </li>
       ))}
     </ul>

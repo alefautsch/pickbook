@@ -4,11 +4,13 @@ from backend.services.trade_engine import (
     STUD_PREMIUM_ELITE,
     STUD_PREMIUM_HIGH,
     annotate_players_with_trade_tags,
+    asset_tv_for_trade,
     assign_pick_trade_tag,
     assign_player_trade_tag,
     effective_package_tv,
     evaluate_package_fairness,
     lineup_delta_ppg,
+    pick_trade_tv_multiplier,
     production_ppg,
     top_trade_candidates,
     trade_fit_score,
@@ -45,6 +47,30 @@ def test_effective_package_tv_depth_discount():
     assert eff < raw
     expected = (5000 + 4000 * 0.70 + 3000 * 0.70) * (0.95**2)
     assert abs(eff - expected) < 0.01
+
+
+def test_pick_trade_tv_discounts_later_rounds():
+    r1 = {"label": "2026 1.06", "round": 1, "tv": 4684}
+    r2 = {"label": "2026 2.06", "round": 2, "tv": 2000}
+    r3 = {"label": "2027 3.04", "round": 3, "tv": 1200}
+    assert asset_tv_for_trade(r1) == 4684.0
+    assert asset_tv_for_trade(r2) == 1000.0
+    assert asset_tv_for_trade(r3) == round(1200 * pick_trade_tv_multiplier(3), 2)
+
+
+def test_late_picks_do_not_inflate_package_vs_stud():
+    """Shough + dart picks should not look like fair value for an elite QB."""
+    give = [
+        _player("s", "QB", 2990, name="Tyler Shough"),
+        {"label": "2026 2.05", "round": 2, "tv": 1800},
+        {"label": "2027 3.02", "round": 3, "tv": 1100},
+        {"label": "2027 3.08", "round": 3, "tv": 1000},
+    ]
+    recv = [_player("tl", "QB", 8500, name="Trevor Lawrence")]
+    result = evaluate_package_fairness(give, recv)
+    give_catalog = 2990 + 1800 + 1100 + 1000
+    assert result["give_total_tv"] < give_catalog * 0.75
+    assert result["fairness"] in ("favors_you", "fair")
 
 
 def test_consolidation_premium_favors_stud_side():

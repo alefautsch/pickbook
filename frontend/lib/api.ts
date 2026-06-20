@@ -345,6 +345,8 @@ export type TradeActivityAssetPick = {
   round: number;
   original_roster_id: string;
   label: string | null;
+  tv: number | null;
+  slot_tier?: string | null;
 };
 
 export type TradeActivitySide = {

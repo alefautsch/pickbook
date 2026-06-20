@@ -412,32 +412,37 @@ def _enrich_asset_players(
     return enriched
 
 
-def _pick_labels(db: Session, league_id: str) -> dict[tuple[str, int, str], str]:
+def _pick_rows_by_slot(
+    db: Session,
+    league_id: str,
+) -> dict[tuple[str, int, str], RosterDraftPick]:
     rows = db.scalars(
         select(RosterDraftPick).where(RosterDraftPick.league_id == league_id)
     ).all()
     return {
-        (row.season, int(row.round), row.original_roster_id): row.label or ""
+        (str(row.season), int(row.round), str(row.original_roster_id)): row
         for row in rows
     }
 
 
 def _enrich_asset_picks(
     picks: list[dict[str, Any]],
-    pick_labels: dict[tuple[str, int, str], str],
+    pick_rows: dict[tuple[str, int, str], RosterDraftPick],
 ) -> list[dict[str, Any]]:
     enriched: list[dict[str, Any]] = []
     for p in picks:
         season = str(p.get("season") or "")
         round_no = int(p.get("round") or 0)
         original = str(p.get("original_roster_id") or "")
-        label = pick_labels.get((season, round_no, original)) or None
+        row = pick_rows.get((season, round_no, original))
         enriched.append(
             {
                 "season": season,
                 "round": round_no,
                 "original_roster_id": original,
-                "label": label,
+                "label": row.label if row else None,
+                "tv": float(row.trade_value) if row and row.trade_value is not None else None,
+                "slot_tier": row.slot_tier if row else None,
             }
         )
     return enriched
@@ -478,7 +483,7 @@ def get_recent_trades(
 
     roster_names = _roster_names(db, league_id)
     player_names = _player_names(db, league_id)
-    pick_labels = _pick_labels(db, league_id)
+    pick_rows = _pick_rows_by_slot(db, league_id)
     snapshots = {
         r.sleeper_player_id: r
         for r in db.scalars(
@@ -503,7 +508,7 @@ def get_recent_trades(
                         ),
                         "picks": _enrich_asset_picks(
                             list(side_data.get("gives", {}).get("picks") or []),
-                            pick_labels,
+                            pick_rows,
                         ),
                     },
                     receives={
@@ -514,7 +519,7 @@ def get_recent_trades(
                         ),
                         "picks": _enrich_asset_picks(
                             list(side_data.get("receives", {}).get("picks") or []),
-                            pick_labels,
+                            pick_rows,
                         ),
                     },
                 )
