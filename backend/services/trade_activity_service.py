@@ -348,7 +348,17 @@ def analyze_pending_league_trades(
 
     db.commit()
 
-    remaining = db.scalar(
+    remaining = _unanalyzed_trade_count(db, league_id)
+
+    return {
+        "trades_analyzed": analyzed,
+        "trades_failed": failed,
+        "trades_pending": remaining,
+    }
+
+
+def _unanalyzed_trade_count(db: Session, league_id: str) -> int:
+    return db.scalar(
         select(func.count())
         .select_from(LeagueTransaction)
         .where(
@@ -357,10 +367,53 @@ def analyze_pending_league_trades(
         )
     ) or 0
 
+
+def analyze_league_trade(
+    db: Session,
+    league_id: str,
+    transaction_id: str,
+    *,
+    reanalyze: bool = False,
+) -> dict[str, int]:
+    """Run AI analysis on a single stored trade."""
+    if not get_settings().anthropic_api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY not configured — cannot analyze trades")
+
+    row = db.scalar(
+        select(LeagueTransaction).where(
+            LeagueTransaction.league_id == league_id,
+            LeagueTransaction.sleeper_transaction_id == transaction_id,
+        )
+    )
+    if row is None:
+        raise LookupError(f"Trade {transaction_id} not found")
+
+    if not reanalyze and row.analysis_json is not None:
+        return {
+            "trades_analyzed": 0,
+            "trades_failed": 0,
+            "trades_pending": _unanalyzed_trade_count(db, league_id),
+        }
+
+    analyzed = 0
+    failed = 0
+    try:
+        _analyze_transaction(db, league_id, row, force=reanalyze)
+        analyzed = 1
+    except Exception as exc:
+        failed = 1
+        row.analysis_json = {
+            "skipped": True,
+            "error": f"Trade analysis failed: {exc}",
+        }
+        row.analyzed_at = datetime.now(timezone.utc)
+
+    db.commit()
+
     return {
         "trades_analyzed": analyzed,
         "trades_failed": failed,
-        "trades_pending": remaining,
+        "trades_pending": _unanalyzed_trade_count(db, league_id),
     }
 
 

@@ -30,7 +30,7 @@ from backend.services.advisor_tools import AdvisorToolContext, AdvisorTools, eva
 from backend.services.analysis_service import _player_row_from_snapshot
 from backend.services.league_context import build_league_scoring_context
 from backend.services.read_service import get_team_detail
-from backend.services.trade_engine import evaluate_trade_lineup_deltas
+from backend.services.trade_engine import evaluate_trade_lineup_deltas, roster_before_trade
 from backend.services.trade_rookie_context import (
     append_pick_context_to_reasoning,
     build_deal_rookie_context,
@@ -264,14 +264,14 @@ def _compute_lineup_impact(
         ).all()
     }
 
-    side_a_roster = _load_roster_lineup_players(
+    side_a_current = _load_roster_lineup_players(
         db,
         league_id,
         req.side_a_roster_id,
         snapshots=snapshots,
         war=war,
     )
-    side_b_roster = _load_roster_lineup_players(
+    side_b_current = _load_roster_lineup_players(
         db,
         league_id,
         req.side_b_roster_id,
@@ -280,6 +280,17 @@ def _compute_lineup_impact(
     )
     give_players = _lineup_players_for_ids(give_ids, snapshots, war)
     receive_players = _lineup_players_for_ids(recv_ids, snapshots, war)
+    # Current DB rosters reflect post-trade state for completed deals; rewind first.
+    side_a_roster = roster_before_trade(
+        side_a_current,
+        received_players=receive_players,
+        gave_players=give_players,
+    )
+    side_b_roster = roster_before_trade(
+        side_b_current,
+        received_players=give_players,
+        gave_players=receive_players,
+    )
 
     resolved_give = eval_result.get("give") or {}
     resolved_recv = eval_result.get("receive") or {}
@@ -708,6 +719,12 @@ def _build_summary(
         if a_delta is not None and b_delta is not None:
             parts.append(
                 f"Starter PPG delta: {a_label} {a_delta:+.1f} / {b_label} {b_delta:+.1f}."
+            )
+        elif a_delta is not None or b_delta is not None:
+            a_text = f"{a_delta:+.1f}" if a_delta is not None else "n/a"
+            b_text = f"{b_delta:+.1f}" if b_delta is not None else "n/a"
+            parts.append(
+                f"Starter PPG delta: {a_label} {a_text} / {b_label} {b_text}."
             )
     if not side_a.skipped and side_a.accept_likelihood:
         parts.append(

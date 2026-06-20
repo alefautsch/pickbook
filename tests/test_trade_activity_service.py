@@ -122,3 +122,37 @@ def test_current_nfl_week_offseason_uses_full_scan_window():
     client = MagicMock()
     client.get_nfl_state.return_value = {"week": 0, "season_type": "off"}
     assert _current_nfl_week(client) == MAX_BACKFILL_WEEKS
+
+
+@patch("backend.services.trade_activity_service._analyze_transaction")
+@patch("backend.services.trade_activity_service.get_settings")
+def test_analyze_league_trade_single(mock_settings, mock_analyze):
+    from backend.services.trade_activity_service import analyze_league_trade
+
+    mock_settings.return_value.anthropic_api_key = "key"
+    db = MagicMock()
+    row = MagicMock(analysis_json=None)
+    db.scalar.return_value = row
+    db.scalar.side_effect = [row, 2]
+
+    result = analyze_league_trade(db, "league1", "tx123")
+
+    mock_analyze.assert_called_once_with(db, "league1", row, force=False)
+    db.commit.assert_called_once()
+    assert result["trades_analyzed"] == 1
+
+
+@patch("backend.services.trade_activity_service._analyze_transaction")
+@patch("backend.services.trade_activity_service.get_settings")
+def test_analyze_league_trade_reanalyze_forces_refresh(mock_settings, mock_analyze):
+    from backend.services.trade_activity_service import analyze_league_trade
+
+    mock_settings.return_value.anthropic_api_key = "key"
+    db = MagicMock()
+    row = MagicMock(analysis_json={"overall_grade": "B"})
+    db.scalar.side_effect = [row, 0]
+
+    result = analyze_league_trade(db, "league1", "tx123", reanalyze=True)
+
+    mock_analyze.assert_called_once_with(db, "league1", row, force=True)
+    assert result["trades_analyzed"] == 1

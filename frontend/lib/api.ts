@@ -566,6 +566,18 @@ export function postAnalyzeTrades(
   });
 }
 
+export function postAnalyzeTrade(
+  leagueId: string,
+  transactionId: string,
+  options?: { reanalyze?: boolean },
+): Promise<TradeAnalysisResponse> {
+  const query = options?.reanalyze ? "?reanalyze=true" : "";
+  return apiFetch<TradeAnalysisResponse>(
+    `/leagues/${leagueId}/trades/${transactionId}/analyze${query}`,
+    { method: "POST" },
+  );
+}
+
 export function getTeam(leagueId: string, rosterId: string): Promise<TeamDetail> {
   return apiFetch<TeamDetail>(`/leagues/${leagueId}/teams/${rosterId}`);
 }

@@ -331,3 +331,68 @@ def test_evaluate_trade_lineup_deltas_upgrades_starter():
     assert wr3_slot["ovr"] == 87
     wr2_slot = next((s for s in a_starters if s["player_id"] == "wr2"), None)
     assert wr2_slot is None
+
+
+def test_roster_before_trade_rewinds_completed_deal():
+    from backend.services.trade_engine import roster_before_trade
+
+    etienne = _lineup_player("rb_et", "RB", 14.0, 4295, 78)
+    brown = _lineup_player("rb_cb", "RB", 17.5, 5081, 84)
+    qb = _lineup_player("qb1", "QB", 20.0, 8000, 88)
+    post_trade = [qb, brown]
+
+    pre = roster_before_trade(
+        post_trade,
+        received_players=[brown],
+        gave_players=[etienne],
+    )
+    by_id = {p["player_id"] for p in pre}
+    assert "rb_et" in by_id
+    assert "rb_cb" not in by_id
+
+
+def test_evaluate_trade_lineup_deltas_from_post_trade_roster():
+    from backend.services.trade_engine import (
+        evaluate_trade_lineup_deltas,
+        roster_before_trade,
+    )
+
+    roster_positions = ["QB", "RB", "WR", "TE", "FLEX"]
+    etienne = _lineup_player("rb_et", "RB", 14.0, 4295, 78)
+    brown = _lineup_player("rb_cb", "RB", 17.5, 5081, 84)
+    qb_a = _lineup_player("qb_a", "QB", 20.0, 8000, 88)
+    wr_a = _lineup_player("wr_a", "WR", 15.0, 7000, 85)
+    te_a = _lineup_player("te_a", "TE", 10.0, 4000, 75)
+    flex_a = _lineup_player("flex_a", "WR", 12.0, 5000, 80)
+
+    qb_b = _lineup_player("qb_b", "QB", 19.0, 7800, 86)
+    wr_b = _lineup_player("wr_b", "WR", 16.0, 7200, 84)
+    te_b = _lineup_player("te_b", "TE", 11.0, 4200, 76)
+    flex_b = _lineup_player("flex_b", "RB", 13.0, 4800, 79)
+
+    side_a_post = [qb_a, brown, wr_a, te_a, flex_a]
+    side_b_post = [qb_b, etienne, wr_b, te_b, flex_b]
+
+    side_a_pre = roster_before_trade(
+        side_a_post,
+        received_players=[brown],
+        gave_players=[etienne],
+    )
+    side_b_pre = roster_before_trade(
+        side_b_post,
+        received_players=[etienne],
+        gave_players=[brown],
+    )
+
+    result = evaluate_trade_lineup_deltas(
+        side_a_pre,
+        side_b_pre,
+        give_players=[etienne],
+        receive_players=[brown],
+        roster_positions=roster_positions,
+        side_a_incoming_player_ids={"rb_cb"},
+        side_b_incoming_player_ids={"rb_et"},
+    )
+
+    assert result["side_a"]["delta"] == 3.5
+    assert result["side_b"]["delta"] == -3.5

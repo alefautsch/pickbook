@@ -17,6 +17,7 @@ from backend.services.read_service import (
     list_league_tiles,
 )
 from backend.services.trade_activity_service import (
+    analyze_league_trade,
     analyze_pending_league_trades,
     get_recent_trades,
 )
@@ -95,6 +96,32 @@ def analyze_recent_trades(
         raise HTTPException(status_code=404, detail="League not found")
     try:
         result = analyze_pending_league_trades(db, league_id, reanalyze=reanalyze)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return TradeAnalysisResponse(**result)
+
+
+@router.post(
+    "/{league_id}/trades/{transaction_id}/analyze",
+    response_model=TradeAnalysisResponse,
+)
+def analyze_one_trade(
+    league_id: str,
+    transaction_id: str,
+    reanalyze: bool = Query(default=False),
+    db: Session = Depends(get_db),
+) -> TradeAnalysisResponse:
+    if get_recent_trades(db, league_id) is None:
+        raise HTTPException(status_code=404, detail="League not found")
+    try:
+        result = analyze_league_trade(
+            db,
+            league_id,
+            transaction_id,
+            reanalyze=reanalyze,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return TradeAnalysisResponse(**result)

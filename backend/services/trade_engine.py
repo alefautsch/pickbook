@@ -790,6 +790,30 @@ def _apply_trade_to_roster(
     return remaining
 
 
+def roster_before_trade(
+    current_roster: list[dict[str, Any]],
+    *,
+    received_players: list[dict[str, Any]],
+    gave_players: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Rebuild pre-trade roster from current state (works for live and completed trades)."""
+    received_ids = {
+        str(p["player_id"]) for p in received_players if p.get("player_id")
+    }
+    reverted = [
+        player
+        for player in current_roster
+        if str(player.get("player_id") or "") not in received_ids
+    ]
+    existing = {str(player.get("player_id") or "") for player in reverted}
+    for player in gave_players:
+        pid = str(player.get("player_id") or "")
+        if pid and pid not in existing:
+            reverted.append(player)
+            existing.add(pid)
+    return reverted
+
+
 def evaluate_trade_lineup_deltas(
     side_a_roster: list[dict[str, Any]],
     side_b_roster: list[dict[str, Any]],
@@ -848,7 +872,10 @@ def evaluate_trade_lineup_deltas(
                 "starters": [],
                 "incoming_picks": incoming_picks or [],
             }
-        delta = round((after or 0.0) - (before or 0.0), 1)
+        if before is None or after is None:
+            delta = None
+        else:
+            delta = round(after - before, 1)
         return {
             "before": before,
             "after": after,
