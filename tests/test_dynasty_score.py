@@ -44,6 +44,23 @@ def test_per_game_norm_treats_zero_worp_ppg_as_missing():
     assert breece > javonte
 
 
+def test_per_game_norm_ignores_sub_noise_worp_when_hppg_is_strong():
+    """Deep-league replacement noise must not crush a strong HPPG signal."""
+    max_worp_ppg = 0.2605
+    max_hppg = 20.21
+    hppg_only = _per_game_production_norm(
+        {"healthy_ppg": 10.46, "worp_ppg": 0.0, "availability": 1.0},
+        max_worp_ppg=max_worp_ppg,
+        max_hppg=max_hppg,
+    )
+    noise_worp = _per_game_production_norm(
+        {"healthy_ppg": 10.46, "worp_ppg": 0.0065, "availability": 1.0},
+        max_worp_ppg=max_worp_ppg,
+        max_hppg=max_hppg,
+    )
+    assert abs(hppg_only - noise_worp) < 0.02
+
+
 def test_qb_per_game_norm_uses_replacement_not_max_ppg():
     """12 PPG backup QB should not score ~50% of max just because Allen exists."""
     max_hppg = 23.0

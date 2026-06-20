@@ -190,8 +190,13 @@ def _per_game_production_norm(
         vor_norm = max(0.0, min(1.0, (float(hppg) - replacement_ppg) / span)) if span > 0 else 0.0
         peak_norm = (float(hppg) / max_hppg) if max_hppg > 0 else 0.0
         h_norm = 0.40 * peak_norm + 0.60 * vor_norm
-    # Ignore noise-level W/g — otherwise 0.0048 W/g dilutes HPPG while 0.0 does not.
-    has_material_worp = has_worp and w_norm >= 0.02
+    # Ignore noise-level W/g — a tiny positive W/g must not dilute a strong HPPG signal.
+    # Absolute floor (0.02) plus 10% of HPPG norm so deep-league replacement noise
+    # (e.g. 0.006 W/g with 10.5 HPPG) is treated like zero.
+    worp_floor = 0.02
+    if has_hppg:
+        worp_floor = max(worp_floor, 0.10 * h_norm)
+    has_material_worp = has_worp and w_norm >= worp_floor
     if has_material_worp and has_hppg:
         raw = 0.55 * w_norm + 0.45 * h_norm
     elif has_material_worp:
