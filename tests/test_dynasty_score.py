@@ -1,10 +1,14 @@
 """Tests for dynasty OVR scoring helpers."""
 
 from dynasty_draft.dynasty_score import (
+    DynastyScorer,
+    DynastyWeights,
     _ovr_tv_norm,
     _per_game_production_norm,
+    _smoothstep,
     _trajectory_signal,
 )
+from dynasty_draft.war_data import PlayerValue
 
 
 def test_per_game_norm_treats_zero_worp_ppg_as_missing():
@@ -84,18 +88,73 @@ def test_qb_per_game_norm_uses_replacement_not_max_ppg():
     assert starter > backup
 
 
+def test_trajectory_ramps_smoothly_with_production():
+    low = _trajectory_signal(0.80, 0.20, years_exp=1, pg_norm=0.20)
+    mid = _trajectory_signal(0.80, 0.20, years_exp=1, pg_norm=0.40)
+    full = _trajectory_signal(0.80, 0.20, years_exp=1, pg_norm=0.55)
+    assert low < mid < full
+    assert full > 0.5
+    assert low < 0.15
+
+
+def test_smoothstep_is_monotonic():
+    assert _smoothstep(0.3, 0.5, 0.2) == 0.0
+    assert _smoothstep(0.3, 0.5, 0.6) == 1.0
+    assert 0.0 < _smoothstep(0.3, 0.5, 0.4) < 1.0
+
+
+def test_flex_tv_dampens_low_per_game_hype_smoothly():
+    raw = 0.65
+    damped_low = _ovr_tv_norm("WR", raw, pg_norm=0.20)
+    damped_mid = _ovr_tv_norm("WR", raw, pg_norm=0.38)
+    clear = _ovr_tv_norm("WR", raw, pg_norm=0.50)
+    assert damped_low < damped_mid < clear
+    assert clear == raw
+
+
+def test_score_pool_exposes_production_component():
+    scorer = DynastyScorer(DynastyWeights())
+    players = [
+        (
+            "p1",
+            PlayerValue(
+                name="Test Player",
+                pos="WR",
+                team="KC",
+                worp_tier=2,
+                worp=0.8,
+                porp=8.0,
+                trade_value=5000,
+                spike_high_p=0.5,
+                spike_mid_p=0.5,
+                spike_low_p=0.5,
+            ),
+        )
+    ]
+
+    def _eff(_pid: str, _player: PlayerValue):
+        return (0.8, False)
+
+    result = scorer.score_pool(
+        players,
+        age_by_id={"p1": 24},
+        years_exp_by_id={"p1": 2},
+        effective_worp=_eff,
+        per_game_by_id={"p1": {"healthy_ppg": 12.0, "worp_ppg": 0.05, "availability": 1.0}},
+        per_game_max=(0.2, 20.0),
+        pos_by_id={"p1": "WR"},
+    )["p1"]
+
+    components = result["dynasty_components"]
+    assert components["production"] == components["worp"]
+    assert "production_detail" in components
+    assert components["production_detail"]["season_worp"] is not None
+
+
 def test_trajectory_requires_production_floor():
     full = _trajectory_signal(0.80, 0.20, years_exp=1, pg_norm=0.55)
-    none = _trajectory_signal(0.80, 0.20, years_exp=1, pg_norm=0.25)
+    none = _trajectory_signal(0.80, 0.20, years_exp=1, pg_norm=0.20)
     partial = _trajectory_signal(0.80, 0.20, years_exp=1, pg_norm=0.42)
     assert full > 0.5
-    assert none == 0.0
+    assert none < partial
     assert 0.0 < partial < full
-
-
-def test_flex_tv_dampens_low_per_game_hype():
-    raw = 0.65
-    damped = _ovr_tv_norm("WR", raw, pg_norm=0.26)
-    clear = _ovr_tv_norm("WR", raw, pg_norm=0.50)
-    assert damped < raw
-    assert clear == raw

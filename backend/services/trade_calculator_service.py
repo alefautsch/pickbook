@@ -43,7 +43,7 @@ from backend.services.trade_validation_service import (
     validate_trade_with_llm,
     _fairness_label_for_counterparty,
 )
-from dynasty_draft.war_data import WarData
+from dynasty_draft.war_loader import load_war_data
 
 
 def _rookie_projection_from_dict(data: dict[str, Any] | None) -> TradeRookieProjection | None:
@@ -256,7 +256,7 @@ def _compute_lineup_impact(
     roster_positions = build_league_scoring_context(league_row).roster_positions
 
     user_settings = _read_settings(db)
-    war = WarData(Path(str(user_settings.get("war_csv") or "war.csv")))
+    war, _meta = load_war_data(user_settings, league_row=league_row)
     snapshots = {
         row.sleeper_player_id: row
         for row in db.scalars(

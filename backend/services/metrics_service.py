@@ -19,6 +19,7 @@ from backend.services.opportunity_service import (
     position_percentiles,
     win_now_relative_ratings,
 )
+from backend.services.ovr_calibration import build_calibration_report
 from backend.services.player_team import resolve_nfl_team
 from backend.services.sync_service import _resolve_my_user_id
 from dynasty_draft.sleeper_client import SleeperClient
@@ -134,7 +135,6 @@ def compute_player_snapshots(
     roster_pool = state.scoring_pool()
     fa_pool = state.fa_scoring_pool(fa_pool_size)
     pool = state.snapshot_pool(fa_pool_size)
-    anchors = _anchors_blob(state)
 
     dynasty_by_id = state.dynasty_scores(pool)
     roster_flex = state.flex_pool()
@@ -176,7 +176,6 @@ def compute_player_snapshots(
     league_history.sync_run_id = sync_run_id
     league_history.context_hash = context.context_hash
     league_history.formula_version = formula_version
-    league_history.anchors_json = anchors
     league_history.team_ovr_json = {}
     league_history.computed_at = computed_at
     db.flush()
@@ -239,6 +238,13 @@ def compute_player_snapshots(
         )
 
     _assign_snapshot_ranks(base_rows)
+
+    calibration = build_calibration_report(base_rows)
+    league_history.anchors_json = {
+        **_anchors_blob(state),
+        "calibration": calibration,
+        "war_meta": getattr(state, "_war_load_meta", {}),
+    }
 
     percentile_by_id = position_percentiles(base_rows)
 
@@ -380,4 +386,5 @@ def compute_player_snapshots(
         "fa_pool_size": fa_pool_size,
         "computed_at": computed_at.isoformat(),
         "league_snapshot_history_id": league_history.id,
+        "calibration": calibration,
     }

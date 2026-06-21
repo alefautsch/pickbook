@@ -105,13 +105,13 @@ OVR derives from a weighted 0–1 composite (current engine defaults; tunable in
 
 | Component | Weight | Meaning |
 |-----------|-------:|---------|
-| **Trade value** | 45% | Market dynasty capital (Dynasty Daddy ⊕ KTC blend), normalized to the league's top player. |
-| **WORP / production** | 25% | Value over replacement — but **blended with per-game production** (see §5.4). |
-| **Upside / ceiling** | 15% | Spike-week / breakout potential. |
-| **Age** | 10% | Youth premium relative to positional peak age. |
-| **Trajectory** | 5% | Market-ahead-of-production signal for young players (development bets). |
+| **Trade value** | 37% | Market dynasty capital (Dynasty Daddy ⊕ KTC ⊕ Dynasty Dealer blend), normalized to the league's top player. Dampened smoothly when per-game production hasn't backed up the price. |
+| **Production** | 33% | Single collapsed signal: effective season WORP blended with per-game HPPG/W·g (see §5.4). Stored as `production` in components; `production_detail` breaks out season vs per-game. |
+| **Upside / ceiling** | 15% | Spike-week / breakout potential (Dynasty Daddy league-format when available). |
+| **Age** | 10% | Youth premium relative to positional peak age; ramps in smoothly with production proof. |
+| **Trajectory** | 5% | Market-ahead-of-production signal for young players (development bets); ramps in smoothly (~0.28–0.52 per-game). |
 
-The composite is then stretched onto 50–99 via a **power curve** (exponent ≈ 0.54) against the league's full-pool min/max, so the distribution feels like Madden ratings rather than a flat percentile.
+The composite is then stretched onto 50–99 via a **power curve** (exponent ≈ 0.62, tunable) against the league's full-pool min/max, so the distribution feels like Madden ratings rather than a flat percentile.
 
 **Age premium** uses positional peak ages (QB 29, RB 25, WR 27, TE 26): players years-from-peak get the full youth bonus, players past peak taper down. This is what keeps a 24-year-old ahead of a same-production 30-year-old in dynasty.
 
@@ -125,7 +125,9 @@ A season WORP total punishes players who missed time and rewards compilers. For 
 - **W/g** — per-game value over a league-specific replacement per-game baseline, calibrated to the WORP scale.
 - The two are combined (≈55% W/g, 45% HPPG), lightly **discounted by availability** (durability still matters — a player who produces but is never healthy is worth less).
 
-A configurable **per-game tilt** (default 0.65) sets how much the season-WORP component is replaced by this per-game signal. Tilt 0 = pure season value; tilt 1 = pure per-game. This lets me lean win-now (high tilt) or dynasty-market (low tilt) globally.
+A configurable **per-game tilt** (default **0.73**) sets how much the season-WORP component is replaced by this per-game signal. Tilt 0 = pure season value; tilt 1 = pure per-game.
+
+**Material W/g gate:** W·g below `max(0.02, 10% × HPPG norm)` is ignored so replacement-level noise does not dilute strong healthy-week scoring.
 
 **Flex vs QB per-game anchors (Phase 1.5):** HPPG and W/g normalize against **role-appropriate ceilings**, not one pool-wide max:
 
@@ -269,7 +271,7 @@ backend (FastAPI)               ── sync orchestration, persistence, read API
         │  imports as library
 dynasty_draft/ (engine)         ── OVR, per-game metrics, projections, lineups, rankings
         │
-PostgreSQL  ·  Sleeper API  ·  Dynasty Daddy API / war.csv fallback + nflverse cache
+PostgreSQL  ·  Sleeper API  ·  Dynasty Daddy API (primary) + war.csv supplement + nflverse cache
 ```
 
 **Why a Python API instead of putting logic in the frontend:** the scoring engine is Python and stays Python. The frontend should never reimplement lineup assignment or OVR math. The API hands over fully-shaped DTOs.
@@ -434,7 +436,7 @@ Rationale on seeded leagues: age depth breaks ties when starter OVR and PPG clus
 
 **Team OVR:** `avg_dynasty_rating` is a weighted roster rating: starters at 100%, top 3 bench by OVR at 80%, remaining bench depth at 20%. Future picks are tracked separately and do not inflate Team OVR.
 
-**Dynasty Daddy values:** sync now pulls `player/all/today?market=14` for current standard and superflex trade values, then pulls `league/format` with the league's roster/scoring settings for scoring-specific WORP/PORP. Superflex leagues use `sf_trade_value`; 1QB leagues use `trade_value`. TEP is reflected in WORP/PORP through the league-format scoring payload, while trade value remains DD's standard-vs-SF market value. If the API is unavailable, `war.csv` remains the fallback. `player_snapshots.value_inputs_json` and `player_snapshot_history.value_inputs_json` store the raw DD/KTC/blend inputs used by OVR.
+**Dynasty Daddy values:** sync pulls `player/all/today?market=14` for trade values, then `league/format` for scoring-specific WORP/PORP. Superflex leagues use `sf_trade_value`; 1QB leagues use `trade_value`. `war.csv` supplements players the API misses (offline fallback if API is down). Each sync stores a **calibration report** in `league_snapshot_history.anchors_json` flagging TV vs OVR rank divergences. `player_snapshots.value_inputs_json` stores raw DD/KTC/blend inputs.
 
 ### In-season draft picks (Phase 8.5)
 

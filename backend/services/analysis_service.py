@@ -24,6 +24,7 @@ from backend.services.history_service import attach_team_ovr_to_history
 from backend.services.league_context import build_league_scoring_context
 from dynasty_draft.draft_context import _assign_lineup, _starter_metric
 from dynasty_draft.dynasty_score import _PEAK_AGE
+from dynasty_draft.war_loader import load_war_data
 from dynasty_draft.war_data import WarData
 
 # Calibrated against seeded 10-team leagues (§14.4): starter quality + weekly ceiling + youth.
@@ -508,7 +509,7 @@ def _strength_rank_label(rank: int, league_size: int) -> str:
 
 def _compute_component_breakdown(starters: list[dict[str, Any]]) -> dict[str, float | None]:
     """Starter-weighted average normalized dynasty components for team OVR donut."""
-    keys = ("tv", "worp", "per_game", "upside", "age", "trajectory")
+    keys = ("tv", "production", "worp", "per_game", "upside", "age", "trajectory")
     totals = {key: 0.0 for key in keys}
     counts = {key: 0 for key in keys}
     for row in starters:
@@ -709,6 +710,7 @@ def _compact_team_row(team_meta: dict[str, Any], lineup: dict[str, Any]) -> dict
 
 def compute_league_rankings(db: Session, league_id: str, *, war_csv: str = "war.csv") -> dict[str, Any]:
     """Build 4 power rankings → league_snapshots.rankings_json."""
+    from backend.api.settings import _read_settings
     from backend.db.models import League
 
     league_row = db.get(League, league_id)
@@ -717,7 +719,9 @@ def compute_league_rankings(db: Session, league_id: str, *, war_csv: str = "war.
 
     context = build_league_scoring_context(league_row)
     roster_positions = context.roster_positions
-    war = WarData(Path(war_csv))
+    settings = dict(_read_settings(db))
+    settings.setdefault("war_csv", war_csv)
+    war, _meta = load_war_data(settings, league_row=league_row)
 
     snapshots = {
         row.sleeper_player_id: row

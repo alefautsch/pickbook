@@ -68,11 +68,15 @@ def _compute_context_hash(payload: dict[str, Any]) -> str:
 
 def _minimal_draft_state(league_row: League) -> DraftState:
     """Minimal DraftState shell so build_scoring_context semantics match Pickbook."""
-    from dynasty_draft.war_data import WarData
-    from pathlib import Path
+    from dynasty_draft.war_loader import load_war_data
 
-    war_path = Path("war.csv")
-    war = WarData(war_path) if war_path.exists() else WarData(Path("war.csv"))
+    settings = {"dynasty_daddy": {"enabled": True}, "war_csv": "war.csv"}
+    try:
+        war, _meta = load_war_data(settings, league_row=league_row)
+    except (FileNotFoundError, ValueError):
+        from dynasty_draft.war_data import WarData
+
+        war = WarData.empty()
     league_dict = {
         "league_id": league_row.sleeper_league_id,
         "name": league_row.name,

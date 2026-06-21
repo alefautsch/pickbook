@@ -238,6 +238,32 @@ class DynastyDaddyStore:
     fetched_at: float
 
     @classmethod
+    def load_values_only(
+        cls,
+        *,
+        superflex: bool,
+        config: dict[str, Any] | None = None,
+        force_refresh: bool = False,
+        ttl_seconds: int = TTL_SECONDS,
+    ) -> DynastyDaddyStore:
+        """Trade values without league-format WORP (pick/trade paths without league row)."""
+        config = config or {}
+        market = int(config.get("market", 14))
+        player_values = _fetch_player_values(
+            market=market,
+            force_refresh=force_refresh,
+            ttl_seconds=ttl_seconds,
+        )
+        return cls(
+            market=market,
+            superflex=superflex,
+            player_values=player_values,
+            league_metrics={},
+            league_format_payload={},
+            fetched_at=time.time(),
+        )
+
+    @classmethod
     def load(
         cls,
         *,
@@ -283,6 +309,10 @@ class DynastyDaddyStore:
             if isinstance(row, dict):
                 return DynastyDaddyMetric.from_row(row)
         return None
+
+    def to_war_data(self, war: WarData | None = None) -> WarData:
+        """Build WarData from API values, optionally merging an existing store."""
+        return self.overlay_war_data(war if war is not None else WarData.empty())
 
     def overlay_war_data(self, war: WarData) -> WarData:
         by_name = dict(war.by_name)

@@ -37,6 +37,7 @@ def _history_point(row: PlayerSnapshotHistory, current_formula: str) -> PlayerHi
         trade_value=row.trade_value,
         components=DynastyComponents(
             tv=components_raw.get("tv"),
+            production=components_raw.get("production"),
             worp=components_raw.get("worp"),
             per_game=components_raw.get("per_game"),
             upside=components_raw.get("upside"),
@@ -77,6 +78,13 @@ def get_player_history(
     )
 
 
+def _production_component(components: dict[str, Any]) -> float:
+    raw = components.get("production")
+    if raw is None:
+        raw = components.get("worp")
+    return float(raw) if raw is not None else 0.0
+
+
 def _composite_from_components(components: dict[str, Any], weights: DynastyWeights) -> float:
     def _val(key: str) -> float:
         raw = components.get(key)
@@ -84,7 +92,7 @@ def _composite_from_components(components: dict[str, Any], weights: DynastyWeigh
 
     return (
         weights.tv * _val("tv")
-        + weights.worp * _val("worp")
+        + weights.worp * _production_component(components)
         + weights.upside * _val("upside")
         + weights.age * _val("age")
         + weights.trajectory * _val("trajectory")

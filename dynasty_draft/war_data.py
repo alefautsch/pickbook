@@ -64,12 +64,18 @@ def normalize_name(name: str) -> str:
 
 
 class WarData:
-    def __init__(self, csv_path: Path):
-        self.csv_path = csv_path
+    def __init__(self, csv_path: Path | None = None):
+        self.csv_path = csv_path or Path("")
         self.players: list[PlayerValue] = []
         self.by_name: dict[str, PlayerValue] = {}
         self.value_inputs_by_name: dict[str, dict[str, Any]] = {}
-        self._load()
+        if csv_path is not None and csv_path.exists():
+            self._load()
+
+    @classmethod
+    def empty(cls) -> WarData:
+        """In-memory store before API overlay (no CSV required)."""
+        return cls(None)
 
     def _load(self) -> None:
         with self.csv_path.open(newline="", encoding="utf-8") as handle:

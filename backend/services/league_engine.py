@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from dynasty_draft.dynasty_score import DynastyRatingCurve, DynastyWeights
-from dynasty_draft.dynasty_daddy import DynastyDaddyStore
 from dynasty_draft.dynasty_dealer import load_dynasty_dealer_store
 from dynasty_draft.healthy_ppg import HealthyPpgStore
 from dynasty_draft.ktc_values import KtcStore
@@ -18,6 +17,7 @@ from dynasty_draft.scoring_adjustments import tep_adjusted_trade_value
 from dynasty_draft.trade_value_blend import TradeValueBlend
 from dynasty_draft.worp_blend import WorpBlend
 from dynasty_draft.player_identity import sleeper_identity_score
+from dynasty_draft.war_loader import load_war_data
 from dynasty_draft.war_data import POSITIONS, PlayerValue, WarData, normalize_name
 
 from backend.db.models import League
@@ -37,10 +37,12 @@ class LeagueScoringState(DraftState):
         war: WarData,
         sleeper_players: dict[str, dict[str, Any]],
         client: SleeperClient,
+        war_load_meta: dict[str, Any] | None = None,
     ) -> None:
         self._roster_player_ids = roster_player_ids
         self._league_row = league_row
         self._scoring_context = build_league_scoring_context(league_row)
+        self._war_load_meta = war_load_meta or {}
 
         league_dict = {
             "league_id": league_row.sleeper_league_id,
@@ -225,27 +227,17 @@ def build_league_scoring_state(
     client: SleeperClient | None = None,
 ) -> LeagueScoringState:
     war_path = Path(str(settings.get("war_csv", "war.csv")))
-    if not war_path.exists():
+    if not war_path.exists() and not bool((settings.get("dynasty_daddy") or {}).get("enabled", True)):
         raise FileNotFoundError(f"Missing WAR file: {war_path}")
 
     client = client or SleeperClient()
     sleeper_players = client.get_players()
 
-    war = WarData(war_path)
-    scoring = build_league_scoring_context(league_row)
-    dd_config = settings.get("dynasty_daddy") or {}
-    if bool(dd_config.get("enabled", True)):
-        try:
-            dd_store = DynastyDaddyStore.load(
-                league_row=league_row,
-                superflex=scoring.superflex,
-                config=dd_config,
-                force_refresh=bool(settings.get("_force_metric_refresh")),
-            )
-            war = dd_store.overlay_war_data(war)
-        except Exception:
-            # Dynasty Daddy has no official contract; keep local CSV scoring available if it moves.
-            pass
+    war, war_meta = load_war_data(
+        settings,
+        league_row=league_row,
+        force_refresh=bool(settings.get("_force_metric_refresh")),
+    )
 
     return LeagueScoringState(
         league_row=league_row,
@@ -255,4 +247,5 @@ def build_league_scoring_state(
         war=war,
         sleeper_players=sleeper_players,
         client=client,
+        war_load_meta=war_meta,
     )

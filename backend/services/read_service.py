@@ -174,6 +174,7 @@ def _player_card_from_snapshot(snapshot: PlayerSnapshot, league_name: str) -> Pl
         dynasty_rookie=snapshot.dynasty_rookie,
         components=DynastyComponents(
             tv=components_raw.get("tv"),
+            production=components_raw.get("production"),
             worp=components_raw.get("worp"),
             per_game=components_raw.get("per_game"),
             upside=components_raw.get("upside"),

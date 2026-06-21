@@ -191,7 +191,7 @@ def _metric_definitions() -> dict[str, str]:
         "dynasty_rating": "50–99 display rating from dynasty_score (raw 0–1 composite) via a fixed-board curve — elites land mid/high 90s. Raw formula: 37% TV + 33% proj WORP + 15% ceiling + 10% age + 5% trajectory.",
         "dynasty_score": "Raw 0–1 dynasty composite before the display curve; use for precise comparisons.",
         "dynasty_rookie": "True when rating is a rookie projection (no historical WORP in war.csv). Shown as N* in UI.",
-        "dynasty_components": "Normalized 0–1 breakdown: tv, worp (blended with per-game W/g+HPPG when available; QBs use replacement-relative PPG), upside, age, trajectory.",
+        "dynasty_components": "Normalized 0–1 breakdown: tv, production (collapsed season WORP + per-game), upside, age, trajectory. production_detail breaks out season_worp, per_game, tilt.",
         "avg_dynasty_rating": "Team roster average dynasty_rating (50–99). Primary sort for league_rankings.by_dynasty.",
         "starter_avg_dynasty_rating": "Average dynasty_rating of optimal starters only.",
         "starter_total_ppg": "Sum of healthy/expected PPG across optimal starters (nflverse or Sleeper/TV imputation).",

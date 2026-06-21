@@ -12,6 +12,7 @@ from backend.api.settings import _read_settings
 from backend.db.models import League
 from backend.services.rookie_draft_service import load_rookie_draft_state_for_league
 from dynasty_draft.draft_pick_ownership import pick_slot_for_pick_no
+from dynasty_draft.war_loader import load_war_data
 from dynasty_draft.war_data import PlayerValue, WarData, normalize_name
 
 from backend.services.rookie_consensus import (
@@ -174,12 +175,12 @@ def _build_consensus_rookie_board(
     if db is not None:
         try:
             settings = _read_settings(db)
-            war_path = Path(str(settings.get("war_csv") or "war.csv"))
-        except (AttributeError, TypeError):
-            war_path = Path("war.csv")
+            war, _meta = load_war_data(settings)
+        except (AttributeError, TypeError, FileNotFoundError, ValueError):
+            war = None
     else:
         war_path = Path("war.csv")
-    war = WarData(war_path) if war_path.exists() else None
+        war = WarData(war_path) if war_path.exists() else None
     if war is None:
         return []
 

@@ -17,7 +17,7 @@ from dynasty_draft.projections import SleeperProjectionStore
 from dynasty_draft.recommender import DraftState
 from dynasty_draft.sleeper_client import SleeperClient
 from dynasty_draft.strategy import DraftStrategy
-from dynasty_draft.war_data import WarData
+from dynasty_draft.war_loader import load_war_data
 
 
 def resolve_draft_id(client: SleeperClient, config: dict[str, Any], user_id: str) -> str:
@@ -56,14 +56,6 @@ def build_state(config: dict[str, Any], *, exit_on_error: bool = True) -> DraftS
             sys.exit(1)
         raise RuntimeError(message)
 
-    war_path = Path(config.get("war_csv", "war.csv"))
-    if not war_path.exists():
-        message = f"Missing WAR file: {war_path}"
-        if exit_on_error:
-            print(message)
-            sys.exit(1)
-        raise RuntimeError(message)
-
     client = SleeperClient()
     user = client.get_user(username)
     user_id = str(user["user_id"])
@@ -84,7 +76,29 @@ def build_state(config: dict[str, Any], *, exit_on_error: bool = True) -> DraftS
         league = client.get_league(str(league_id))
         league_users = client.get_league_users(str(league_id))
     players = client.get_players()
-    war = WarData(war_path)
+    league_row_stub = None
+    if league:
+        league_row_stub = type(
+            "LeagueStub",
+            (),
+            {
+                "sleeper_league_id": str(league_id),
+                "name": league.get("name") or "",
+                "season": league.get("season") or config.get("season", "2026"),
+                "total_rosters": league.get("total_rosters") or 12,
+                "superflex": "SUPER_FLEX" in (league.get("roster_positions") or []),
+                "scoring_json": league.get("scoring_settings") or {},
+                "roster_positions_json": league.get("roster_positions") or [],
+            },
+        )()
+    try:
+        war, _war_meta = load_war_data(config, league_row=league_row_stub)
+    except (FileNotFoundError, ValueError) as exc:
+        message = str(exc)
+        if exit_on_error:
+            print(message)
+            sys.exit(1)
+        raise RuntimeError(message) from exc
     strategy = DraftStrategy.from_config(config)
 
     pick_owner_index = {}

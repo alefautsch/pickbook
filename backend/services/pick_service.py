@@ -25,6 +25,7 @@ from dynasty_draft.inseason_pick_values import (
 from dynasty_draft.ktc_pick_slots import rookie_prospect_values
 from dynasty_draft.ktc_values import KtcStore
 from dynasty_draft.sleeper_client import SleeperClient
+from dynasty_draft.war_loader import load_war_data
 from dynasty_draft.war_data import WarData
 
 
@@ -332,7 +333,8 @@ def _load_ktc_for_league(league_row: League | None) -> KtcStore | None:
 
 def _load_war(db: Session) -> WarData:
     settings = _read_settings(db)
-    return WarData(Path(str(settings.get("war_csv") or "war.csv")))
+    war, _meta = load_war_data(settings)
+    return war
 
 
 def _ktc_pick_lookup(store: KtcStore | None):

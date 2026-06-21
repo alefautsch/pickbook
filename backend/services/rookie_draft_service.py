@@ -40,7 +40,8 @@ from dynasty_draft.draft_pick_ownership import (
     build_pick_owner_index,
     merge_pick_slot_order,
 )
-from dynasty_draft.dynasty_daddy import DynastyDaddyStore
+from dynasty_draft.war_loader import load_war_data
+from dynasty_draft.war_data import POSITIONS, PlayerValue, WarData
 from dynasty_draft.external_adp import AdpStore
 from dynasty_draft.pick_projector import (
     _available_pool,
@@ -51,7 +52,6 @@ from dynasty_draft.pick_projector import (
 from dynasty_draft.recommender import DraftState
 from dynasty_draft.sleeper_client import SleeperClient
 from dynasty_draft.strategy import DraftStrategy
-from dynasty_draft.war_data import POSITIONS, PlayerValue, WarData
 
 ROOKIE_PLAYER_TYPE = 1
 DEFAULT_POLL_SECONDS = 30
@@ -150,25 +150,12 @@ def build_rookie_draft_state(
     pick_no_owner_index: dict[int, int] | None = None,
     roster_owner_ids: dict[int, str] | None = None,
 ) -> RookieDraftState:
-    war_path = Path(str(settings.get("war_csv", "war.csv")))
-    if not war_path.exists():
-        raise FileNotFoundError(f"Missing WAR file: {war_path}")
-
+    war, _war_meta = load_war_data(
+        settings,
+        league_row=league_row,
+        force_refresh=bool(settings.get("_force_metric_refresh")),
+    )
     players = client.get_players()
-    war = WarData(war_path)
-    scoring = build_league_scoring_context(league_row)
-    dd_config = settings.get("dynasty_daddy") or {}
-    if bool(dd_config.get("enabled", True)):
-        try:
-            dd_store = DynastyDaddyStore.load(
-                league_row=league_row,
-                superflex=scoring.superflex,
-                config=dd_config,
-                force_refresh=bool(settings.get("_force_metric_refresh")),
-            )
-            war = dd_store.overlay_war_data(war)
-        except Exception:
-            pass
 
     strategy = _load_strategy(settings)
 

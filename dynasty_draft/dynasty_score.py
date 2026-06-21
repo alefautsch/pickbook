@@ -249,27 +249,35 @@ def _pool_per_game_norms(
     return norms
 
 
+def _smoothstep(edge0: float, edge1: float, x: float) -> float:
+    """0→1 smooth ramp between edge0 and edge1 (Hermite ease)."""
+    if edge1 <= edge0:
+        return 1.0 if x >= edge1 else 0.0
+    t = max(0.0, min(1.0, (x - edge0) / (edge1 - edge0)))
+    return t * t * (3.0 - 2.0 * t)
+
+
+def _blend_toward_one(low_factor: float, prove_out: float) -> float:
+    """Interpolate dampening factor toward 1.0 as production proves out."""
+    return low_factor * (1.0 - prove_out) + prove_out
+
+
 def _trajectory_signal(
     tv_norm: float,
-    worp_norm: float,
+    production_norm: float,
     years_exp: int | None,
     *,
     pg_norm: float | None = None,
 ) -> float:
     """
-    Market (TV) ahead of production (WORP) on young players — development bet.
-    Loveland pattern: high dynasty capital, low historical WORP.
+    Market (TV) ahead of production on young players — development bet.
+    Production proof ramps in smoothly (~0.28–0.52 per-game) instead of a hard cliff.
     """
     if years_exp is None or years_exp > 2:
         return 0.0
-    if pg_norm is not None and pg_norm < 0.35:
-        return 0.0
-    gap = tv_norm - worp_norm
-    raw = max(0.0, min(1.0, gap * 1.4))
-    if pg_norm is not None and pg_norm < 0.50:
-        # Ramp trajectory in as per-game production proves out (0.35–0.50).
-        raw *= max(0.0, min(1.0, (pg_norm - 0.35) / 0.15))
-    return raw
+    gap = max(0.0, min(1.0, (tv_norm - production_norm) * 1.4))
+    pg_weight = _smoothstep(0.28, 0.52, pg_norm if pg_norm is not None else 0.0)
+    return gap * pg_weight
 
 
 def _ovr_tv_norm(pos: str, tv_norm: float, pg_norm: float | None) -> float:
@@ -278,32 +286,26 @@ def _ovr_tv_norm(pos: str, tv_norm: float, pg_norm: float | None) -> float:
         return tv_norm
     pos_u = (pos or "").upper()
     if pos_u == "QB":
-        if pg_norm >= 0.30:
-            return tv_norm
-        return tv_norm * (0.65 + pg_norm * 1.167)
-    # RB/WR/TE: hype rookies with weak per-game output
-    if pg_norm >= 0.45:
-        return tv_norm
-    if pg_norm < 0.35:
-        return tv_norm * (0.62 + pg_norm * 0.90)
-    # 0.35–0.45: blend toward full TV
-    ramp = (pg_norm - 0.35) / 0.10
+        prove_out = _smoothstep(0.22, 0.34, pg_norm)
+        low_factor = 0.65 + pg_norm * 1.167
+        return tv_norm * _blend_toward_one(low_factor, prove_out)
+    prove_out = _smoothstep(0.30, 0.48, pg_norm)
     low_factor = 0.62 + pg_norm * 0.90
-    return tv_norm * (low_factor * (1.0 - ramp) + ramp)
+    return tv_norm * _blend_toward_one(low_factor, prove_out)
 
 
 def _ovr_age_norm(pos: str, age_norm: float, pg_norm: float | None) -> float:
-    """Youth premium requires some on-field production."""
+    """Youth premium requires some on-field production (smooth ramp)."""
     if pg_norm is None:
         return age_norm
     pos_u = (pos or "").upper()
     if pos_u == "QB":
-        if pg_norm >= 0.28:
-            return age_norm
-        return age_norm * (0.70 + pg_norm * 1.07)
-    if pg_norm >= 0.40:
-        return age_norm
-    return age_norm * (0.78 + pg_norm * 0.70)
+        prove_out = _smoothstep(0.20, 0.32, pg_norm)
+        low_factor = 0.70 + pg_norm * 1.07
+        return age_norm * _blend_toward_one(low_factor, prove_out)
+    prove_out = _smoothstep(0.28, 0.45, pg_norm)
+    low_factor = 0.78 + pg_norm * 0.70
+    return age_norm * _blend_toward_one(low_factor, prove_out)
 
 
 class DynastyScorer:
@@ -371,24 +373,25 @@ class DynastyScorer:
             tv_norm = player.trade_value / max_tv if max_tv else 0.0
             eff = effective.get(player_id)
             if eff is not None and max_worp:
-                worp_norm = eff / max_worp
+                season_worp_norm = eff / max_worp
             else:
-                worp_norm = tv_norm * 0.85
+                season_worp_norm = tv_norm * 0.85
             pg_norm = per_game_norms.get(player_id)
+            production_norm = season_worp_norm
             if pg_norm is not None and pg_norm > 0:
-                worp_norm = (1.0 - tilt) * worp_norm + tilt * pg_norm
+                production_norm = (1.0 - tilt) * season_worp_norm + tilt * pg_norm
             upside_norm = min(player.upside, 1.0)
             age = age_by_id.get(player_id)
             years_exp = years_exp_by_id.get(player_id)
             tv_norm_adj = _ovr_tv_norm(player.pos, tv_norm, pg_norm)
             age_norm = _ovr_age_norm(player.pos, _age_premium(player.pos, age), pg_norm)
             traj_norm = _trajectory_signal(
-                tv_norm_adj, worp_norm, years_exp, pg_norm=pg_norm
+                tv_norm_adj, production_norm, years_exp, pg_norm=pg_norm
             )
 
             composite = (
                 w.tv * tv_norm_adj
-                + w.worp * worp_norm
+                + w.worp * production_norm
                 + w.upside * upside_norm
                 + w.age * age_norm
                 + w.trajectory * traj_norm
@@ -409,8 +412,14 @@ class DynastyScorer:
                 "dynasty_rookie": is_rookie,
                 "dynasty_components": {
                     "tv": round(tv_norm, 3),
-                    "worp": round(worp_norm, 3),
+                    "production": round(production_norm, 3),
+                    "worp": round(production_norm, 3),
                     "per_game": round(pg_norm, 3) if pg_norm is not None else None,
+                    "production_detail": {
+                        "season_worp": round(season_worp_norm, 3),
+                        "per_game": round(pg_norm, 3) if pg_norm is not None else None,
+                        "tilt": round(tilt, 3),
+                    },
                     "upside": round(upside_norm, 3),
                     "age": round(age_norm, 3),
                     "trajectory": round(traj_norm, 3),

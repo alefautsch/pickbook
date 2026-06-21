@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 class DynastyComponents(BaseModel):
     tv: float | None = None
+    production: float | None = None
     worp: float | None = None
     per_game: float | None = None
     upside: float | None = None
