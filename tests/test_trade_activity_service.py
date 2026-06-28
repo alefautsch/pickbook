@@ -4,8 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from backend.services.trade_activity_service import (
     INITIAL_TRADE_BACKFILL,
+    INCREMENTAL_WEEK_LOOKBACK,
     MAX_BACKFILL_WEEKS,
     parse_trade_sides,
+    _trade_scan_window,
     _transaction_context_hash,
     _current_nfl_week,
 )
@@ -122,6 +124,38 @@ def test_current_nfl_week_offseason_uses_full_scan_window():
     client = MagicMock()
     client.get_nfl_state.return_value = {"week": 0, "season_type": "off"}
     assert _current_nfl_week(client) == MAX_BACKFILL_WEEKS
+
+
+def test_trade_scan_window_offseason_incremental_scans_from_week_one():
+    start, min_week, stop = _trade_scan_window(
+        stored_count=5,
+        nfl_week=0,
+        current_week=MAX_BACKFILL_WEEKS,
+    )
+    assert start == MAX_BACKFILL_WEEKS
+    assert min_week == 1
+    assert stop is None
+
+
+def test_trade_scan_window_in_season_incremental_uses_short_lookback():
+    start, min_week, stop = _trade_scan_window(
+        stored_count=5,
+        nfl_week=12,
+        current_week=12,
+    )
+    assert start == 12
+    assert min_week == 12 - INCREMENTAL_WEEK_LOOKBACK + 1
+    assert stop is None
+
+
+def test_trade_scan_window_initial_backfill_caps_results():
+    start, min_week, stop = _trade_scan_window(
+        stored_count=0,
+        nfl_week=0,
+        current_week=MAX_BACKFILL_WEEKS,
+    )
+    assert stop == INITIAL_TRADE_BACKFILL
+    assert min_week == 1
 
 
 @patch("backend.services.trade_activity_service._analyze_transaction")

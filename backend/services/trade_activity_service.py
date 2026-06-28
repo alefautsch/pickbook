@@ -83,14 +83,41 @@ def parse_trade_sides(txn: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return sides
 
 
-def _current_nfl_week(client: SleeperClient) -> int:
+def _nfl_week(client: SleeperClient) -> int:
     try:
         state = client.get_nfl_state()
-        week = int(state.get("week") or state.get("leg") or 0)
-        # Offseason week=0 — scan full recent window for backfill/incremental.
-        return week if week > 0 else MAX_BACKFILL_WEEKS
+        return int(state.get("week") or state.get("leg") or 0)
     except Exception:
-        return MAX_BACKFILL_WEEKS
+        return 0
+
+
+def _current_nfl_week(client: SleeperClient) -> int:
+    week = _nfl_week(client)
+    # Offseason week=0 — use full scan window for initial backfill start week.
+    return week if week > 0 else MAX_BACKFILL_WEEKS
+
+
+def _trade_scan_window(
+    *,
+    stored_count: int,
+    nfl_week: int,
+    current_week: int,
+) -> tuple[int, int, int | None]:
+    """Return (start_week, min_week, stop_when) for Sleeper transaction scans."""
+    if stored_count == 0:
+        return (
+            current_week,
+            max(1, current_week - MAX_BACKFILL_WEEKS + 1),
+            INITIAL_TRADE_BACKFILL,
+        )
+    if nfl_week == 0:
+        # Offseason startup trades land on early league weeks (often 1), not NFL week 22.
+        return MAX_BACKFILL_WEEKS, 1, None
+    return (
+        current_week,
+        max(1, current_week - INCREMENTAL_WEEK_LOOKBACK + 1),
+        None,
+    )
 
 
 def _fetch_trades_from_sleeper(
@@ -268,23 +295,22 @@ def sync_league_trades(
         .where(LeagueTransaction.league_id == league_id)
     ) or 0
 
+    nfl_week = _nfl_week(client)
     current_week = _current_nfl_week(client)
-    if stored_count == 0:
-        trades = _fetch_trades_from_sleeper(
-            client,
-            league_id,
-            start_week=current_week,
-            min_week=max(1, current_week - MAX_BACKFILL_WEEKS + 1),
-            stop_when=INITIAL_TRADE_BACKFILL,
-        )
+    start_week, min_week, stop_when = _trade_scan_window(
+        stored_count=stored_count,
+        nfl_week=nfl_week,
+        current_week=current_week,
+    )
+    trades = _fetch_trades_from_sleeper(
+        client,
+        league_id,
+        start_week=start_week,
+        min_week=min_week,
+        stop_when=stop_when,
+    )
+    if stop_when is not None:
         trades = trades[:INITIAL_TRADE_BACKFILL]
-    else:
-        trades = _fetch_trades_from_sleeper(
-            client,
-            league_id,
-            start_week=current_week,
-            min_week=max(1, current_week - INCREMENTAL_WEEK_LOOKBACK + 1),
-        )
 
     new_count = 0
     for txn in trades:
