@@ -133,6 +133,14 @@ def test_build_validation_payload_shapes_counterparty_context():
     assert payload["review_for_team_context"]["starter_total_ppg"] == 104.0
     assert payload["review_for_team_trade"]["gives"]["players"][0]["lineup_delta_ppg"] == 9.5
     assert payload["review_for_team_trade"]["gets"]["players"][0]["lineup_delta_ppg"] == 1.2
+    assert payload["review_for_team_trade"]["gives"]["players"][0]["from_team"] == "Theirs"
+    assert payload["review_for_team_trade"]["gets"]["players"][0]["from_team"] == "Mine"
+    theirs_pkg = payload["trade_package_by_team"]["Theirs"]
+    mine_pkg = payload["trade_package_by_team"]["Mine"]
+    assert theirs_pkg["sends"]["players"][0]["name"] == "Stud RB"
+    assert theirs_pkg["receives"]["players"][0]["name"] == "Depth WR"
+    assert mine_pkg["sends"]["players"][0]["name"] == "Depth WR"
+    assert mine_pkg["receives"]["players"][0]["name"] == "Stud RB"
 
     review_tv = payload["review_for_team_tv"]
     assert review_tv["gives"]["total_tv"] == 6800

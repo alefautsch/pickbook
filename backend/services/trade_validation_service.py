@@ -45,6 +45,7 @@ You receive:
 - review_for_team: the manager you are advising (roster, needs, surplus, contender window)
 - the_other_team: the other manager in the deal
 - review_for_team_trade: what review_for_team gives up vs what they get back
+- trade_package_by_team: AUTHORITATIVE map of each team's sends/receives (players + picks tagged with from_team / to_team)
 - Per-asset depth context (lineup_delta_ppg = marginal PPG lost if that player is moved)
 - Post-trade ideal starter lineup impact keyed by team name (starter_ppg_before/after/delta)
 - review_for_team_tv: TV math from review_for_team's perspective ONLY — use this for fairness
@@ -58,6 +59,7 @@ Rules:
 - review_for_team_tv.net_tv_delta negative = review_for_team receives LESS total TV (favors the_other_team).
 - fairness_from_counterparty_view: favors_them = favors review_for_team; favors_you = favors the_other_team.
 - Only cite players and picks explicitly listed in the trade payload.
+- trade_package_by_team is authoritative for who sends and receives each asset. Never swap teams or invert sends/receives — if reasoning names a player or pick, copy from_team and to_team exactly as tagged.
 - Rebuilders hoard early picks; contenders ship surplus picks/depth for win-now production.
 - A trade can be TV-lopsided but still accepted when it fixes a critical need from surplus depth.
 - For contenders, weigh starter_ppg_delta heavily: a large positive delta at a need position can justify TV overpay.
@@ -89,6 +91,23 @@ Respond with ONLY valid JSON (no markdown):
   }
 }
 """
+
+# Appended when analyzing trades that already completed in Sleeper.
+COMPLETED_TRADE_VALIDATION_SUFFIX = (
+    "\nAdditional context: this is a COMPLETED trade that already happened in a real dynasty league. "
+    "Both managers accepted it. Grade accept_likelihood based on whether the deal was reasonable "
+    "for each manager — not whether they would reject a cold offer from a stranger. "
+    "Use 'medium' when a manager plausibly accepted rational roster-building logic even if TV is uneven. "
+    "Reserve 'low' for deals that are genuinely hard to justify from that manager's perspective."
+)
+
+PROPOSED_TRADE_VALIDATION_SUFFIX = (
+    "\nAdditional context: this is a PROPOSED trade between league mates who know each other's rosters. "
+    "Grade accept_likelihood as whether the deal is rational enough to seriously negotiate — not whether "
+    "they would instant-click accept a cold DM offer. Use 'medium' when roster-building logic is plausible "
+    "even if TV is uneven. Use 'high' when the deal clearly fixes a need from surplus. "
+    "Reserve 'low' for packages that are genuinely hard to justify for review_for_team."
+)
 
 
 _FIX_SYSTEM = """You are a dynasty fantasy football trade mediator.
@@ -745,6 +764,68 @@ def _compact_player(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _labeled_side(
+    side: dict[str, Any],
+    *,
+    from_team: str,
+    to_team: str,
+    roster_index: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    players = _enrich_trade_players(list(side.get("players") or []), roster_index)
+    for row in players:
+        row["from_team"] = from_team
+        row["to_team"] = to_team
+    picks = []
+    for pick in list(side.get("picks") or []):
+        tagged = _compact_pick(pick)
+        tagged["from_team"] = from_team
+        tagged["to_team"] = to_team
+        picks.append(tagged)
+    return {"players": players, "picks": picks}
+
+
+def _explicit_trade_package_by_team(
+    *,
+    review_name: str,
+    other_name: str,
+    proposer_gives: dict[str, Any],
+    counterparty_gives: dict[str, Any],
+    proposer_index: dict[str, dict[str, Any]],
+    counterparty_index: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Per-team sends/receives with from_team / to_team on every asset."""
+    return {
+        review_name: {
+            "sends": _labeled_side(
+                counterparty_gives,
+                from_team=review_name,
+                to_team=other_name,
+                roster_index=counterparty_index,
+            ),
+            "receives": _labeled_side(
+                proposer_gives,
+                from_team=other_name,
+                to_team=review_name,
+                roster_index=proposer_index,
+            ),
+        },
+        other_name: {
+            "sends": _labeled_side(
+                proposer_gives,
+                from_team=other_name,
+                to_team=review_name,
+                roster_index=proposer_index,
+            ),
+            "receives": _labeled_side(
+                counterparty_gives,
+                from_team=review_name,
+                to_team=other_name,
+                roster_index=counterparty_index,
+            ),
+        },
+    }
+
+
 def _player_roster_index(team: dict[str, Any]) -> dict[str, dict[str, Any]]:
     index: dict[str, dict[str, Any]] = {}
     for row in team.get("players") or []:
@@ -958,10 +1039,20 @@ def build_validation_payload(
     counterparty_index = _player_roster_index(counterparty_team)
     review_name = str(counterparty_team.get("team_name") or counterparty_roster_id)
     other_name = str(proposer_team.get("team_name") or proposer_roster_id)
+    trade_by_team = _explicit_trade_package_by_team(
+        review_name=review_name,
+        other_name=other_name,
+        proposer_gives=give,
+        counterparty_gives=receive,
+        proposer_index=proposer_index,
+        counterparty_index=counterparty_index,
+    )
+    review_trade = trade_by_team[review_name]
 
     payload: dict[str, Any] = {
         "review_for_team": review_name,
         "the_other_team": other_name,
+        "trade_package_by_team": trade_by_team,
         "review_for_team_context": {
             "roster_id": counterparty_roster_id,
             **_compact_team_context(counterparty_team),
@@ -975,20 +1066,8 @@ def build_validation_payload(
             **_compact_team_context(proposer_team),
         },
         "review_for_team_trade": {
-            "gives": {
-                "players": _enrich_trade_players(
-                    receive.get("players") or [],
-                    counterparty_index,
-                ),
-                "picks": [_compact_pick(pick) for pick in receive.get("picks") or []],
-            },
-            "gets": {
-                "players": _enrich_trade_players(
-                    give.get("players") or [],
-                    proposer_index,
-                ),
-                "picks": [_compact_pick(pick) for pick in give.get("picks") or []],
-            },
+            "gives": review_trade["sends"],
+            "gets": review_trade["receives"],
         },
         "review_for_team_tv": _review_team_tv_summary(
             give,
@@ -1189,6 +1268,7 @@ def validate_trade_with_llm(
     *,
     api_key: str | None,
     model: str | None = None,
+    completed_trade: bool = False,
 ) -> dict[str, Any]:
     """Run counterparty-perspective validation. Requires Anthropic API key."""
     if not api_key or not api_key.strip():
@@ -1197,6 +1277,12 @@ def validate_trade_with_llm(
             "skipped": True,
         }
 
+    system = _VALIDATION_SYSTEM
+    if completed_trade:
+        system = system + COMPLETED_TRADE_VALIDATION_SUFFIX
+    else:
+        system = system + PROPOSED_TRADE_VALIDATION_SUFFIX
+
     resolved_model = model or get_settings().llm_validation_model or DEFAULT_VALIDATION_MODEL
     client = anthropic.Anthropic(api_key=api_key.strip())
     response = create_message(
@@ -1204,7 +1290,7 @@ def validate_trade_with_llm(
         feature="trade_validation",
         model=resolved_model,
         max_tokens=1100,
-        system=_VALIDATION_SYSTEM,
+        system=system,
         messages=[
             {
                 "role": "user",

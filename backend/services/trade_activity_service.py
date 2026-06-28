@@ -249,7 +249,13 @@ def _analyze_transaction(
 
     req = _build_evaluate_request(roster_ids[0], roster_ids[1], sides)
     try:
-        result = validate_trade_dual(db, league_id, req, include_fix=False)
+        result = validate_trade_dual(
+            db,
+            league_id,
+            req,
+            include_fix=False,
+            completed_trade=True,
+        )
     except Exception as exc:
         row.analysis_json = {
             "skipped": True,

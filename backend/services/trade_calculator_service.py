@@ -128,24 +128,61 @@ def _tv_fairness_grade(eval_result: dict[str, Any]) -> str:
     return "F"
 
 
-def _accept_likelihood_grade(likelihood: str | None) -> str:
+_GRADE_ORDER = ["F", "D", "C", "C+", "B", "B+", "A"]
+
+
+def _grade_index(grade: str | None) -> int:
+    if not grade:
+        return 3
+    return _GRADE_ORDER.index(grade) if grade in _GRADE_ORDER else 3
+
+
+def _accept_likelihood_grade(likelihood: str | None, *, completed_trade: bool = False) -> str:
     key = str(likelihood or "medium").lower()
-    return {
-        "high": "A",
-        "medium": "B",
-        "low": "D",
-    }.get(key, "C")
+    del completed_trade  # same mapping for proposed and completed trades
+    return {"high": "A", "medium": "B", "low": "C"}.get(key, "C")
 
 
 def _overall_grade(tv_grade: str, side_a_grade: str | None, side_b_grade: str | None) -> str:
-    order = ["F", "D", "C", "C+", "B", "B+", "A"]
-    tv_idx = order.index(tv_grade) if tv_grade in order else 3
+    tv_idx = _grade_index(tv_grade)
     grades = [g for g in (side_a_grade, side_b_grade) if g]
     if not grades:
         return tv_grade
-    accept_idx = min(order.index(g) if g in order else 3 for g in grades)
+    accept_idx = min(_grade_index(g) for g in grades)
     combined = min(tv_idx, accept_idx)
-    return order[combined]
+    return _GRADE_ORDER[combined]
+
+
+def _overall_grade_for_negotiation(
+    tv_grade: str,
+    side_a_grade: str | None,
+    side_b_grade: str | None,
+) -> str:
+    """Blend TV fairness with average accept grades for proposed trade calculator deals."""
+    accept = [g for g in (side_a_grade, side_b_grade) if g]
+    if not accept:
+        return tv_grade
+    tv_idx = _grade_index(tv_grade)
+    accept_idx = sum(_grade_index(g) for g in accept) / len(accept)
+    combined = round(0.65 * tv_idx + 0.35 * accept_idx)
+    combined = max(0, min(combined, len(_GRADE_ORDER) - 1))
+    return _GRADE_ORDER[combined]
+
+
+def _overall_grade_for_completed(
+    tv_grade: str,
+    side_a_grade: str | None,
+    side_b_grade: str | None,
+) -> str:
+    """Blend TV fairness with average accept grades for deals that already happened."""
+    accept = [g for g in (side_a_grade, side_b_grade) if g]
+    if not accept:
+        return tv_grade
+    tv_idx = _grade_index(tv_grade)
+    accept_idx = sum(_grade_index(g) for g in accept) / len(accept)
+    combined = round(0.55 * tv_idx + 0.45 * accept_idx)
+    combined = max(0, min(combined, len(_GRADE_ORDER) - 1))
+    return _GRADE_ORDER[combined]
 
 
 def _favors_roster_id(
@@ -437,6 +474,7 @@ def _run_side_validation(
     counterparty_lineup: dict[str, Any] | None = None,
     tv_fairness_grade: str | None = None,
     validation_model: str | None = None,
+    completed_trade: bool = False,
 ) -> TradeSideValidation:
     proposer_team = tools.get_team(proposer_roster_id)
     counterparty_team = tools.get_team(counterparty_roster_id)
@@ -478,6 +516,7 @@ def _run_side_validation(
         payload,
         api_key=api_key,
         model=validation_model,
+        completed_trade=completed_trade,
     )
     if validation.get("skipped"):
         return TradeSideValidation(
@@ -517,7 +556,7 @@ def _run_side_validation(
         reasoning=reasoning,
         blockers=list(validation.get("blockers") or []),
         suggested_tweak=validation.get("suggested_tweak"),
-        grade=_accept_likelihood_grade(likelihood),
+        grade=_accept_likelihood_grade(likelihood, completed_trade=completed_trade),
     )
 
 
@@ -528,6 +567,7 @@ def validate_trade_dual(
     *,
     validation_model: str | None = None,
     include_fix: bool = True,
+    completed_trade: bool = False,
 ) -> TradeValidationResult | None:
     tools_a = _make_tools(db, league_id, req.side_a_roster_id)
     give, receive = _trade_inputs(req)
@@ -596,6 +636,7 @@ def validate_trade_dual(
         counterparty_lineup=lineup_b,
         tv_fairness_grade=evaluation.tv_fairness_grade,
         validation_model=validation_model,
+        completed_trade=completed_trade,
     )
     side_b_validation.roster_id = req.side_b_roster_id
     side_b_validation.team_name = team_b.team_name
@@ -618,6 +659,7 @@ def validate_trade_dual(
         counterparty_lineup=lineup_a,
         tv_fairness_grade=evaluation.tv_fairness_grade,
         validation_model=validation_model,
+        completed_trade=completed_trade,
     )
     side_a_validation.roster_id = req.side_a_roster_id
     side_a_validation.team_name = team_a.team_name
@@ -674,11 +716,18 @@ def validate_trade_dual(
         )
         trade_fix = _fix_to_schema(fix_result)
 
-    overall = _overall_grade(
-        evaluation.tv_fairness_grade,
-        side_a_validation.grade,
-        side_b_validation.grade,
-    )
+    if completed_trade:
+        overall = _overall_grade_for_completed(
+            evaluation.tv_fairness_grade,
+            side_a_validation.grade,
+            side_b_validation.grade,
+        )
+    else:
+        overall = _overall_grade_for_negotiation(
+            evaluation.tv_fairness_grade,
+            side_a_validation.grade,
+            side_b_validation.grade,
+        )
     summary = _build_summary(
         evaluation=evaluation,
         side_a=side_a_validation,
